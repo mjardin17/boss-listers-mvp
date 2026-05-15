@@ -1,4 +1,40 @@
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+const demoProducts = [
+  {
+    brand: "Sony",
+    model: "MDR-7506",
+    condition: "Used",
+    categoryHint: "electronics",
+    suggestedPrice: "",
+    costOfGoods: "20",
+    weightLb: "1",
+    description: "Studio monitor headphones with clean earcups and tested audio."
+  },
+  {
+    brand: "Nike",
+    model: "Air Max 90",
+    condition: "Like New",
+    size: "10",
+    categoryHint: "footwear",
+    suggestedPrice: "",
+    costOfGoods: "28",
+    weightLb: "2",
+    description: "Lightly worn sneakers with strong tread and clean uppers."
+  },
+  {
+    brand: "Levi's",
+    model: "Trucker Jacket",
+    condition: "Used",
+    size: "M",
+    categoryHint: "vintage clothing",
+    suggestedPrice: "",
+    costOfGoods: "18",
+    weightLb: "2",
+    description: "Classic denim jacket with natural fading and no major flaws."
+  }
+];
 
 function getSessionId() {
   if (typeof window === "undefined") return "anon";
@@ -13,19 +49,6 @@ function getSessionId() {
   return id;
 }
 
-function formatDate(iso) {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-  } catch {
-    return iso;
-  }
-}
-
 function PlatformCard({ item, onCopy, onExport }) {
   const profit = item.profit?.netProfit ?? 0;
   const negative = profit < 0;
@@ -35,7 +58,7 @@ function PlatformCard({ item, onCopy, onExport }) {
       <header>
         <span className="platform-name">{item.platform}</span>
         <span className={`profit-pill${negative ? " negative" : ""}`}>
-          ${profit.toFixed(2)} profit
+          ${profit.toFixed(2)}
         </span>
       </header>
       <div className="meta">
@@ -45,18 +68,12 @@ function PlatformCard({ item, onCopy, onExport }) {
       <p className="title-line">{item.title}</p>
       <p className="desc">{item.description}</p>
       {item.hashtags?.length ? <p className="hashtags">{item.hashtags.join(" ")}</p> : null}
-      {(item.copyBlocks || []).map((block, index) => (
-        <div className="copy-block" key={index}>
-          <strong>{block.field}</strong>
-          <pre>{block.text}</pre>
-        </div>
-      ))}
-      <div className="btn-row">
+      <div className="btn-row compact">
         <button type="button" className="btn-secondary" onClick={() => onCopy(item)}>
-          Copy all
+          Copy
         </button>
         <button type="button" className="btn-ghost" onClick={() => onExport(item)}>
-          Export .txt
+          Export
         </button>
       </div>
     </article>
@@ -68,12 +85,10 @@ export default function Home() {
   const [photoPreviews, setPhotoPreviews] = useState([]);
   const [outputs, setOutputs] = useState([]);
   const [pricing, setPricing] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [busyAction, setBusyAction] = useState("");
+  const [progress, setProgress] = useState(0);
   const [toast, setToast] = useState("");
-  const [history, setHistory] = useState([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [activeHistoryId, setActiveHistoryId] = useState(null);
 
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
@@ -86,11 +101,11 @@ export default function Home() {
   const [description, setDescription] = useState("");
 
   const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
   const sessionIdRef = useRef("anon");
 
   useEffect(() => {
     sessionIdRef.current = getSessionId();
-    fetchHistory();
     return () => {
       photoPreviews.forEach((url) => {
         if (url.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -104,21 +119,6 @@ export default function Home() {
     if (message) setTimeout(() => setToast(""), timeout);
   }
 
-  async function fetchHistory() {
-    try {
-      setHistoryLoading(true);
-      const res = await fetch(
-        `/api/listings?sessionId=${encodeURIComponent(sessionIdRef.current)}`
-      );
-      const data = await res.json();
-      if (data.ok) setHistory(data.items || []);
-    } catch {
-      showToast("Could not load history");
-    } finally {
-      setHistoryLoading(false);
-    }
-  }
-
   const addPhotos = useCallback((files) => {
     const list = Array.from(files || []).filter((file) => file.type.startsWith("image/"));
     if (!list.length) return;
@@ -129,9 +129,12 @@ export default function Home() {
     ].slice(0, 8));
   }, []);
 
-  function onFileChange(event) {
-    addPhotos(event.target.files);
-    event.target.value = "";
+  function clearPhotos() {
+    photoPreviews.forEach((url) => {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    });
+    setPhotoFiles([]);
+    setPhotoPreviews([]);
   }
 
   function onDrop(event) {
@@ -140,12 +143,9 @@ export default function Home() {
     addPhotos(event.dataTransfer.files);
   }
 
-  function clearPhotos() {
-    photoPreviews.forEach((url) => {
-      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-    });
-    setPhotoFiles([]);
-    setPhotoPreviews([]);
+  function onFileChange(event) {
+    addPhotos(event.target.files);
+    event.target.value = "";
   }
 
   function appendCommonFields(formData, generate) {
@@ -163,18 +163,35 @@ export default function Home() {
     formData.append("generate", generate ? "true" : "false");
   }
 
-  async function analyzeOnly() {
+  function applyDemoProduct(product) {
+    setBrand(product.brand);
+    setModel(product.model);
+    setCondition(product.condition);
+    setSize(product.size || "");
+    setCategoryHint(product.categoryHint);
+    setSuggestedPrice(product.suggestedPrice);
+    setCostOfGoods(product.costOfGoods);
+    setWeightLb(product.weightLb);
+    setDescription(product.description);
+    setPricing(null);
+    setOutputs([]);
+    showToast("Demo product loaded");
+  }
+
+  async function runAnalyze(generate) {
     if (!photoFiles.length && !brand && !model) {
-      showToast("Add photos or enter brand/model");
+      showToast("Add photos or enter product info");
       return;
     }
-    setLoading(true);
+    setBusyAction(generate ? "generate" : "analyze");
+    setProgress(generate ? 18 : 24);
     try {
       const formData = new FormData();
-      appendCommonFields(formData, false);
+      appendCommonFields(formData, generate);
+      setProgress(generate ? 42 : 56);
       const res = await fetch("/api/analyze", { method: "POST", body: formData });
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Analyze failed");
+      if (!data.ok) throw new Error(data.error || "Request failed");
 
       if (data.hints?.titleHint && !brand && !model) {
         const parts = data.hints.titleHint.split(/\s+/);
@@ -184,36 +201,16 @@ export default function Home() {
       if (data.hints?.categoryHint) setCategoryHint(data.hints.categoryHint);
       if (data.input?.imageUrls?.length) setPhotoPreviews(data.input.imageUrls);
       setPricing(data.pricing || null);
-      showToast("Photo analyzed - review fields");
+      if (generate) setOutputs(data.outputs || []);
+      setProgress(100);
+      showToast(generate ? "Listings generated" : "Item analyzed");
     } catch (error) {
-      showToast(error.message || "Upload failed");
+      showToast(error.message || "Request failed");
     } finally {
-      setLoading(false);
-    }
-  }
-
-  async function generateListings() {
-    if (!brand && !model) {
-      showToast("Enter brand and model");
-      return;
-    }
-    setLoading(true);
-    try {
-      const formData = new FormData();
-      appendCommonFields(formData, true);
-      const res = await fetch("/api/analyze", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Generate failed");
-
-      setOutputs(data.outputs || []);
-      setPricing(data.pricing || null);
-      if (data.input?.imageUrls?.length) setPhotoPreviews(data.input.imageUrls);
-      showToast(`Generated ${data.outputs?.length || 0} listings`);
-      await fetchHistory();
-    } catch (error) {
-      showToast(error.message || "Generate failed");
-    } finally {
-      setLoading(false);
+      setTimeout(() => {
+        setBusyAction("");
+        setProgress(0);
+      }, 350);
     }
   }
 
@@ -246,44 +243,8 @@ export default function Home() {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
       showToast("Saved to history");
-      await fetchHistory();
     } catch (error) {
       showToast(error.message || "Save failed");
-    }
-  }
-
-  function loadHistoryItem(item) {
-    setActiveHistoryId(item.id);
-    const input = item.payload?.input || {};
-    setBrand(input.brand || "");
-    setModel(input.model || "");
-    setCondition(input.condition || "Used");
-    setSize(input.size || "");
-    setCategoryHint(input.categoryHint || "");
-    setSuggestedPrice(input.suggestedPrice ? String(input.suggestedPrice) : "");
-    setCostOfGoods(input.costOfGoods ? String(input.costOfGoods) : "");
-    setWeightLb(input.weightLb ? String(input.weightLb) : "1");
-    setDescription(input.description || "");
-    setOutputs(item.payload?.outputs || []);
-    if (item.payload?.imageUrls?.length) setPhotoPreviews(item.payload.imageUrls);
-    setPricing(null);
-    showToast("Loaded from history");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  async function deleteHistoryItem(id, event) {
-    event.stopPropagation();
-    try {
-      const res = await fetch(`/api/listings?id=${encodeURIComponent(id)}`, {
-        method: "DELETE"
-      });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error);
-      if (activeHistoryId === id) setActiveHistoryId(null);
-      showToast("Deleted");
-      await fetchHistory();
-    } catch (error) {
-      showToast(error.message || "Delete failed");
     }
   }
 
@@ -296,9 +257,6 @@ export default function Home() {
       item.description || ""
     ];
     if (item.hashtags?.length) lines.push("", item.hashtags.join(" "));
-    (item.copyBlocks || []).forEach((block) => {
-      lines.push("", `--- ${block.field} ---`, block.text);
-    });
     return lines.join("\n");
   }
 
@@ -321,41 +279,56 @@ export default function Home() {
     showToast(`Exported ${item.platform}`);
   }
 
-  function exportAll() {
-    const text = outputs.map(buildCopyText).join("\n\n==========\n\n");
-    const blob = new Blob([text], { type: "text/plain" });
-    const anchor = document.createElement("a");
-    anchor.href = URL.createObjectURL(blob);
-    anchor.download = "all-platform-listings.txt";
-    anchor.click();
-    URL.revokeObjectURL(anchor.href);
-    showToast("Exported all platforms");
-  }
-
-  async function copyAllPlatforms() {
-    const text = outputs.map(buildCopyText).join("\n\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast("Copied all platforms");
-    } catch {
-      showToast("Copy failed");
-    }
-  }
-
   return (
     <div className="app-shell">
-      <header className="app-header">
+      <header className="topbar">
         <div>
-          <h1>Boss Listers</h1>
-          <p>Upload - fill details - generate multi-platform listings</p>
+          <p className="eyebrow">Boss Listers AI</p>
+          <h1>Reseller listing dashboard</h1>
         </div>
-        <span className="badge">MVP - 8 platforms</span>
+        <nav>
+          <Link href="/" className="nav-link active">
+            Dashboard
+          </Link>
+          <Link href="/history" className="nav-link">
+            History
+          </Link>
+        </nav>
       </header>
-      <div className="layout">
-        <main>
-          <section className="panel">
-            <h2>Product photos</h2>
-            <p className="panel-sub">Up to 8 images. Filename hints help auto-fill.</p>
+
+      <section className="overview-grid">
+        <article className="metric-card">
+          <span>Photos</span>
+          <strong>{photoPreviews.length}</strong>
+        </article>
+        <article className="metric-card">
+          <span>Marketplaces</span>
+          <strong>{outputs.length || 8}</strong>
+        </article>
+        <article className="metric-card">
+          <span>Expected profit</span>
+          <strong>${pricing?.expectedProfit?.netProfit ?? 0}</strong>
+        </article>
+        <article className="metric-card">
+          <span>ROI</span>
+          <strong>{pricing?.expectedProfit?.roiPct ?? 0}%</strong>
+        </article>
+      </section>
+
+      <div className="dashboard-grid">
+        <main className="stack">
+          <section className="panel upload-panel">
+            <div className="section-heading">
+              <div>
+                <h2>1. Add product photos</h2>
+                <p className="panel-sub">Click, drag, or capture from camera.</p>
+              </div>
+              {photoPreviews.length ? (
+                <button type="button" className="btn-ghost" onClick={clearPhotos}>
+                  Clear
+                </button>
+              ) : null}
+            </div>
             <div
               className={`dropzone${dragOver ? " drag-over" : ""}`}
               onDragOver={(event) => {
@@ -370,10 +343,33 @@ export default function Home() {
               onKeyDown={(event) => event.key === "Enter" && fileInputRef.current?.click()}
             >
               <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={onFileChange} />
-              <p>Tap or drag photos here</p>
-              <p className="panel-sub">JPG, PNG, WEBP - max 12MB each</p>
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={onFileChange}
+              />
+              <strong>Drop product photos here</strong>
+              <span>JPG, PNG, WEBP - up to 8 images</span>
             </div>
-            {photoPreviews.length > 0 && (
+            <div className="action-grid">
+              <button type="button" className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
+                Upload File
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => cameraInputRef.current?.click()}>
+                Take Photo
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => runAnalyze(false)}
+                disabled={Boolean(busyAction)}
+              >
+                {busyAction === "analyze" ? "Analyzing..." : "Analyze item"}
+              </button>
+            </div>
+            {photoPreviews.length ? (
               <div className="thumb-grid">
                 {photoPreviews.map((src, index) => (
                   <div className="thumb" key={index}>
@@ -382,43 +378,34 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-            )}
-            <div className="btn-row">
-              <button type="button" className="btn-secondary" onClick={analyzeOnly} disabled={loading}>
-                {loading ? <span className="spinner" /> : null}
-                Analyze photos
-              </button>
-              {photoPreviews.length > 0 && (
-                <button type="button" className="btn-ghost" onClick={clearPhotos}>
-                  Clear photos
-                </button>
-              )}
-            </div>
-          </section>
-
-          <section className="panel" style={{ marginTop: "1rem" }}>
-            <h2>Product info</h2>
-            <p className="panel-sub">Used by the listing generator and profit estimates.</p>
-            {pricing ? (
-              <div className="pricing-summary">
-                <div>
-                  <span>Recommended</span>
-                  <strong>${pricing.recommendedPrice}</strong>
-                </div>
-                <div>
-                  <span>Floor</span>
-                  <strong>${pricing.floorPrice}</strong>
-                </div>
-                <div>
-                  <span>Expected profit</span>
-                  <strong>${pricing.expectedProfit?.netProfit ?? 0}</strong>
-                </div>
-                <div>
-                  <span>ROI</span>
-                  <strong>{pricing.expectedProfit?.roiPct ?? 0}%</strong>
-                </div>
+            ) : null}
+            {busyAction ? (
+              <div className="progress-shell" aria-label="Progress">
+                <span style={{ width: `${progress}%` }} />
               </div>
             ) : null}
+          </section>
+
+          <section className="panel">
+            <div className="section-heading">
+              <div>
+                <h2>2. Confirm product details</h2>
+                <p className="panel-sub">Use a demo item or edit the fields directly.</p>
+              </div>
+            </div>
+            <div className="demo-grid">
+              {demoProducts.map((product) => (
+                <button
+                  type="button"
+                  className="demo-card"
+                  key={`${product.brand}-${product.model}`}
+                  onClick={() => applyDemoProduct(product)}
+                >
+                  <strong>{product.brand}</strong>
+                  <span>{product.model}</span>
+                </button>
+              ))}
+            </div>
             <div className="form-grid two">
               <label>
                 Brand
@@ -458,32 +445,18 @@ export default function Home() {
                 <input type="number" min="0" value={costOfGoods} onChange={(event) => setCostOfGoods(event.target.value)} />
               </label>
             </div>
-            <label style={{ marginTop: "0.65rem" }}>
+            <label>
               Description
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Optional - generator fills a default" />
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Optional product notes" />
             </label>
-            <div className="btn-row">
-              <button type="button" className="btn-primary" onClick={generateListings} disabled={loading}>
-                {loading ? <span className="spinner" /> : null}
-                Generate listings
-              </button>
-              <button type="button" className="btn-secondary" onClick={saveCurrent} disabled={!outputs.length}>
-                Save to history
-              </button>
-            </div>
           </section>
 
-          {outputs.length > 0 && (
-            <section className="panel" style={{ marginTop: "1rem" }}>
+          {outputs.length ? (
+            <section className="panel">
               <div className="section-heading">
-                <h2>Platform listings</h2>
-                <div className="btn-row">
-                  <button type="button" className="btn-secondary" onClick={copyAllPlatforms}>
-                    Copy all
-                  </button>
-                  <button type="button" className="btn-ghost" onClick={exportAll}>
-                    Export all
-                  </button>
+                <div>
+                  <h2>4. Marketplace recommendations</h2>
+                  <p className="panel-sub">Ready-to-copy drafts for eight channels.</p>
                 </div>
               </div>
               <div className="platform-grid">
@@ -492,44 +465,45 @@ export default function Home() {
                 ))}
               </div>
             </section>
-          )}
+          ) : null}
         </main>
 
-        <aside className="panel">
-          <h2>Saved history</h2>
-          <p className="panel-sub">{history.length} saved run{history.length === 1 ? "" : "s"}</p>
-          {historyLoading ? (
-            <p className="empty">
-              <span className="spinner" /> Loading...
-            </p>
-          ) : history.length === 0 ? (
-            <p className="empty">Generate and save listings to see them here.</p>
-          ) : (
-            <div className="history-list">
-              {history.map((item) => {
-                const input = item.payload?.input || {};
-                const title = [input.brand, input.model].filter(Boolean).join(" ") || "Untitled";
-                return (
-                  <div
-                    key={item.id}
-                    className={`history-item${activeHistoryId === item.id ? " active" : ""}`}
-                    onClick={() => loadHistoryItem(item)}
-                    onKeyDown={(event) => event.key === "Enter" && loadHistoryItem(item)}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <div className="hi-title">{title}</div>
-                    <div className="hi-meta">
-                      {formatDate(item.createdAt)} - {(item.payload?.outputs || []).length} platforms
-                    </div>
-                    <button type="button" className="btn-danger" style={{ marginTop: "0.35rem" }} onClick={(event) => deleteHistoryItem(item.id, event)}>
-                      Delete
-                    </button>
-                  </div>
-                );
-              })}
+        <aside className="stack">
+          <section className="panel summary-panel">
+            <h2>3. Pricing snapshot</h2>
+            <p className="panel-sub">Live decision support for the listing.</p>
+            <div className="pricing-summary">
+              <div>
+                <span>Recommended</span>
+                <strong>${pricing?.recommendedPrice ?? 0}</strong>
+              </div>
+              <div>
+                <span>Floor</span>
+                <strong>${pricing?.floorPrice ?? 0}</strong>
+              </div>
+              <div>
+                <span>Profit</span>
+                <strong>${pricing?.expectedProfit?.netProfit ?? 0}</strong>
+              </div>
+              <div>
+                <span>ROI</span>
+                <strong>{pricing?.expectedProfit?.roiPct ?? 0}%</strong>
+              </div>
             </div>
-          )}
+            <div className="stack-actions">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => runAnalyze(true)}
+                disabled={Boolean(busyAction)}
+              >
+                {busyAction === "generate" ? "Generating..." : "Generate listings"}
+              </button>
+              <button type="button" className="btn-secondary" onClick={saveCurrent} disabled={!outputs.length}>
+                Save product
+              </button>
+            </div>
+          </section>
         </aside>
       </div>
 
