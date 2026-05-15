@@ -5,6 +5,7 @@ import path from "path";
 import { inferFromFile } from "../../lib/imageHeuristics";
 import { generateForAll } from "../../lib/generator";
 import { saveListing } from "../../lib/store";
+import { getPricingRecommendation } from "../../lib/pricingIntelligence";
 
 export const config = {
   api: { bodyParser: false }
@@ -90,6 +91,7 @@ export default async function handler(req, res) {
       fieldVal(fields, "generate") === "1";
 
     let outputs = [];
+    const pricing = getPricingRecommendation(input);
     if (shouldGenerate && (input.brand || input.model || titleHint)) {
       outputs = generateForAll(input);
     }
@@ -109,6 +111,7 @@ export default async function handler(req, res) {
       ok: true,
       hints: merged,
       input,
+      pricing,
       outputs,
       savedId: saved?.id || null,
       imageUrls

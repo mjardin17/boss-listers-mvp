@@ -1,51 +1,41 @@
-// lib/generator.js
 const { computeProfit } = require("./feeCalculator");
+const { getPricingRecommendation } = require("./pricingIntelligence");
 
-function capWords(s) {
-  if (!s) return "";
-  return s
+function capWords(value) {
+  if (!value) return "";
+  return value
     .split(/\s+/)
     .filter(Boolean)
-    .map((w) => w[0]?.toUpperCase() + w.slice(1))
+    .map((word) => word[0]?.toUpperCase() + word.slice(1))
     .join(" ");
 }
 
-function clampChars(s, max) {
-  if (!s) return "";
-  if (s.length <= max) return s;
-  const t = s.slice(0, max + 1).split(/\s/).slice(0, -1).join(" ");
-  return t || s.slice(0, max);
+function clampChars(value, max) {
+  if (!value) return "";
+  if (value.length <= max) return value;
+  const trimmed = value.slice(0, max + 1).split(/\s/).slice(0, -1).join(" ");
+  return trimmed || value.slice(0, max);
 }
 
 function makeHashtags(tags, limit = 10) {
   const cleaned = (tags || [])
-    .map((t) => t.replace(/[^\w]/g, ""))
+    .map((tag) => tag.replace(/[^\w]/g, ""))
     .filter(Boolean);
-  return Array.from(new Set(cleaned)).slice(0, limit).map((t) => "#" + t.toLowerCase());
+  return Array.from(new Set(cleaned))
+    .slice(0, limit)
+    .map((tag) => "#" + tag.toLowerCase());
 }
 
 function estimateShippingText(weightLb) {
-  const w = weightLb || 1;
-  if (w <= 0.5) return "Ships via USPS First Class";
-  if (w <= 1) return "Ships via USPS Priority";
-  if (w <= 5) return "Ships via USPS Priority";
+  const weight = weightLb || 1;
+  if (weight <= 0.5) return "Ships via USPS First Class";
+  if (weight <= 5) return "Ships via USPS Priority";
   return "Calculated shipping";
 }
 
 function profitFor(platform, input, price) {
-  const map = {
-    ebay: "ebay",
-    facebook: "mercari",
-    poshmark: "poshmark",
-    mercari: "mercari",
-    tiktok: "mercari",
-    etsy: "depop",
-    shopify: "mercari",
-    instagram: "mercari"
-  };
-  const marketplace = map[platform] || "mercari";
   return computeProfit({
-    marketplace,
+    marketplace: platform,
     salePrice: price,
     costOfGoods: input.costOfGoods || 0,
     weightLb: input.weightLb || 1
@@ -55,184 +45,90 @@ function profitFor(platform, input, price) {
 function generateForAll(input) {
   const brand = capWords(input.brand);
   const model = capWords(input.model);
-  const price =
-    input.suggestedPrice || Math.max(Math.round((input.costOfGoods || 10) * 2), 20);
+  const pricing = getPricingRecommendation(input);
+  const price = pricing.selectedPrice;
   const tags = (input.tags || []).slice(0, 20);
   const hashtags = makeHashtags(
     tags.length ? tags : [brand, model, input.categoryHint || "resale"],
     12
   );
-  const baseDesc =
+  const baseDescription =
     input.description ||
     `${brand} ${model} in ${input.condition || "used"} condition. See photos.`;
-  const commonDescShort = clampChars(baseDesc.trim(), 280);
+  const shortDescription = clampChars(baseDescription.trim(), 280);
+  const seoCore = [brand, model, input.categoryHint].filter(Boolean).join(" ");
 
-  const outs = [];
-
-  {
-    const title = clampChars(`${brand} ${model} ${input.condition || ""}`.trim(), 80);
-    const description = `${commonDescShort}\n\n${estimateShippingText(
-      input.weightLb
-    )}\nReturns: 30 days`;
-    const profit = profitFor("ebay", input, price);
-    outs.push({
+  return [
+    {
       platform: "ebay",
-      title,
-      description,
-      price,
-      profit,
-      copyBlocks: [
-        { field: "Title", text: title },
-        { field: "Description", text: description }
-      ]
-    });
-  }
-
-  {
-    const title = clampChars(`${brand} ${model} — ${input.condition || "Used"}`, 60);
-    const description = `${commonDescShort}\nLocal pickup preferred. ${estimateShippingText(
-      input.weightLb
-    )}\nCash or Venmo.`;
-    const profit = profitFor("facebook", input, price);
-    outs.push({
+      title: clampChars(`${seoCore} ${input.condition || ""}`.trim(), 80),
+      description: `${shortDescription}\n\n${estimateShippingText(
+        input.weightLb
+      )}\nReturns: 30 days`
+    },
+    {
       platform: "facebook",
-      title,
-      description,
-      price,
-      profit,
-      copyBlocks: [
-        { field: "Title", text: title },
-        { field: "Description", text: description }
-      ]
-    });
-  }
-
-  {
-    const title = clampChars(
-      `${brand} ${model} ${input.size ? "- " + input.size : ""}`.trim(),
-      60
-    );
-    const description = `${commonDescShort}\nMeasurements: ${
-      input.size || "See photos"
-    }\nCondition: ${input.condition || "Good"}\nBundle discount available.`;
-    const profit = profitFor("poshmark", input, price);
-    outs.push({
-      platform: "poshmark",
-      title,
-      description,
-      price,
-      profit,
-      hashtags: makeHashtags([brand, model, ...tags, "poshmark"], 8),
-      copyBlocks: [
-        { field: "Title", text: title },
-        { field: "Description", text: description }
-      ]
-    });
-  }
-
-  {
-    const title = clampChars(`${brand} ${model}`, 60);
-    const description = `${commonDescShort}\nCondition: ${
-      input.condition || "Used"
-    }\n${estimateShippingText(input.weightLb)}`;
-    const profit = profitFor("mercari", input, price);
-    outs.push({
+      title: clampChars(`${brand} ${model} - ${input.condition || "Used"}`, 60),
+      description: `${shortDescription}\nLocal pickup preferred. ${estimateShippingText(
+        input.weightLb
+      )}\nCash or Venmo.`
+    },
+    {
       platform: "mercari",
-      title,
-      description,
-      price,
-      profit,
-      copyBlocks: [
-        { field: "Title", text: title },
-        { field: "Description", text: description }
-      ]
-    });
-  }
-
-  {
-    const title = clampChars(`${brand} ${model} — ${input.condition || "Used"}`, 60);
-    const desc = clampChars(
-      `Hook: Great deal on ${brand} ${model}. Only $${price}.`,
-      140
-    );
-    const profit = profitFor("tiktok", input, price);
-    outs.push({
-      platform: "tiktok",
-      title,
-      description: desc,
-      price,
-      profit,
-      hashtags,
-      copyBlocks: [
-        { field: "Video Caption", text: `${desc}\n\n${hashtags.join(" ")}` }
-      ]
-    });
-  }
-
-  {
-    const title = clampChars(`${brand} ${model}`, 140);
-    const description = `${commonDescShort}\nProcessing time: 1–3 business days.`;
-    const profit = profitFor("etsy", input, price);
-    outs.push({
+      title: clampChars(seoCore, 60),
+      description: `${shortDescription}\nCondition: ${
+        input.condition || "Used"
+      }\n${estimateShippingText(input.weightLb)}`
+    },
+    {
+      platform: "poshmark",
+      title: clampChars(
+        `${brand} ${model} ${input.size ? "- " + input.size : ""}`.trim(),
+        60
+      ),
+      description: `${shortDescription}\nMeasurements: ${
+        input.size || "See photos"
+      }\nCondition: ${input.condition || "Good"}\nBundle discount available.`,
+      hashtags: makeHashtags([brand, model, ...tags, "poshmark"], 8)
+    },
+    {
+      platform: "depop",
+      title: clampChars(`${seoCore} ${input.condition || ""}`.trim(), 65),
+      description: `${shortDescription}\nStyle tags: ${hashtags
+        .slice(0, 5)
+        .join(" ")}\nCondition: ${input.condition || "Used"}`,
+      hashtags: makeHashtags([brand, model, ...tags, "depop"], 8)
+    },
+    {
       platform: "etsy",
-      title,
-      description,
-      price,
-      profit,
-      copyBlocks: [
-        { field: "Title", text: title },
-        { field: "Description", text: description }
-      ]
-    });
-  }
-
-  {
-    const title = clampChars(`${brand} ${model}`, 120);
-    const bullets = [
-      `${brand} ${model}`,
-      `Condition: ${input.condition || "Used"}`,
-      `Ships: ${estimateShippingText(input.weightLb)}`
-    ];
-    const description = `${bullets.map((b) => "• " + b).join("\n")}\n\n${commonDescShort}`;
-    const profit = profitFor("shopify", input, price);
-    outs.push({
-      platform: "shopify",
-      title,
-      description,
-      price,
-      profit,
-      copyBlocks: [
-        { field: "Product Title", text: title },
-        {
-          field: "Description (HTML)",
-          text: `<ul>${bullets
-            .map((b) => `<li>${b}</li>`)
-            .join("")}</ul><p>${commonDescShort}</p>`
-        }
-      ]
-    });
-  }
-
-  {
-    const caption = clampChars(
-      `${brand} ${model} — $${price}\n${commonDescShort}\n${hashtags.join(
-        " "
-      )}\nDM to buy`,
-      500
-    );
-    const profit = profitFor("instagram", input, price);
-    outs.push({
-      platform: "instagram",
-      title: `${brand} ${model}`,
-      description: caption,
-      price,
-      profit,
-      hashtags,
-      copyBlocks: [{ field: "Caption", text: caption }]
-    });
-  }
-
-  return outs;
+      title: clampChars(seoCore, 140),
+      description: `${shortDescription}\nProcessing time: 1-3 business days.`
+    },
+    {
+      platform: "tiktok",
+      title: clampChars(`${seoCore} ${input.condition || ""}`.trim(), 60),
+      description: clampChars(`Hook: Great deal on ${brand} ${model}. Only $${price}.`, 140),
+      hashtags
+    },
+    {
+      platform: "offerup",
+      title: clampChars(`${brand} ${model} ${input.condition || ""}`.trim(), 70),
+      description: `${shortDescription}\nMeetup or shipping available. ${estimateShippingText(
+        input.weightLb
+      )}`
+    }
+  ].map((item) => ({
+    ...item,
+    price,
+    profit: profitFor(item.platform, input, price),
+    copyBlocks:
+      item.platform === "tiktok"
+        ? [{ field: "Video Caption", text: `${item.description}\n\n${hashtags.join(" ")}` }]
+        : [
+            { field: "Title", text: item.title },
+            { field: "Description", text: item.description }
+          ]
+  }));
 }
 
 module.exports = { generateForAll };

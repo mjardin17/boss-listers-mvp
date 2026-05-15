@@ -31,6 +31,22 @@ function computeFees({ marketplace, salePrice, weightLb }) {
     rate = 0.133;
     fixed = 0.45;
   }
+  if (marketplace === "facebook") {
+    rate = 0.05;
+    fixed = 0.4;
+  }
+  if (marketplace === "etsy") {
+    rate = 0.095;
+    fixed = 0.45;
+  }
+  if (marketplace === "tiktok") {
+    rate = 0.08;
+    fixed = 0.3;
+  }
+  if (marketplace === "offerup") {
+    rate = 0.129;
+    fixed = 0;
+  }
 
   const selling = +(price * rate + fixed).toFixed(2);
   const shipping = +estimateShippingCost(weight).toFixed(2);
