@@ -3,7 +3,7 @@ const fs = require("fs-extra");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "store.json");
 
 fs.ensureDirSync(DATA_DIR);

@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: boss-listers-mvp
+    runtime: node
+    rootDir: boss-listers-mvp
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:render
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NEXT_PUBLIC_BASE_URL
+        sync: false
+      - key: UPLOADS_DIR
+        value: uploads
+      - key: DATA_DIR
+        value: /opt/render/project/src/boss-listers-mvp/data
