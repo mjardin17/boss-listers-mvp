@@ -18,6 +18,14 @@ const CONDITION_MULTIPLIERS = {
   "For Parts": 0.58
 };
 
+const COLLECTIBLE_TOY_TAGS = new Set([
+  "hot-wheels",
+  "diecast",
+  "treasure-hunt",
+  "super-treasure-hunt",
+  "red-line-club"
+]);
+
 function roundPrice(value) {
   if (value < 20) return Math.ceil(value);
   if (value < 100) return Math.ceil(value / 5) * 5;
@@ -57,7 +65,15 @@ function getPricingRecommendation(input = {}) {
   const categoryMultiplier = CATEGORY_MULTIPLIERS[category] || CATEGORY_MULTIPLIERS.general;
   const conditionMultiplier =
     CONDITION_MULTIPLIERS[input.condition] || CONDITION_MULTIPLIERS.Used;
-  const baseline = Math.max(cost * categoryMultiplier * conditionMultiplier, 20);
+  const tags = new Set((input.tags || []).map((tag) => String(tag).toLowerCase()));
+  const collectibleToyMultiplier =
+    category === "toys" && [...COLLECTIBLE_TOY_TAGS].some((tag) => tags.has(tag))
+      ? 1.18
+      : 1;
+  const baseline = Math.max(
+    cost * categoryMultiplier * conditionMultiplier * collectibleToyMultiplier,
+    20
+  );
   const floorPrice = roundPrice(minimumPriceForTargetProfit(input));
   const recommendedPrice = roundPrice(Math.max(baseline, floorPrice));
   const selectedPrice =
@@ -78,6 +94,7 @@ function getPricingRecommendation(input = {}) {
     assumptions: {
       categoryMultiplier,
       conditionMultiplier,
+      collectibleToyMultiplier,
       marketplace: "ebay"
     }
   };
