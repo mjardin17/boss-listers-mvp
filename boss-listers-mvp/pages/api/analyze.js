@@ -6,6 +6,7 @@ import { inferFromFile } from "../../lib/imageHeuristics";
 import { generateForAll } from "../../lib/generator";
 import { saveListing } from "../../lib/store";
 import { getPricingRecommendation } from "../../lib/pricingIntelligence";
+import { analyzeProductImage } from "../../lib/openaiVision";
 
 export const config = {
   api: { bodyParser: false }
@@ -55,7 +56,13 @@ export default async function handler(req, res) {
     const uploadsDir = process.env.UPLOADS_DIR || "uploads";
 
     const imageUrls = [];
-    const merged = { titleHint: null, categoryHint: null, tags: [] };
+    const merged = {
+      titleHint: null,
+      categoryHint: null,
+      tags: [],
+      productName: "",
+      brand: ""
+    };
 
     for (const f of uploaded) {
       const rel = `/${uploadsDir}/${path.basename(f.filepath)}`;
@@ -65,12 +72,25 @@ export default async function handler(req, res) {
       if (hint.categoryHint && !merged.categoryHint)
         merged.categoryHint = hint.categoryHint;
       merged.tags = Array.from(new Set([...merged.tags, ...(hint.tags || [])]));
+
+      if ((!merged.productName || !merged.brand) && process.env.OPENAI_API_KEY) {
+        try {
+          const ai = await analyzeProductImage({
+            fullpath: f.filepath,
+            mimetype: f.mimetype || "image/jpeg"
+          });
+          if (ai?.productName && !merged.productName) merged.productName = ai.productName;
+          if (ai?.brand && !merged.brand) merged.brand = ai.brand;
+        } catch (error) {
+          console.error("openai vision error", error);
+        }
+      }
     }
 
     const titleHint = fieldVal(fields, "titleHint") || merged.titleHint || "";
     const parts = titleHint.split(/\s+/).filter(Boolean);
-    const inferredBrand = parts[0] || "";
-    const inferredModel = parts.slice(1).join(" ") || "";
+    const inferredBrand = merged.brand || parts[0] || "";
+    const inferredModel = merged.productName || parts.slice(1).join(" ") || "";
 
     const input = {
       brand: fieldVal(fields, "brand") || inferredBrand,
