@@ -104,6 +104,47 @@ nav {
   margin-bottom: 1rem;
 }
 
+.workflow-strip {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.workflow-step {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 54px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.8rem;
+  background: var(--surface);
+}
+
+.workflow-step span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.workflow-step strong {
+  font-size: 0.84rem;
+}
+
+.workflow-step.complete {
+  border-color: rgba(110, 231, 183, 0.4);
+}
+
+.workflow-step.complete span {
+  background: rgba(110, 231, 183, 0.15);
+  color: var(--accent);
+}
+
 .metric-card,
 .panel,
 .demo-card,
@@ -298,6 +339,59 @@ textarea {
   display: block;
 }
 
+.analysis-panel {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.analysis-grid {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.analysis-grid > div {
+  min-height: 72px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem;
+  background: var(--surface-2);
+}
+
+.analysis-grid span,
+.analysis-grid strong {
+  display: block;
+}
+
+.analysis-grid span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.analysis-grid strong {
+  margin-top: 0.2rem;
+  font-size: 0.95rem;
+}
+
+.analysis-range,
+.analysis-summary {
+  grid-column: 1 / -1;
+}
+
+.analysis-summary p,
+.analysis-empty {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.analysis-empty {
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  border-radius: 8px;
+  padding: 0.8rem;
+  background: rgba(248, 113, 113, 0.08);
+}
+
 .pricing-summary span {
   color: var(--muted);
   font-size: 0.72rem;
@@ -376,7 +470,6 @@ button {
 }
 
 .platform-name {
-  text-transform: capitalize;
   font-weight: 600;
 }
 
@@ -472,6 +565,10 @@ button {
   .form-grid.two {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .analysis-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 760px) {
@@ -488,5 +585,9 @@ button {
 @media (min-width: 980px) {
   .dashboard-grid {
     grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
+  .workflow-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }

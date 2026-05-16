@@ -42,6 +42,19 @@ function profitFor(platform, input, price) {
   });
 }
 
+const MARKETPLACES = [
+  { key: "ebay", label: "eBay" },
+  { key: "facebook", label: "Facebook Marketplace" },
+  { key: "mercari", label: "Mercari" },
+  { key: "poshmark", label: "Poshmark" },
+  { key: "depop", label: "Depop" },
+  { key: "etsy", label: "Etsy" },
+  { key: "tiktok", label: "TikTok Shop" },
+  { key: "offerup", label: "OfferUp" },
+  { key: "amazon", label: "Amazon" },
+  { key: "walmart", label: "Walmart Marketplace" }
+];
+
 function generateForAll(input) {
   const brand = capWords(input.brand);
   const model = capWords(input.model);
@@ -58,30 +71,30 @@ function generateForAll(input) {
   const shortDescription = clampChars(baseDescription.trim(), 280);
   const seoCore = [brand, model, input.categoryHint].filter(Boolean).join(" ");
 
-  return [
+  const drafts = [
     {
-      platform: "ebay",
+      marketplaceKey: "ebay",
       title: clampChars(`${seoCore} ${input.condition || ""}`.trim(), 80),
       description: `${shortDescription}\n\n${estimateShippingText(
         input.weightLb
       )}\nReturns: 30 days`
     },
     {
-      platform: "facebook",
+      marketplaceKey: "facebook",
       title: clampChars(`${brand} ${model} - ${input.condition || "Used"}`, 60),
       description: `${shortDescription}\nLocal pickup preferred. ${estimateShippingText(
         input.weightLb
       )}\nCash or Venmo.`
     },
     {
-      platform: "mercari",
+      marketplaceKey: "mercari",
       title: clampChars(seoCore, 60),
       description: `${shortDescription}\nCondition: ${
         input.condition || "Used"
       }\n${estimateShippingText(input.weightLb)}`
     },
     {
-      platform: "poshmark",
+      marketplaceKey: "poshmark",
       title: clampChars(
         `${brand} ${model} ${input.size ? "- " + input.size : ""}`.trim(),
         60
@@ -92,7 +105,7 @@ function generateForAll(input) {
       hashtags: makeHashtags([brand, model, ...tags, "poshmark"], 8)
     },
     {
-      platform: "depop",
+      marketplaceKey: "depop",
       title: clampChars(`${seoCore} ${input.condition || ""}`.trim(), 65),
       description: `${shortDescription}\nStyle tags: ${hashtags
         .slice(0, 5)
@@ -100,35 +113,51 @@ function generateForAll(input) {
       hashtags: makeHashtags([brand, model, ...tags, "depop"], 8)
     },
     {
-      platform: "etsy",
+      marketplaceKey: "etsy",
       title: clampChars(seoCore, 140),
       description: `${shortDescription}\nProcessing time: 1-3 business days.`
     },
     {
-      platform: "tiktok",
+      marketplaceKey: "tiktok",
       title: clampChars(`${seoCore} ${input.condition || ""}`.trim(), 60),
       description: clampChars(`Hook: Great deal on ${brand} ${model}. Only $${price}.`, 140),
       hashtags
     },
     {
-      platform: "offerup",
+      marketplaceKey: "offerup",
       title: clampChars(`${brand} ${model} ${input.condition || ""}`.trim(), 70),
       description: `${shortDescription}\nMeetup or shipping available. ${estimateShippingText(
         input.weightLb
       )}`
+    },
+    {
+      marketplaceKey: "amazon",
+      title: clampChars(seoCore, 200),
+      description: `${shortDescription}\nCondition: ${input.condition || "Used"}`
+    },
+    {
+      marketplaceKey: "walmart",
+      title: clampChars(seoCore, 200),
+      description: `${shortDescription}\nCondition: ${input.condition || "Used"}`
     }
-  ].map((item) => ({
+  ];
+
+  return drafts.map((item) => {
+    const marketplace = MARKETPLACES.find((entry) => entry.key === item.marketplaceKey);
+    return {
     ...item,
+    platform: marketplace.label,
     price,
-    profit: profitFor(item.platform, input, price),
+    profit: profitFor(item.marketplaceKey, input, price),
     copyBlocks:
-      item.platform === "tiktok"
+      item.marketplaceKey === "tiktok"
         ? [{ field: "Video Caption", text: `${item.description}\n\n${hashtags.join(" ")}` }]
         : [
             { field: "Title", text: item.title },
             { field: "Description", text: item.description }
           ]
-  }));
+    };
+  });
 }
 
 module.exports = { generateForAll };

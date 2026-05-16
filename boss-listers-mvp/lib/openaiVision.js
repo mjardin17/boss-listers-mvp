@@ -15,10 +15,28 @@ function parseVisionPayload(text) {
     return {
       productName:
         typeof parsed.productName === "string" ? parsed.productName.trim() : "",
-      brand: typeof parsed.brand === "string" ? parsed.brand.trim() : ""
+      brand: typeof parsed.brand === "string" ? parsed.brand.trim() : "",
+      category: typeof parsed.category === "string" ? parsed.category.trim() : "",
+      conditionGuess:
+        typeof parsed.conditionGuess === "string" ? parsed.conditionGuess.trim() : "",
+      quantity:
+        typeof parsed.quantity === "string" ? parsed.quantity.trim() : "",
+      confidence:
+        typeof parsed.confidence === "number"
+          ? Math.max(0, Math.min(1, parsed.confidence))
+          : 0,
+      summary: typeof parsed.summary === "string" ? parsed.summary.trim() : ""
     };
   } catch {
-    return { productName: "", brand: "" };
+    return {
+      productName: "",
+      brand: "",
+      category: "",
+      conditionGuess: "",
+      quantity: "",
+      confidence: 0,
+      summary: ""
+    };
   }
 }
 
@@ -49,7 +67,7 @@ async function analyzeProductImage({
             {
               type: "input_text",
               text:
-                'Identify the product in this image. Return only valid JSON with exactly these keys: {"productName":"","brand":""}. Use an empty string when uncertain.'
+                'Identify the resale product in this image. Return only valid JSON with exactly these keys: {"productName":"","brand":"","category":"","conditionGuess":"","quantity":"","confidence":0,"summary":""}. "quantity" should describe whether this is a single item or a visible bundle/lot, "confidence" must be from 0 to 1, and "summary" should briefly explain the visible evidence and uncertainty. Use an empty string when uncertain.'
             },
             {
               type: "input_image",

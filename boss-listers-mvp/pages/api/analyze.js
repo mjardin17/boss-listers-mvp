@@ -45,6 +45,38 @@ function collectFiles(files) {
   return Array.isArray(raw) ? raw : [raw];
 }
 
+function parseJsonField(fields, key) {
+  try {
+    const raw = fieldVal(fields, key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildAnalysis({ merged, input, pricing, uploadedCount }) {
+  const confidence = Number(merged.confidence) || (merged.productName || merged.brand ? 0.55 : 0);
+  const quantity = merged.quantity || (uploadedCount > 1 ? `${uploadedCount} photos provided` : "Single item not confirmed");
+  return {
+    productName: merged.productName || input.model || "",
+    brand: merged.brand || input.brand || "",
+    category: merged.category || input.categoryHint || "",
+    conditionGuess: merged.conditionGuess || input.condition || "",
+    quantity,
+    priceRange: {
+      low: pricing.floorPrice,
+      suggested: pricing.recommendedPrice,
+      high: Math.ceil(pricing.recommendedPrice * 1.18)
+    },
+    confidence,
+    summary:
+      merged.summary ||
+      (merged.productName || merged.brand
+        ? "Analysis combined uploaded image cues with listing inputs."
+        : "No confident product match yet.")
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
@@ -61,7 +93,12 @@ export default async function handler(req, res) {
       categoryHint: null,
       tags: [],
       productName: "",
-      brand: ""
+      brand: "",
+      category: "",
+      conditionGuess: "",
+      quantity: "",
+      confidence: 0,
+      summary: ""
     };
 
     for (const f of uploaded) {
@@ -81,6 +118,12 @@ export default async function handler(req, res) {
           });
           if (ai?.productName && !merged.productName) merged.productName = ai.productName;
           if (ai?.brand && !merged.brand) merged.brand = ai.brand;
+          if (ai?.category && !merged.category) merged.category = ai.category;
+          if (ai?.conditionGuess && !merged.conditionGuess)
+            merged.conditionGuess = ai.conditionGuess;
+          if (ai?.quantity && !merged.quantity) merged.quantity = ai.quantity;
+          if (ai?.confidence && !merged.confidence) merged.confidence = ai.confidence;
+          if (ai?.summary && !merged.summary) merged.summary = ai.summary;
         } catch (error) {
           console.error("openai vision error", error);
         }
@@ -91,13 +134,23 @@ export default async function handler(req, res) {
     const parts = titleHint.split(/\s+/).filter(Boolean);
     const inferredBrand = merged.brand || parts[0] || "";
     const inferredModel = merged.productName || parts.slice(1).join(" ") || "";
+    const latestAnalysis = parseJsonField(fields, "analysisResult");
 
     const input = {
-      brand: fieldVal(fields, "brand") || inferredBrand,
-      model: fieldVal(fields, "model") || inferredModel,
-      condition: fieldVal(fields, "condition", "Used"),
+      brand: fieldVal(fields, "brand") || latestAnalysis?.brand || inferredBrand,
+      model: fieldVal(fields, "model") || latestAnalysis?.productName || inferredModel,
+      condition:
+        fieldVal(fields, "condition") ||
+        latestAnalysis?.conditionGuess ||
+        merged.conditionGuess ||
+        "Used",
       size: fieldVal(fields, "size"),
-      categoryHint: fieldVal(fields, "categoryHint") || merged.categoryHint || "",
+      categoryHint:
+        fieldVal(fields, "categoryHint") ||
+        latestAnalysis?.category ||
+        merged.category ||
+        merged.categoryHint ||
+        "",
       suggestedPrice: parseFloat(fieldVal(fields, "suggestedPrice")) || undefined,
       costOfGoods: parseFloat(fieldVal(fields, "costOfGoods")) || 0,
       weightLb: parseFloat(fieldVal(fields, "weightLb")) || 1,
@@ -112,6 +165,12 @@ export default async function handler(req, res) {
 
     let outputs = [];
     const pricing = getPricingRecommendation(input);
+    const analysis = latestAnalysis || buildAnalysis({
+      merged,
+      input,
+      pricing,
+      uploadedCount: uploaded.length
+    });
     if (shouldGenerate && (input.brand || input.model || titleHint)) {
       outputs = generateForAll(input);
     }
@@ -130,6 +189,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: true,
       hints: merged,
+      analysis,
       input,
       pricing,
       outputs,

@@ -85,6 +85,7 @@ export default function Home() {
   const [photoPreviews, setPhotoPreviews] = useState([]);
   const [outputs, setOutputs] = useState([]);
   const [pricing, setPricing] = useState(null);
+  const [analysisResult, setAnalysisResult] = useState(null);
   const [busyAction, setBusyAction] = useState("");
   const [progress, setProgress] = useState(0);
   const [toast, setToast] = useState("");
@@ -135,6 +136,7 @@ export default function Home() {
     });
     setPhotoFiles([]);
     setPhotoPreviews([]);
+    setAnalysisResult(null);
   }
 
   function onDrop(event) {
@@ -161,6 +163,9 @@ export default function Home() {
     formData.append("description", description);
     formData.append("sessionId", sessionIdRef.current);
     formData.append("generate", generate ? "true" : "false");
+    if (analysisResult) {
+      formData.append("analysisResult", JSON.stringify(analysisResult));
+    }
   }
 
   function applyDemoProduct(product) {
@@ -174,6 +179,7 @@ export default function Home() {
     setWeightLb(product.weightLb);
     setDescription(product.description);
     setPricing(null);
+    setAnalysisResult(null);
     setOutputs([]);
     showToast("Demo product loaded");
   }
@@ -193,12 +199,20 @@ export default function Home() {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Request failed");
 
-      if (data.hints?.titleHint && !brand && !model) {
+      const nextAnalysis = data.analysis || null;
+      if (nextAnalysis) {
+        setAnalysisResult(nextAnalysis);
+        if (nextAnalysis.brand) setBrand(nextAnalysis.brand);
+        if (nextAnalysis.productName) setModel(nextAnalysis.productName);
+        if (nextAnalysis.category) setCategoryHint(nextAnalysis.category);
+        if (nextAnalysis.conditionGuess) setCondition(nextAnalysis.conditionGuess);
+      } else if (data.hints?.titleHint && !brand && !model) {
         const parts = data.hints.titleHint.split(/\s+/);
         if (parts[0]) setBrand(parts[0]);
         if (parts.slice(1).length) setModel(parts.slice(1).join(" "));
       }
-      if (data.hints?.categoryHint) setCategoryHint(data.hints.categoryHint);
+      if (data.hints?.categoryHint && !nextAnalysis?.category)
+        setCategoryHint(data.hints.categoryHint);
       if (data.input?.imageUrls?.length) setPhotoPreviews(data.input.imageUrls);
       setPricing(data.pricing || null);
       if (generate) setOutputs(data.outputs || []);
@@ -303,7 +317,7 @@ export default function Home() {
         </article>
         <article className="metric-card">
           <span>Marketplaces</span>
-          <strong>{outputs.length || 8}</strong>
+          <strong>{outputs.length || 10}</strong>
         </article>
         <article className="metric-card">
           <span>Expected profit</span>
@@ -315,13 +329,36 @@ export default function Home() {
         </article>
       </section>
 
+      <section className="workflow-strip" aria-label="Workflow">
+        {[
+          "Add product photo/details",
+          "Analyze product",
+          "Generate marketplace listings",
+          "Review / export / copy listings"
+        ].map((label, index) => (
+          <div
+            className={`workflow-step${
+              (index === 1 && analysisResult) ||
+              (index === 2 && outputs.length) ||
+              (index === 3 && outputs.length)
+                ? " complete"
+                : ""
+            }`}
+            key={label}
+          >
+            <span>{index + 1}</span>
+            <strong>{label}</strong>
+          </div>
+        ))}
+      </section>
+
       <div className="dashboard-grid">
         <main className="stack">
           <section className="panel upload-panel">
             <div className="section-heading">
               <div>
-                <h2>1. Add product photos</h2>
-                <p className="panel-sub">Click, drag, or capture from camera.</p>
+                <h2>Step 1: Add product photo/details</h2>
+                <p className="panel-sub">Upload the item, then add anything the photo cannot show.</p>
               </div>
               {photoPreviews.length ? (
                 <button type="button" className="btn-ghost" onClick={clearPhotos}>
@@ -366,7 +403,7 @@ export default function Home() {
                 onClick={() => runAnalyze(false)}
                 disabled={Boolean(busyAction)}
               >
-                {busyAction === "analyze" ? "Analyzing..." : "Analyze item"}
+                {busyAction === "analyze" ? "Analyzing..." : "Analyze product"}
               </button>
             </div>
             {photoPreviews.length ? (
@@ -389,7 +426,7 @@ export default function Home() {
           <section className="panel">
             <div className="section-heading">
               <div>
-                <h2>2. Confirm product details</h2>
+                <h2>Product details</h2>
                 <p className="panel-sub">Use a demo item or edit the fields directly.</p>
               </div>
             </div>
@@ -451,12 +488,69 @@ export default function Home() {
             </label>
           </section>
 
+          <section className="panel analysis-panel" aria-live="polite">
+            <div className="section-heading">
+              <div>
+                <h2>Step 2: Analysis results</h2>
+                <p className="panel-sub">What Boss Listers found before listing generation.</p>
+              </div>
+            </div>
+            {!analysisResult ? (
+              <p className="empty">
+                Analyze a photo to see product findings, price guidance, and confidence here.
+              </p>
+            ) : !analysisResult.productName || !analysisResult.brand ? (
+              <p className="analysis-empty">
+                I could not confidently identify the item yet. Add the item name, brand, or a short note,
+                then analyze again.
+              </p>
+            ) : (
+              <div className="analysis-grid">
+                <div>
+                  <span>Detected product</span>
+                  <strong>{analysisResult.productName}</strong>
+                </div>
+                <div>
+                  <span>Brand</span>
+                  <strong>{analysisResult.brand}</strong>
+                </div>
+                <div>
+                  <span>Category</span>
+                  <strong>{analysisResult.category || "Not sure yet"}</strong>
+                </div>
+                <div>
+                  <span>Condition guess</span>
+                  <strong>{analysisResult.conditionGuess || "Not sure yet"}</strong>
+                </div>
+                <div>
+                  <span>Quantity / bundle</span>
+                  <strong>{analysisResult.quantity || "Not sure yet"}</strong>
+                </div>
+                <div>
+                  <span>Confidence</span>
+                  <strong>{Math.round((analysisResult.confidence || 0) * 100)}%</strong>
+                </div>
+                <div className="analysis-range">
+                  <span>Price range</span>
+                  <strong>
+                    ${analysisResult.priceRange.low} low / ${analysisResult.priceRange.suggested} suggested / $
+                    {analysisResult.priceRange.high} high
+                  </strong>
+                </div>
+                <div className="analysis-summary">
+                  <span>Raw AI / debug summary</span>
+                  <p>{analysisResult.summary || "No summary returned."}</p>
+                </div>
+              </div>
+            )}
+          </section>
+
           {outputs.length ? (
             <section className="panel">
               <div className="section-heading">
                 <div>
-                  <h2>4. Marketplace recommendations</h2>
-                  <p className="panel-sub">Ready-to-copy drafts for eight channels.</p>
+                  <h2>Step 4: Review marketplace listings</h2>
+                  <p className="panel-sub">Ready-to-copy drafts for ten channels.</p>
                 </div>
               </div>
               <div className="platform-grid">
@@ -470,8 +564,8 @@ export default function Home() {
 
         <aside className="stack">
           <section className="panel summary-panel">
-            <h2>3. Pricing snapshot</h2>
-            <p className="panel-sub">Live decision support for the listing.</p>
+            <h2>Step 3: Generate marketplace listings</h2>
+            <p className="panel-sub">Uses the latest analysis result plus your edits.</p>
             <div className="pricing-summary">
               <div>
                 <span>Recommended</span>

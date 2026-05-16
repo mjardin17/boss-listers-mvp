@@ -47,6 +47,14 @@ function computeFees({ marketplace, salePrice, weightLb }) {
     rate = 0.129;
     fixed = 0;
   }
+  if (marketplace === "amazon") {
+    rate = 0.15;
+    fixed = 0.3;
+  }
+  if (marketplace === "walmart") {
+    rate = 0.15;
+    fixed = 0.3;
+  }
 
   const selling = +(price * rate + fixed).toFixed(2);
   const shipping = +estimateShippingCost(weight).toFixed(2);
