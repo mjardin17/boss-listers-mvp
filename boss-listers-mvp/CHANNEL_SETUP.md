@@ -1,0 +1,64 @@
+# Boss Listers — Channel Setup
+
+Honest status as of 2026-07-26. Nothing below is claimed connected unless a
+real authenticated API call succeeded.
+
+| Channel | Type | Status |
+|---|---|---|
+| eBay | Official API (Sell Inventory) | **Awaiting eBay Developer approval** — sync engine already built (`inventory-sync/` in the viral-engine repo) |
+| Etsy | Official API (Open API v3, OAuth) | Structure ready — needs credentials |
+| Shopify | Official API (GraphQL Admin) | Optional — not configured |
+| WooCommerce | Official API (REST v3) | Optional — not configured |
+| Facebook Marketplace | **Manual listing package** | Working now |
+| OfferUp | Manual listing package | Working now |
+| Craigslist | Manual listing package | Working now |
+| Mercari | Manual listing package | Working now |
+| Poshmark | Manual listing package | Working now |
+
+Manual = Boss Listers generates platform-optimized copy/fields/CSV; **you**
+paste and submit on the marketplace. No browser automation, no scraping, no
+credential collection — that's a hard platform-safety rule, not a gap.
+
+## Already complete (no action needed)
+
+- Shared Supabase inventory DB ("Boss listers prod", ref `irslzufsqjveyibkfjtz`), migrations 0001–0003 applied.
+- Connector architecture (`lib/channels/`), Channels page (`/channels`), manual package generator + CSV export + posted/sold tracking.
+- eBay sync Edge Function (separate repo: `viral-engine/inventory-sync/`).
+
+## What YOU must do, per channel
+
+### Database (required first)
+Apply migration `0004_channels_and_grants.sql` from
+`viral-engine/inventory-sync/supabase/migrations/` — it fixes the anon
+permission bug found during verification (storefront reads currently 401)
+and seeds the channel rows. From the viral-engine repo: `npx supabase db push`.
+
+### eBay
+1. Wait for developer-account approval (submitted, pending).
+2. Then: Application Keys → production keyset; User Tokens → RuName; consent flow → refresh token (runbook: `inventory-sync/DEPLOY.md` steps 3–6).
+3. Env vars (Supabase Edge Function secrets, NOT this app): `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_REFRESH_TOKEN`, `EBAY_ENVIRONMENT`.
+
+### Etsy
+1. Register an app at https://www.etsy.com/developers/register (instant for personal use).
+2. Callback URL to whitelist: `https://YOUR_DEPLOYED_APP/api/channels/etsy/callback` (route to be added when you have the keystring).
+3. Env vars (server-side): `ETSY_KEYSTRING`, `ETSY_SHARED_SECRET`, `ETSY_REDIRECT_URI`, `ETSY_REFRESH_TOKEN` (after OAuth).
+4. Scopes requested: `listings_r listings_w transactions_r shops_r`.
+
+### Shopify (only if you open a Shopify store)
+Custom app in the store admin → Admin API token.
+Env vars: `SHOPIFY_STORE_DOMAIN` (e.g. `mystore.myshopify.com`), `SHOPIFY_ADMIN_ACCESS_TOKEN`.
+
+### WooCommerce (only if you run a WooCommerce site)
+WooCommerce → Settings → Advanced → REST API → Add key (Read/Write).
+Env vars: `WOOCOMMERCE_STORE_URL`, `WOOCOMMERCE_CONSUMER_KEY`, `WOOCOMMERCE_CONSUMER_SECRET`.
+
+### Manual channels (Facebook, OfferUp, Craigslist, Mercari, Poshmark)
+Nothing to register. `/channels` → enter SKU → Generate package → copy fields
+→ post on the marketplace → "Mark as posted" (stores URL/date) → "Mark as
+sold" when it sells.
+
+## Env var placement rules
+
+- This app (Next.js server): `.env` locally / host env vars in production. Never `NEXT_PUBLIC_*` for any of the above.
+- eBay vars: Supabase Edge Function secrets only.
+- `SUPABASE_SERVICE_ROLE_KEY`: this app's server env only — never the browser, never committed.
