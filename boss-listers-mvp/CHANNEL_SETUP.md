@@ -36,7 +36,11 @@ and seeds the channel rows. From the viral-engine repo: `npx supabase db push`.
 ### eBay
 1. Wait for developer-account approval (submitted, pending).
 2. Then: Application Keys → production keyset; User Tokens → RuName; consent flow → refresh token (runbook: `inventory-sync/DEPLOY.md` steps 3–6).
-3. Env vars (Supabase Edge Function secrets, NOT this app): `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_REFRESH_TOKEN`, `EBAY_ENVIRONMENT`.
+3. Env vars go in **two places** because there are two independent consumers of the same eBay credentials:
+   - **Supabase Edge Function secrets** (`viral-engine/inventory-sync/`) — this is where `ebay-sync` actually runs, on a 15-min `pg_cron` schedule. This is the revenue-critical path: it keeps the `products` table in sync with eBay inventory.
+   - **This app's server env** (Render env vars) — `apiConnectors.js` reads the same vars to power the `/channels` status page and its "Test Connection" button. This is diagnostics/UI only; it does not sync inventory.
+   - Set the same values in both places: `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_REFRESH_TOKEN`, `EBAY_ENVIRONMENT`.
+   - Each consumer degrades gracefully if the other is missing: without the Edge Function vars, sync stops but `/channels` may still show eBay as connected; without this app's vars, sync keeps running but `/channels` shows eBay as not connected.
 
 ### Etsy
 1. Register an app at https://www.etsy.com/developers/register (instant for personal use).
@@ -60,5 +64,5 @@ sold" when it sells.
 ## Env var placement rules
 
 - This app (Next.js server): `.env` locally / host env vars in production. Never `NEXT_PUBLIC_*` for any of the above.
-- eBay vars: Supabase Edge Function secrets only.
+- eBay vars: **both** Supabase Edge Function secrets (required — this is what runs `ebay-sync`) and this app's server env (required for `/channels` status/Test Connection to reflect reality).
 - `SUPABASE_SERVICE_ROLE_KEY`: this app's server env only — never the browser, never committed.

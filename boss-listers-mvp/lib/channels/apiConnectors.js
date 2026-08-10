@@ -27,24 +27,30 @@ class EbayConnector extends BaseConnector {
   }
 
   async testConnection() {
-    // Mirrors ebay-sync's token exchange: a successful client-credentials
-    // refresh IS the authenticated test.
     const url = process.env.EBAY_ENVIRONMENT === "sandbox"
       ? "https://api.sandbox.ebay.com/identity/v1/oauth2/token"
       : "https://api.ebay.com/identity/v1/oauth2/token";
     const auth = Buffer.from(`${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`).toString("base64");
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${auth}` },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: process.env.EBAY_REFRESH_TOKEN,
-        scope: "https://api.ebay.com/oauth/api_scope/sell.inventory",
-      }),
-    });
-    return res.ok
-      ? { status: CONNECTION_STATUS.CONNECTED, detail: "OAuth token exchange succeeded" }
-      : { status: CONNECTION_STATUS.CONFIG_REQUIRED, detail: `eBay auth failed (HTTP ${res.status})` };
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${auth}` },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: process.env.EBAY_REFRESH_TOKEN,
+          scope: "https://api.ebay.com/oauth/api_scope/sell.inventory",
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      return res.ok
+        ? { status: CONNECTION_STATUS.CONNECTED, detail: "OAuth token exchange succeeded" }
+        : { status: CONNECTION_STATUS.CONFIG_REQUIRED, detail: `eBay auth failed (HTTP ${res.status})` };
+    } catch (err) {
+      return {
+        status: CONNECTION_STATUS.CONFIG_REQUIRED,
+        detail: err.name === "TimeoutError" ? "eBay did not respond within 10s" : `eBay request failed: ${err.message}`,
+      };
+    }
   }
 }
 
@@ -70,12 +76,20 @@ class EtsyConnector extends BaseConnector {
   }
 
   async testConnection() {
-    const res = await fetch(`${EtsyConnector.API_BASE}/openapi-ping`, {
-      headers: { "x-api-key": process.env.ETSY_KEYSTRING },
-    });
-    return res.ok
-      ? { status: CONNECTION_STATUS.CONNECTED, detail: "Etsy API ping succeeded" }
-      : { status: CONNECTION_STATUS.CONFIG_REQUIRED, detail: `Etsy ping failed (HTTP ${res.status})` };
+    try {
+      const res = await fetch(`${EtsyConnector.API_BASE}/openapi-ping`, {
+        headers: { "x-api-key": process.env.ETSY_KEYSTRING },
+        signal: AbortSignal.timeout(10_000),
+      });
+      return res.ok
+        ? { status: CONNECTION_STATUS.CONNECTED, detail: "Etsy API ping succeeded" }
+        : { status: CONNECTION_STATUS.CONFIG_REQUIRED, detail: `Etsy ping failed (HTTP ${res.status})` };
+    } catch (err) {
+      return {
+        status: CONNECTION_STATUS.CONFIG_REQUIRED,
+        detail: err.name === "TimeoutError" ? "Etsy did not respond within 10s" : `Etsy request failed: ${err.message}`,
+      };
+    }
   }
 
   // importListings / createListing / updateListing / syncInventory /
@@ -106,20 +120,28 @@ class ShopifyConnector extends BaseConnector {
   }
 
   async testConnection() {
-    const res = await fetch(
-      `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${ShopifyConnector.API_VERSION}/graphql.json`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_ACCESS_TOKEN,
+    try {
+      const res = await fetch(
+        `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${ShopifyConnector.API_VERSION}/graphql.json`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_ACCESS_TOKEN,
+          },
+          body: JSON.stringify({ query: "{ shop { name } }" }),
+          signal: AbortSignal.timeout(10_000),
         },
-        body: JSON.stringify({ query: "{ shop { name } }" }),
-      },
-    );
-    return res.ok
-      ? { status: CONNECTION_STATUS.CONNECTED, detail: "Shopify Admin API reachable" }
-      : { status: CONNECTION_STATUS.CONFIG_REQUIRED, detail: `Shopify auth failed (HTTP ${res.status})` };
+      );
+      return res.ok
+        ? { status: CONNECTION_STATUS.CONNECTED, detail: "Shopify Admin API reachable" }
+        : { status: CONNECTION_STATUS.CONFIG_REQUIRED, detail: `Shopify auth failed (HTTP ${res.status})` };
+    } catch (err) {
+      return {
+        status: CONNECTION_STATUS.CONFIG_REQUIRED,
+        detail: err.name === "TimeoutError" ? "Shopify did not respond within 10s" : `Shopify request failed: ${err.message}`,
+      };
+    }
   }
 }
 
@@ -142,11 +164,45 @@ class WooCommerceConnector extends BaseConnector {
     return this.testConnection();
   }
 
+  static normalizeUrl(raw) {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") {
+      throw new Error(
+        "WOOCOMMERCE_STORE_URL must use https:// — Basic Auth over HTTP would leak the consumer secret."
+      );
+    }
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  }
+
   async testConnection() {
-    const url = new URL("/wp-json/wc/v3/system_status", process.env.WOOCOMMERCE_STORE_URL);
-    url.searchParams.set("consumer_key", process.env.WOOCOMMERCE_CONSUMER_KEY);
-    url.searchParams.set("consumer_secret", process.env.WOOCOMMERCE_CONSUMER_SECRET);
-    const res = await fetch(url);
+    const base = WooCommerceConnector.normalizeUrl(process.env.WOOCOMMERCE_STORE_URL);
+    const endpoint = `${base}/wp-json/wc/v3/system_status`;
+    const key = process.env.WOOCOMMERCE_CONSUMER_KEY;
+    const secret = process.env.WOOCOMMERCE_CONSUMER_SECRET;
+    const auth = Buffer.from(`${key}:${secret}`).toString("base64");
+
+    const attempt = (url, headers) =>
+      fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+
+    let res;
+    try {
+      res = await attempt(endpoint, { Authorization: `Basic ${auth}` });
+
+      if (res.status === 401) {
+        const fallback = new URL(endpoint);
+        fallback.searchParams.set("consumer_key", key);
+        fallback.searchParams.set("consumer_secret", secret);
+        res = await attempt(fallback.toString(), {});
+      }
+    } catch (err) {
+      return {
+        status: CONNECTION_STATUS.CONFIG_REQUIRED,
+        detail: err.name === "TimeoutError"
+          ? "WooCommerce store did not respond within 10s"
+          : `WooCommerce request failed: ${err.message}`,
+      };
+    }
+
     return res.ok
       ? { status: CONNECTION_STATUS.CONNECTED, detail: "WooCommerce REST API reachable" }
       : { status: CONNECTION_STATUS.CONFIG_REQUIRED, detail: `WooCommerce auth failed (HTTP ${res.status})` };

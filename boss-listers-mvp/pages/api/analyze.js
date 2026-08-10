@@ -7,19 +7,19 @@ import { generateForAll } from "../../lib/generator";
 import { saveListing } from "../../lib/store";
 import { getPricingRecommendation } from "../../lib/pricingIntelligence";
 import { analyzeProductImage } from "../../lib/openaiVision";
+import { enforceRateLimit } from "../../lib/rateLimit";
 
 export const config = {
   api: { bodyParser: false }
 };
 
 function parseForm(req) {
-  const uploadsDir =
-    process.env.UPLOADS_DIR || "uploads";
-  const dir = path.join(process.cwd(), "public", uploadsDir);
-  fs.ensureDirSync(dir);
+  const uploadRoot =
+    process.env.UPLOAD_ROOT || "/var/data/uploads";
+  fs.ensureDirSync(uploadRoot);
 
   const form = formidable({
-    uploadDir: dir,
+    uploadDir: uploadRoot,
     keepExtensions: true,
     maxFiles: 8,
     maxFileSize: 12 * 1024 * 1024
@@ -82,12 +82,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  if (!enforceRateLimit(req, res)) return;
+
   try {
     const { fields, files } = await parseForm(req);
     const uploaded = collectFiles(files);
-    const uploadsDir = process.env.UPLOADS_DIR || "uploads";
 
     const imageUrls = [];
+    const MAX_VISION_CALLS = Number(process.env.MAX_VISION_CALLS_PER_REQUEST || 3);
+    let visionCalls = 0;
     const merged = {
       titleHint: null,
       categoryHint: null,
@@ -102,7 +105,8 @@ export default async function handler(req, res) {
     };
 
     for (const f of uploaded) {
-      const rel = `/${uploadsDir}/${path.basename(f.filepath)}`;
+      const filename = path.basename(f.filepath);
+      const rel = `/api/uploads/${filename}`;
       imageUrls.push(rel);
       const hint = await inferFromFile(f.filepath);
       if (hint.titleHint && !merged.titleHint) merged.titleHint = hint.titleHint;
@@ -110,7 +114,12 @@ export default async function handler(req, res) {
         merged.categoryHint = hint.categoryHint;
       merged.tags = Array.from(new Set([...merged.tags, ...(hint.tags || [])]));
 
-      if ((!merged.productName || !merged.brand) && process.env.OPENAI_API_KEY) {
+      if (
+        (!merged.productName || !merged.brand) &&
+        process.env.OPENAI_API_KEY &&
+        visionCalls < MAX_VISION_CALLS
+      ) {
+        visionCalls += 1;
         try {
           const ai = await analyzeProductImage({
             fullpath: f.filepath,

@@ -2,9 +2,16 @@ services:
   - type: web
     name: boss-listers-mvp
     runtime: node
+    plan: starter
     rootDir: boss-listers-mvp
-    buildCommand: npm install && npm run build
+    branch: feat/supabase-inventory
+    healthCheckPath: /api/health
+    buildCommand: npm ci && npm run build
     startCommand: npm run start:render
+    disk:
+      name: boss-listers-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: 22
@@ -14,7 +21,21 @@ services:
         sync: false
       - key: OPENAI_VISION_MODEL
         value: gpt-4o-mini
-      - key: UPLOADS_DIR
-        value: uploads
       - key: DATA_DIR
-        value: /opt/render/project/src/boss-listers-mvp/data
+        value: /var/data/store
+      - key: UPLOAD_ROOT
+        value: /var/data/uploads
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: APP_BASIC_AUTH_USER
+        sync: false
+      - key: APP_BASIC_AUTH_PASS
+        sync: false
+      - key: RATE_LIMIT_MAX
+        value: 10
+      - key: RATE_LIMIT_WINDOW_MS
+        value: 60000
+      - key: MAX_VISION_CALLS_PER_REQUEST
+        value: 3
