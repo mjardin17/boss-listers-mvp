@@ -177,6 +177,8 @@ export default function Capture() {
 
           <p style={{ marginTop: "1.5rem" }}>
             <Link href="/">Full dashboard →</Link>
+            {" · "}
+            <Link href="/card-scan">Trading card scanner →</Link>
           </p>
         </>
       )}
