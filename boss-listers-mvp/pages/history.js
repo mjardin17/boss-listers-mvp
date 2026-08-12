@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { requireSession, authedFetch } from "../lib/clientAuth";
 
 function getSessionId() {
   if (typeof window === "undefined") return "anon";
@@ -21,8 +22,9 @@ export default function HistoryPage() {
   const sessionIdRef = useRef("anon");
 
   useEffect(() => {
+    if (!requireSession()) return;
     sessionIdRef.current = getSessionId();
-    fetch(`/api/listings?sessionId=${encodeURIComponent(sessionIdRef.current)}`)
+    authedFetch(`/api/listings?sessionId=${encodeURIComponent(sessionIdRef.current)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.ok) setItems(data.items || []);

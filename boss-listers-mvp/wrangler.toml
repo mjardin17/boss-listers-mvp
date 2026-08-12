@@ -5,6 +5,7 @@ pages_build_output_dir = "out"
 
 [vars]
 SUPABASE_URL = "https://irslzufsqjveyibkfjtz.supabase.co"
+SUPABASE_ANON_KEY = "sb_publishable_HV03fWT-xFr4mB1x3AGlcg_a3JbBtwA"
 SUPABASE_BUCKET = "product-photos"
 MAX_PHOTOS = "8"
 MAX_UPLOAD_BYTES = "1200000"

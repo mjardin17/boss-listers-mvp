@@ -60,9 +60,10 @@ function capWord(word) {
   return word ? word[0].toUpperCase() + word.slice(1) : "";
 }
 
-async function inferFromFile(fullpath) {
-  const fname = path.basename(fullpath);
-  const tokens = wordsFromFilename(fname);
+// Pure filename-token heuristics, shared by both paths below. No fs, no
+// EXIF — safe to call from a Workers runtime.
+function inferFromFilename(fname) {
+  const tokens = wordsFromFilename(fname || "");
   const out = { titleHint: null, categoryHint: null, tags: [] };
 
   if (tokens.length) {
@@ -87,6 +88,15 @@ async function inferFromFile(fullpath) {
     out.tags.push("vintage");
   }
 
+  out.tags = Array.from(new Set(out.tags)).slice(0, 20);
+  return out;
+}
+
+// Node/dev-mode path: filename heuristics + EXIF (pages/api/analyze.js,
+// local `next dev` only — fs and exif-parser don't exist in Workers).
+async function inferFromFile(fullpath) {
+  const out = inferFromFilename(path.basename(fullpath));
+
   try {
     const buf = fs.readFileSync(fullpath);
     const parser = exif.create(buf);
@@ -97,12 +107,12 @@ async function inferFromFile(fullpath) {
       if (result.tags.Make)
         out.tags.push(String(result.tags.Make).toLowerCase());
     }
+    out.tags = Array.from(new Set(out.tags)).slice(0, 20);
   } catch (e) {
     // ignore EXIF errors
   }
 
-  out.tags = Array.from(new Set(out.tags)).slice(0, 20);
   return out;
 }
 
-module.exports = { inferFromFile, detectHotWheels };
+module.exports = { inferFromFile, inferFromFilename, detectHotWheels };

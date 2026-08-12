@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { requireSession, authedFetch } from "../lib/clientAuth";
 
 // Channels dashboard: honest per-channel status, live connection tests,
 // and the manual listing-package generator. No channel is ever shown as
@@ -90,7 +91,7 @@ export default function ChannelsPage() {
 
   const loadChannels = useCallback(async () => {
     try {
-      const res = await fetch("/api/channels");
+      const res = await authedFetch("/api/channels");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
       setChannels(data.channels);
@@ -99,12 +100,15 @@ export default function ChannelsPage() {
     }
   }, []);
 
-  useEffect(() => { loadChannels(); }, [loadChannels]);
+  useEffect(() => {
+    if (!requireSession()) return;
+    loadChannels();
+  }, [loadChannels]);
 
   async function runTest(channelId) {
     setTesting(channelId);
     try {
-      const res = await fetch("/api/channels/test", {
+      const res = await authedFetch("/api/channels/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ channel: channelId }),
@@ -127,7 +131,7 @@ export default function ChannelsPage() {
     setError("");
     setPackages([]);
     try {
-      const res = await fetch("/api/channels/manual-package", {
+      const res = await authedFetch("/api/channels/manual-package", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sku: sku.trim() }),
@@ -206,7 +210,7 @@ export default function ChannelsPage() {
               onClick={(e) => {
                 // CSV needs a POST; do it via a temporary form-less fetch → blob.
                 e.preventDefault();
-                fetch("/api/channels/manual-package?format=csv", {
+                authedFetch("/api/channels/manual-package?format=csv", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ sku: sku.trim() }),

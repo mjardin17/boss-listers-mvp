@@ -3,14 +3,14 @@
 
 import { listListings, getListing, saveListing, deleteListing } from '../../lib/supabaseListings.js';
 
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet({ request, env, data }) {
   try {
     const url = new URL(request.url);
     const sessionId = url.searchParams.get('sessionId') || null;
     const id = url.searchParams.get('id');
 
     if (id) {
-      const listing = await getListing(env, id);
+      const listing = await getListing(env, data.tenantId, id);
       if (!listing) {
         return new Response(JSON.stringify({ ok: false, error: 'Not found' }), {
           status: 404,
@@ -23,7 +23,7 @@ export async function onRequestGet({ request, env }) {
       });
     }
 
-    const listings = await listListings(env, sessionId);
+    const listings = await listListings(env, data.tenantId, sessionId);
     return new Response(JSON.stringify({ ok: true, listings }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -37,10 +37,10 @@ export async function onRequestGet({ request, env }) {
   }
 }
 
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost({ request, env, data }) {
   try {
     const payload = await request.json();
-    const listing = await saveListing(env, payload);
+    const listing = await saveListing(env, data.tenantId, payload);
 
     // Trigger commercial generation if images provided
     if (listing && listing.payload?.images && listing.payload.images.length > 0) {
@@ -88,7 +88,7 @@ async function triggerCommercialGeneration(env, data) {
   }
 }
 
-export async function onRequestDelete({ request, env }) {
+export async function onRequestDelete({ request, env, data }) {
   try {
     const url = new URL(request.url);
     const id = url.searchParams.get('id');
@@ -98,7 +98,7 @@ export async function onRequestDelete({ request, env }) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    const deleted = await deleteListing(env, id);
+    const deleted = await deleteListing(env, data.tenantId, id);
     return new Response(JSON.stringify({ ok: true, deleted }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

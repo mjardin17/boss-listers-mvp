@@ -45,34 +45,35 @@ function imageDataUrl(fullpath, mimetype = "image/jpeg") {
   return `data:${mimetype};base64,${base64}`;
 }
 
-async function analyzeProductImage({
-  fullpath,
-  mimetype = "image/jpeg",
-  fetchImpl = fetch
-}) {
-  if (!process.env.OPENAI_API_KEY) return null;
+// Chunked base64 encoding — avoids O(n^2) string concat / call-stack limits
+// from spreading a large Uint8Array into String.fromCharCode at once.
+function bytesToBase64(bytes) {
+  const CHUNK_SIZE = 8192;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK_SIZE));
+  }
+  return btoa(binary);
+}
 
+const VISION_PROMPT =
+  'Identify the resale product in this image. Return only valid JSON with exactly these keys: {"productName":"","brand":"","category":"","conditionGuess":"","quantity":"","confidence":0,"summary":""}. "quantity" should describe whether this is a single item or a visible bundle/lot, "confidence" must be from 0 to 1, and "summary" should briefly explain the visible evidence and uncertainty. Use an empty string when uncertain.';
+
+async function callVisionApi(apiKey, imageDataUrlValue, fetchImpl, model) {
   const response = await fetchImpl("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: DEFAULT_MODEL,
+      model,
       input: [
         {
           role: "user",
           content: [
-            {
-              type: "input_text",
-              text:
-                'Identify the resale product in this image. Return only valid JSON with exactly these keys: {"productName":"","brand":"","category":"","conditionGuess":"","quantity":"","confidence":0,"summary":""}. "quantity" should describe whether this is a single item or a visible bundle/lot, "confidence" must be from 0 to 1, and "summary" should briefly explain the visible evidence and uncertainty. Use an empty string when uncertain.'
-            },
-            {
-              type: "input_image",
-              image_url: imageDataUrl(fullpath, mimetype)
-            }
+            { type: "input_text", text: VISION_PROMPT },
+            { type: "input_image", image_url: imageDataUrlValue }
           ]
         }
       ]
@@ -95,7 +96,38 @@ async function analyzeProductImage({
   return parseVisionPayload(text);
 }
 
+// Node/dev-mode path: reads from a filepath on disk (pages/api/analyze.js,
+// local `next dev` only — never runs in the Cloudflare Workers deployment).
+async function analyzeProductImage({
+  fullpath,
+  mimetype = "image/jpeg",
+  fetchImpl = fetch
+}) {
+  if (!process.env.OPENAI_API_KEY) return null;
+  return callVisionApi(
+    process.env.OPENAI_API_KEY,
+    imageDataUrl(fullpath, mimetype),
+    fetchImpl,
+    DEFAULT_MODEL
+  );
+}
+
+// Workers-safe path: takes raw bytes directly (from request.formData()),
+// no filesystem involved. Used by functions/api/analyze.js in production.
+async function analyzeProductImageFromBytes({
+  arrayBuffer,
+  mimetype = "image/jpeg",
+  apiKey,
+  model = DEFAULT_MODEL,
+  fetchImpl = fetch
+}) {
+  if (!apiKey) return null;
+  const base64 = bytesToBase64(new Uint8Array(arrayBuffer));
+  return callVisionApi(apiKey, `data:${mimetype};base64,${base64}`, fetchImpl, model);
+}
+
 module.exports = {
   analyzeProductImage,
+  analyzeProductImageFromBytes,
   parseVisionPayload
 };

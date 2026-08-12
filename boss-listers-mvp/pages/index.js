@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { requireSession, authedFetch } from "../lib/clientAuth";
 
 const demoProducts = [
   {
@@ -106,6 +107,7 @@ export default function Home() {
   const sessionIdRef = useRef("anon");
 
   useEffect(() => {
+    requireSession();
     sessionIdRef.current = getSessionId();
     return () => {
       photoPreviews.forEach((url) => {
@@ -195,7 +197,7 @@ export default function Home() {
       const formData = new FormData();
       appendCommonFields(formData, generate);
       setProgress(generate ? 42 : 56);
-      const res = await fetch("/api/analyze", { method: "POST", body: formData });
+      const res = await authedFetch("/api/analyze", { method: "POST", body: formData });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Request failed");
 
@@ -234,7 +236,7 @@ export default function Home() {
       return;
     }
     try {
-      const res = await fetch("/api/listings", {
+      const res = await authedFetch("/api/listings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
