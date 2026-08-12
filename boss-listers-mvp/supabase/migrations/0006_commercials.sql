@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS public.commercial_jobs (
   id text PRIMARY KEY,
-  listing_id text NOT NULL,
+  listing_id uuid NOT NULL,
   session_id text,
   product_name text,
   description text,
@@ -65,8 +65,10 @@ CREATE TABLE IF NOT EXISTS public.subscriptions (
   billing_cycle_start timestamp with time zone,
   billing_cycle_end timestamp with time zone,
   created_at timestamp with time zone DEFAULT NOW(),
-  updated_at timestamp with time zone DEFAULT NOW(),
-  FOREIGN KEY (session_id) REFERENCES public.listings(session_id)
+  updated_at timestamp with time zone DEFAULT NOW()
+  -- No FK to listings.session_id: that column isn't unique (many listings
+  -- share session_id='anon'), so a foreign key against it can't be created.
+  -- Tenant attribution for subscriptions is now via tenant_id (see 0008).
 );
 
 CREATE INDEX idx_subscriptions_stripe_customer ON public.subscriptions(stripe_customer_id);

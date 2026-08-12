@@ -228,7 +228,10 @@ create index if not exists listings_tenant_created_idx on public.listings (tenan
 -- drop tenant_id from the select list below if that's not wanted and
 -- Boss Listers should only ever show one tenant's storefront at a time).
 -- ============================================================
-create or replace view public.storefront_products
+-- CREATE OR REPLACE VIEW can't reorder existing columns (tenant_id is new
+-- and going first), so drop and recreate instead.
+drop view if exists public.storefront_products;
+create view public.storefront_products
 with (security_invoker = on) as
 select
   tenant_id,
