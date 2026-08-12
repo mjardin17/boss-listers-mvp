@@ -1,9 +1,16 @@
 // functions/api/commercials.js
-// Trigger and track commercial generation
+// Trigger and track commercial generation — tenant-scoped.
+//
+// Previously unscoped: this route used the service-role REST client
+// (bypasses RLS) with no tenant_id filter at all, so once auth.js turned
+// on real authentication, any signed-up tenant could read or create
+// commercial_jobs belonging to any other tenant just by guessing/reusing
+// a jobId. Fixed by requiring data.tenantId (from _middleware.js) on
+// every query, same pattern as lib/supabaseListings.js.
 
 import { rest } from '../../lib/supabaseRest.js';
 
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet({ request, env, data }) {
   try {
     const url = new URL(request.url);
     const jobId = url.searchParams.get('jobId');
@@ -15,15 +22,19 @@ export async function onRequestGet({ request, env }) {
       );
     }
 
-    const job = await rest(env, 'GET', `commercial_jobs?id=eq.${jobId}`, null);
-    if (!job.data || job.data.length === 0) {
+    const rows = await rest(
+      env,
+      'GET',
+      `commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(data.tenantId)}`,
+    );
+    if (!rows.length) {
       return new Response(
         JSON.stringify({ ok: false, error: 'Not found' }),
         { status: 404, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    return new Response(JSON.stringify({ ok: true, job: job.data[0] }), {
+    return new Response(JSON.stringify({ ok: true, job: rows[0] }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
@@ -36,7 +47,7 @@ export async function onRequestGet({ request, env }) {
   }
 }
 
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost({ request, env, data }) {
   try {
     const body = await request.json();
     const { listingId, images, productName, description, price, sessionId } = body;
@@ -48,11 +59,26 @@ export async function onRequestPost({ request, env }) {
       );
     }
 
+    // Verify the listing being turned into a commercial actually belongs
+    // to the caller's tenant before creating anything or spending on the
+    // video pipeline webhook with someone else's data.
+    const owned = await rest(
+      env,
+      'GET',
+      `listings?id=eq.${encodeURIComponent(listingId)}&tenant_id=eq.${encodeURIComponent(data.tenantId)}&select=id`,
+    );
+    if (!owned.length) {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Listing not found' }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     const jobId = `commercial_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    // Store job in Supabase
     await rest(env, 'POST', 'commercial_jobs', {
       id: jobId,
+      tenant_id: data.tenantId,
       listing_id: listingId,
       product_name: productName,
       images: images,
@@ -63,7 +89,6 @@ export async function onRequestPost({ request, env }) {
       session_id: sessionId
     });
 
-    // Queue video generation via webhook to video-bot-pipeline
     if (env.VIDEO_PIPELINE_WEBHOOK_URL) {
       queueVideoGeneration(env, jobId, {
         listingId,

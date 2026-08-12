@@ -7,7 +7,7 @@ function assertConfigured(env) {
   }
 }
 
-async function rest(env, method, path, body = null) {
+async function rest(env, method, path, body = null, extraHeaders = null) {
   assertConfigured(env);
   const url = `${env.SUPABASE_URL}/rest/v1${path}`;
   const opts = {
@@ -16,6 +16,7 @@ async function rest(env, method, path, body = null) {
       apikey: env.SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
       'Content-Type': 'application/json',
+      ...(extraHeaders || {}),
     },
   };
   if (body) opts.body = JSON.stringify(body);

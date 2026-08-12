@@ -5,13 +5,17 @@
 // so downstream functions/api/*.js handlers can scope every query.
 //
 // /api/health is exempt (liveness probe, no tenant data).
+// /api/billing is exempt because Stripe's webhook calls it directly and
+// cannot carry a Supabase bearer token — that route authenticates itself
+// (Stripe signature verification for webhooks, manual resolveSession()
+// for the create-checkout action). See functions/api/billing.js.
 // Previously this file skipped auth entirely ("MVP: Skip auth for testing")
 // — every /api/* route was unauthenticated in production. Fixed here as
 // part of adding real multi-tenant auth.
 
 import { resolveSession } from '../lib/supabaseAuth.js';
 
-const PUBLIC_PATHS = new Set(['/api/health']);
+const PUBLIC_PATHS = new Set(['/api/health', '/api/billing']);
 
 export async function onRequest(context) {
   const { request, env, next } = context;

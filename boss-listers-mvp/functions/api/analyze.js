@@ -100,6 +100,20 @@ export async function onRequestPost({ request, env, data }) {
       .filter((f) => f instanceof File)
       .slice(0, MAX_PHOTOS);
 
+    // The dev-mode route this replaces (pages/api/analyze.js) enforced a
+    // per-file size cap via formidable; that enforcement did not carry
+    // over when this was ported to the Workers runtime, leaving uploads
+    // unbounded before they hit the paid OpenAI Vision call. Enforced
+    // here, before any Storage upload or Vision spend.
+    const maxUploadBytes = Number(env.MAX_UPLOAD_BYTES || 1_200_000);
+    const oversized = files.find((f) => f.size > maxUploadBytes);
+    if (oversized) {
+      return jsonResponse(
+        { ok: false, error: `Photo too large: ${oversized.name || 'file'} exceeds ${Math.round(maxUploadBytes / 1024)}KB` },
+        413,
+      );
+    }
+
     const field = (key, fallback = '') => {
       const v = form.get(key);
       return v === null || v === undefined ? fallback : String(v);

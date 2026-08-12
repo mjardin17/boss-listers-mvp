@@ -53,7 +53,7 @@ async function getListing(env, tenantId, id) {
   const rows = await rest(
     env,
     'GET',
-    `/listings?id=eq.${id}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
+    `/listings?id=eq.${encodeURIComponent(id)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
   );
   if (!rows.length) return null;
   const r = rows[0];
@@ -74,7 +74,7 @@ async function deleteListing(env, tenantId, id) {
   const rows = await rest(
     env,
     'DELETE',
-    `/listings?id=eq.${id}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
+    `/listings?id=eq.${encodeURIComponent(id)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
     null,
   );
   return rows.length > 0;
