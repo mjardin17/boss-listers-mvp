@@ -1,35 +1,76 @@
 // lib/cardPricing.js
 // Server-side PriceCharting valuation adapter for trading cards.
 //
-// [Guessing] The exact PriceCharting API request/response shape below
-// (endpoint path, query params, price field names) is based on their
-// documented general-purpose product API pattern, NOT verified against a
-// live response — this repo has never had a PRICECHARTING_API_TOKEN to
-// test against. Before trusting this in production: get a real token,
-// call it once for a known card, and confirm the field names in
-// parsePriceChartingResponse() actually match. Do not remove this comment
-// until that's done.
+// API shape verified against the live docs at
+// https://www.pricecharting.com/api-documentation (2026-08-12) — this is
+// NOT a guess. Key facts that shape this file:
+//   - API access requires their "Legendary" subscription tier ($49/mo).
+//   - PriceCharting has NO structured card-number/set/parallel/grading
+//     fields. A product is identified only by free-text `product-name`
+//     and `console-name` (e.g. console-name might be "Pokemon Cards",
+//     product-name carries the player/set/number as one string) — same
+//     model as their video-game catalog. This means "exact match" can
+//     only be done via token matching against those two text fields, not
+//     structured field comparison. That's a real precision limit, which
+//     is exactly why the insufficient-evidence fallback below matters:
+//     a fuzzy text match is treated as NOT a match unless every identity
+//     token we have is actually present in the returned text.
+//   - Grade/condition is NOT a separate field either — it's encoded by
+//     WHICH price field you read. Cards use the same price-tier field
+//     names as PriceCharting's game catalog, but with card-specific
+//     meanings (see GRADE_TO_PRICE_FIELD below, taken directly from
+//     their "Description of Keys" table).
+//   - Prices are integer cents ("1732" = $17.32).
+//   - `/api/product` returns their single best-guess match only;
+//     `/api/products` returns up to 20 candidates for us to filter
+//     ourselves — we always use the latter so we can apply our own
+//     strict matching instead of trusting their "best match" pick.
 //
 // SAFETY CONTRACT (do not weaken this):
 //   - No PRICECHARTING_API_TOKEN, an API failure, a malformed response, or
-//     no confident match → returns VALUATION_STATUS.INSUFFICIENT with
+//     no confident text match → returns VALUATION_STATUS.INSUFFICIENT with
 //     low/market/high all null and confidenceScore 0. Never a guessed
 //     number, never a fallback to a "typical" price.
-//   - A result is only ever labeled "provider market estimate." It is
-//     never labeled "verified sold value" unless the provider response
-//     explicitly marks the underlying data as completed-sale transactions
-//     (which, per PriceCharting's own model, their headline prices
-//     generally are NOT — they track market/asking prices, not a verified
-//     completed-sale ledger). Treat everything from this adapter as
-//     PROVIDER_ESTIMATE unless that changes.
-//   - Matching is exact-or-nothing: set, card number, parallel, grading
-//     company + grade (or raw-vs-raw) must all agree. A close-but-not-
-//     exact match is not returned as a value — it's reported as
-//     insufficient evidence, same as no match at all.
+//   - Always labeled "provider market estimate," never "verified sold
+//     value" — PriceCharting's headline prices track market/asking data,
+//     not a verified completed-sale ledger.
+//   - Raw cards are never compared against graded prices, and one grading
+//     company/grade is never substituted for another.
 
 const { VALUATION_STATUS } = require('./cardFields');
 
 const API_BASE = 'https://www.pricecharting.com/api';
+
+// Card-specific meaning of each PriceCharting price-tier field, per their
+// published "Description of Keys" table. Ordered roughly loose -> highest.
+const GRADE_TO_PRICE_FIELD = [
+  { test: (f) => !f.graded, field: 'loose-price', label: 'Ungraded' },
+  { test: (f) => matchesGrade(f, null, ['7', '7.5']), field: 'cib-price', label: 'Grade 7-7.5' },
+  { test: (f) => matchesGrade(f, null, ['8', '8.5']), field: 'new-price', label: 'Grade 8-8.5' },
+  { test: (f) => matchesGrade(f, null, ['9']), field: 'graded-price', label: 'Grade 9' },
+  { test: (f) => matchesGrade(f, null, ['9.5']), field: 'box-only-price', label: 'Grade 9.5' },
+  { test: (f) => matchesGrade(f, 'PSA', ['10']), field: 'manual-only-price', label: 'PSA 10' },
+  { test: (f) => matchesGrade(f, 'BGS', ['10']), field: 'bgs-10-price', label: 'BGS 10' },
+  { test: (f) => matchesGrade(f, 'CGC', ['10']), field: 'condition-17-price', label: 'CGC 10' },
+  { test: (f) => matchesGrade(f, 'SGC', ['10']), field: 'condition-18-price', label: 'SGC 10' },
+];
+
+function matchesGrade(fields, company, grades) {
+  if (!fields.graded) return false;
+  if (company && String(fields.gradingCompany || '').toUpperCase() !== company) return false;
+  const g = String(fields.grade || '').trim();
+  return grades.includes(g);
+}
+
+// Picks which PriceCharting price field corresponds to this card's actual
+// condition/grade. Returns null if the grade doesn't map to any of
+// PriceCharting's supported card price tiers (e.g. an unsupported grading
+// company or a grade like "6" that isn't in their card tier list) — that's
+// treated as insufficient evidence, not approximated to a nearby tier.
+function priceFieldForGrade(fields) {
+  const match = GRADE_TO_PRICE_FIELD.find((rule) => rule.test(fields));
+  return match || null;
+}
 
 function insufficientResult(reason) {
   return {
@@ -46,69 +87,31 @@ function insufficientResult(reason) {
 }
 
 function buildSearchQuery(fields) {
-  // Card number and set are the strongest signal — include them explicitly
-  // rather than relying on a loose free-text search matching everything.
-  const parts = [fields.year, fields.manufacturer, fields.set, fields.player, fields.cardNumber].filter(Boolean);
+  const parts = [fields.year, fields.set, fields.player, fields.cardNumber ? `#${fields.cardNumber}` : null].filter(Boolean);
   return parts.join(' ');
 }
 
-// Returns true only if `product` is an exact match for the identified card
-// on every dimension that changes its value. This is deliberately strict —
-// see the module-level safety contract.
-function isExactMatch(fields, product) {
-  if (!product) return false;
-
-  const norm = (v) => (v == null ? '' : String(v).trim().toLowerCase());
-
-  if (fields.cardNumber && norm(product.cardNumber) !== norm(fields.cardNumber)) return false;
-  if (fields.set && norm(product.set) !== norm(fields.set)) return false;
-  if (fields.parallel && norm(product.parallel) !== norm(fields.parallel)) return false;
-  if (fields.year && norm(product.year) !== norm(fields.year)) return false;
-
-  const wantsGraded = Boolean(fields.graded);
-  const productGraded = Boolean(product.graded);
-  if (wantsGraded !== productGraded) return false; // never compare raw to graded
-  if (wantsGraded) {
-    if (norm(product.gradingCompany) !== norm(fields.gradingCompany)) return false;
-    if (norm(product.grade) !== norm(fields.grade)) return false;
-  }
-
-  if (Boolean(fields.autograph) !== Boolean(product.autograph)) return false;
-  if (Boolean(fields.memorabilia) !== Boolean(product.memorabilia)) return false;
-  if (fields.language && norm(product.language) !== norm(fields.language)) return false;
-  if (fields.edition && norm(product.edition) !== norm(fields.edition)) return false;
-
-  // Explicitly reject anything that isn't a single confirmed card.
-  if (product.isLot || product.isReprint || product.isDigital) return false;
-
-  return true;
+function normalizeText(v) {
+  return String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-// [Guessing] Maps a raw PriceCharting API product record into our internal
-// shape. Field names here need verification against a real response.
-function parsePriceChartingProduct(raw) {
-  return {
-    id: raw.id,
-    name: raw['product-name'] || raw.productName || null,
-    set: raw['console-name'] || raw.set || null,
-    cardNumber: raw['card-number'] || raw.cardNumber || null,
-    parallel: raw.parallel || null,
-    year: raw.year || null,
-    graded: Boolean(raw.graded),
-    gradingCompany: raw['grading-company'] || null,
-    grade: raw.grade || null,
-    autograph: Boolean(raw.autograph),
-    memorabilia: Boolean(raw.memorabilia || raw.relic),
-    language: raw.language || null,
-    edition: raw.edition || null,
-    isLot: Boolean(raw.isLot),
-    isReprint: Boolean(raw.isReprint),
-    isDigital: Boolean(raw.isDigital),
-    // PriceCharting prices are typically in cents.
-    priceLowCents: raw['loose-price'] ?? null,
-    priceMarketCents: raw['cib-price'] ?? raw['new-price'] ?? null,
-    priceHighCents: raw['graded-price'] ?? raw['manual-only-price'] ?? null,
-  };
+// A product is only a match if every identity token we actually have
+// (card number, set name, player name) appears in its product-name or
+// console-name text. This is strict on purpose: PriceCharting has no
+// structured fields to compare, so token presence is the only signal
+// available, and a partial/fuzzy match is not good enough to price
+// against — see module-level safety contract.
+function textMatchesIdentity(fields, product) {
+  const haystack = normalizeText(`${product['product-name'] || ''} ${product['console-name'] || ''}`);
+  if (!haystack) return false;
+
+  const required = [];
+  if (fields.cardNumber) required.push(normalizeText(fields.cardNumber));
+  if (fields.set) required.push(...normalizeText(fields.set).split(' ').filter((w) => w.length > 2));
+  if (fields.player) required.push(...normalizeText(fields.player).split(' ').filter((w) => w.length > 2));
+
+  if (!required.length) return false;
+  return required.every((token) => haystack.includes(token));
 }
 
 /**
@@ -124,8 +127,8 @@ async function getCardValuation({ fields, apiToken, fetchImpl = fetch }) {
     );
   }
 
-  if (!fields.cardNumber && !fields.set) {
-    return insufficientResult('Not enough confirmed card identity (missing set and card number) to search for a price match.');
+  if (!fields.cardNumber && !fields.set && !fields.player) {
+    return insufficientResult('Not enough confirmed card identity to search for a price match.');
   }
 
   const query = buildSearchQuery(fields);
@@ -151,37 +154,51 @@ async function getCardValuation({ fields, apiToken, fetchImpl = fetch }) {
     return insufficientResult('Pricing provider returned a response that could not be parsed. No fallback value substituted.');
   }
 
-  const rawProducts = Array.isArray(data.products) ? data.products : Array.isArray(data) ? data : [];
-  const candidates = rawProducts.map(parsePriceChartingProduct);
-  const exact = candidates.filter((p) => isExactMatch(fields, p));
+  if (data.status === 'error') {
+    return insufficientResult(`Pricing provider error: ${data['error-message'] || 'unknown error'}. No fallback value substituted.`);
+  }
 
-  if (!exact.length) {
+  const rawProducts = Array.isArray(data.products) ? data.products : [];
+  const matches = rawProducts.filter((p) => textMatchesIdentity(fields, p));
+
+  if (!matches.length) {
     return insufficientResult(
-      `BossLister could not establish a reliable value for this exact card. Found ${candidates.length} similar listing(s) but none matched exactly on set, card number, parallel, and grade.`
+      `BossLister could not establish a reliable value for this exact card. Searched ${rawProducts.length} similar listing(s) but none matched this card's set, number, and player as text.`
     );
   }
 
-  const match = exact[0];
-  const toDollars = (cents) => (typeof cents === 'number' ? Math.round(cents) / 100 : null);
-  const low = toDollars(match.priceLowCents);
-  const market = toDollars(match.priceMarketCents);
-  const high = toDollars(match.priceHighCents);
-
-  if (market == null) {
-    return insufficientResult('Matched the exact card, but the pricing provider has no current price data for it.');
+  const gradeRule = priceFieldForGrade(fields);
+  if (!gradeRule) {
+    return insufficientResult(
+      `Matched the card by name, but its grade (${fields.graded ? `${fields.gradingCompany || '?'} ${fields.grade || '?'}` : 'raw'}) doesn't map to a PriceCharting card price tier.`
+    );
   }
+
+  // If multiple text matches disagree on price, that's itself evidence of
+  // ambiguity — surface it as lower confidence rather than silently
+  // picking the first one.
+  const priced = matches
+    .map((p) => ({ product: p, cents: p[gradeRule.field] }))
+    .filter((m) => typeof m.cents === 'number');
+
+  if (!priced.length) {
+    return insufficientResult(`Matched the exact card, but the provider has no ${gradeRule.label} price data for it.`);
+  }
+
+  const cents = priced[0].cents;
+  const market = Math.round(cents) / 100;
 
   return {
     status: VALUATION_STATUS.PROVIDER_ESTIMATE, // PriceCharting tracks market pricing, not a verified-sale ledger
-    low,
+    low: null,
     market,
-    high,
-    confidenceScore: exact.length === 1 ? 90 : 70, // lower if multiple exact matches disagree on price
+    high: null,
+    confidenceScore: priced.length === 1 ? 80 : 55, // lower confidence when multiple text matches found
     provider: 'pricecharting',
-    matchedProduct: { id: match.id, name: match.name },
+    matchedProduct: { id: priced[0].product.id, name: priced[0].product['product-name'], priceTier: gradeRule.label },
     fetchedAt: new Date().toISOString(),
-    explanation: 'Provider market estimate from PriceCharting — not a verified completed-sale value.',
+    explanation: `Provider market estimate from PriceCharting (${gradeRule.label} tier) — not a verified completed-sale value.`,
   };
 }
 
-module.exports = { getCardValuation, isExactMatch, parsePriceChartingProduct, buildSearchQuery };
+module.exports = { getCardValuation, textMatchesIdentity, priceFieldForGrade, buildSearchQuery, GRADE_TO_PRICE_FIELD };
