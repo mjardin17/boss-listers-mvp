@@ -1,11 +1,6 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
-function getSessionId() {
-  if (typeof window === "undefined") return "anon";
-  return localStorage.getItem("boss_session") || "anon";
-}
-
 function formatDate(iso) {
   return new Date(iso).toLocaleString(undefined, {
     month: "short",
@@ -21,7 +16,6 @@ export default function HistoryPage() {
   const sessionIdRef = useRef("anon");
 
   useEffect(() => {
-    sessionIdRef.current = getSessionId();
     fetch(`/api/listings?sessionId=${encodeURIComponent(sessionIdRef.current)}`)
       .then((res) => res.json())
       .then((data) => {
@@ -30,12 +24,30 @@ export default function HistoryPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const summary = items.reduce(
+    (acc, item) => {
+      const input = item.payload?.input || {};
+      const outputs = item.payload?.outputs || [];
+      const first = outputs[0];
+      acc.inventoryValue += Number(first?.price || 0);
+      acc.potentialProfit += Number(first?.profit?.netProfit || 0);
+      acc.drafts += outputs.length ? 1 : 0;
+      acc.bestRoi = Math.max(acc.bestRoi, Number(first?.profit?.roiPct || 0));
+      if (input.analysisResult?.buyRecommendation === "buy") acc.buyCalls += 1;
+      return acc;
+    },
+    { inventoryValue: 0, potentialProfit: 0, drafts: 0, bestRoi: 0, buyCalls: 0 }
+  );
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
           <p className="eyebrow">Boss Listers AI</p>
           <h1>Product history</h1>
+          <p className="panel-sub">
+            Legacy view: current MVP scan history now lives on the dashboard Recent scans panel.
+          </p>
         </div>
         <nav>
           <Link href="/" className="nav-link">
@@ -48,6 +60,32 @@ export default function HistoryPage() {
       </header>
 
       <section className="panel history-page">
+        <p className="empty">
+          This legacy server history route is kept for compatibility. Use Dashboard for the active
+          local scan history, sourcing session, and inventory workflow.
+        </p>
+        <div className="history-summary">
+          <article>
+            <span>Inventory value</span>
+            <strong>${summary.inventoryValue.toFixed(0)}</strong>
+          </article>
+          <article>
+            <span>Potential profit</span>
+            <strong>${summary.potentialProfit.toFixed(0)}</strong>
+          </article>
+          <article>
+            <span>Saved drafts</span>
+            <strong>{summary.drafts}</strong>
+          </article>
+          <article>
+            <span>Best ROI</span>
+            <strong>{summary.bestRoi}%</strong>
+          </article>
+          <article>
+            <span>Buy calls</span>
+            <strong>{summary.buyCalls}</strong>
+          </article>
+        </div>
         <div className="section-heading">
           <div>
             <h2>Saved products</h2>
@@ -84,8 +122,27 @@ export default function HistoryPage() {
                     <span>profit</span>
                   </div>
                   <div>
+                    <strong>{input.analysisResult?.buyRecommendation || "review"}</strong>
+                    <span>sourcing call</span>
+                  </div>
+                  <div>
                     <strong>{formatDate(item.createdAt)}</strong>
                     <span>saved</span>
+                  </div>
+                  <div>
+                    <Link href={`/?listingId=${encodeURIComponent(item.id)}`} className="inline-link">
+                      Reopen
+                    </Link>
+                    <Link
+                      href={`/?listingId=${encodeURIComponent(item.id)}&duplicate=1`}
+                      className="inline-link"
+                    >
+                      Duplicate
+                    </Link>
+                    <span>
+                      {outputs.length ? "draft ready" : "needs review"}
+                      {item.updatedAt ? " / edited" : ""}
+                    </span>
                   </div>
                 </article>
               );

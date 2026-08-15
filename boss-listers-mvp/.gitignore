@@ -1,5 +1,17 @@
 node_modules
 .next
+.venv
+.recovery-backups
+playwright-report
+test-results
+*.log
+*.pid
+*.zip
+*.tsbuildinfo
+structure.txt
+scripts/*OPENAI_API_KEY*.txt
+scripts/*key*.txt
+scripts/boss-kisters-mvp.txt
 data
 public/uploads/*
 !public/uploads/.gitkeep

@@ -20,8 +20,8 @@ function computeFees({ marketplace, salePrice, weightLb }) {
     fixed = 0;
   }
   if (marketplace === "ebay") {
-    rate = 0.1325;
-    fixed = 0.3;
+    rate = 0.13;
+    fixed = 0;
   }
   if (marketplace === "mercari") {
     rate = 0.129;
@@ -35,25 +35,21 @@ function computeFees({ marketplace, salePrice, weightLb }) {
     rate = 0.05;
     fixed = 0.4;
   }
+  if (marketplace === "amazon") {
+    rate = 0.15;
+    fixed = 0.99;
+  }
+  if (marketplace === "walmart") {
+    rate = 0.12;
+    fixed = 0.75;
+  }
   if (marketplace === "etsy") {
     rate = 0.095;
     fixed = 0.45;
   }
-  if (marketplace === "tiktok") {
-    rate = 0.08;
-    fixed = 0.3;
-  }
   if (marketplace === "offerup") {
     rate = 0.129;
     fixed = 0;
-  }
-  if (marketplace === "amazon") {
-    rate = 0.15;
-    fixed = 0.3;
-  }
-  if (marketplace === "walmart") {
-    rate = 0.15;
-    fixed = 0.3;
   }
 
   const selling = +(price * rate + fixed).toFixed(2);

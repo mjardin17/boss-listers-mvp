@@ -45,14 +45,11 @@ function profitFor(platform, input, price) {
 const MARKETPLACES = [
   { key: "ebay", label: "eBay" },
   { key: "facebook", label: "Facebook Marketplace" },
-  { key: "mercari", label: "Mercari" },
   { key: "poshmark", label: "Poshmark" },
-  { key: "depop", label: "Depop" },
-  { key: "etsy", label: "Etsy" },
-  { key: "tiktok", label: "TikTok Shop" },
+  { key: "mercari", label: "Mercari" },
   { key: "offerup", label: "OfferUp" },
-  { key: "amazon", label: "Amazon" },
-  { key: "walmart", label: "Walmart Marketplace" }
+  { key: "etsy", label: "Etsy" },
+  { key: "depop", label: "Depop" },
 ];
 
 function generateForAll(input) {
@@ -61,30 +58,53 @@ function generateForAll(input) {
   const pricing = getPricingRecommendation(input);
   const price = pricing.selectedPrice;
   const tags = (input.tags || []).slice(0, 20);
+  const visibleDetails = (input.analysisResult?.keyDetails || []).slice(0, 3);
   const hashtags = makeHashtags(
-    tags.length ? tags : [brand, model, input.categoryHint || "resale"],
+    tags.length ? tags : [brand, model, input.categoryHint || "resale", ...visibleDetails],
     12
   );
+  const itemName = capWords(input.suggestedTitle || [brand, model].filter(Boolean).join(" "));
   const baseDescription =
     input.description ||
-    `${brand} ${model} in ${input.condition || "used"} condition. See photos.`;
+    `${itemName || `${brand} ${model}`.trim()} in ${input.condition || "used"} condition. See photos for details.`;
   const shortDescription = clampChars(baseDescription.trim(), 280);
-  const seoCore = [brand, model, input.categoryHint].filter(Boolean).join(" ");
+  const seoCore = [itemName || [brand, model].filter(Boolean).join(" "), input.categoryHint]
+    .filter(Boolean)
+    .join(" ");
+  const compactDetails = visibleDetails.join(", ");
+  const conditionLine = input.condition ? `Condition: ${input.condition}.` : "";
+  const shippingLine = estimateShippingText(input.weightLb);
 
   const drafts = [
     {
       marketplaceKey: "ebay",
-      title: clampChars(`${seoCore} ${input.condition || ""}`.trim(), 80),
-      description: `${shortDescription}\n\n${estimateShippingText(
-        input.weightLb
-      )}\nReturns: 30 days`
+      title: clampChars(
+        [
+          itemName || seoCore,
+          input.categoryHint,
+          visibleDetails[0],
+          input.condition
+        ]
+          .filter(Boolean)
+          .join(" "),
+        80
+      ),
+      description: [
+        shortDescription,
+        compactDetails ? `Key details: ${compactDetails}.` : "",
+        conditionLine,
+        shippingLine,
+        "Review photos for exact condition."
+      ]
+        .filter(Boolean)
+        .join("\n")
     },
     {
       marketplaceKey: "facebook",
-      title: clampChars(`${brand} ${model} - ${input.condition || "Used"}`, 60),
+      title: clampChars(`${itemName || `${brand} ${model}`.trim()} - ${input.condition || "Used"}`, 60),
       description: `${shortDescription}\nLocal pickup preferred. ${estimateShippingText(
         input.weightLb
-      )}\nCash or Venmo.`
+      )}`
     },
     {
       marketplaceKey: "mercari",
@@ -96,13 +116,18 @@ function generateForAll(input) {
     {
       marketplaceKey: "poshmark",
       title: clampChars(
-        `${brand} ${model} ${input.size ? "- " + input.size : ""}`.trim(),
+        `${itemName || `${brand} ${model}`.trim()} ${input.size ? "- " + input.size : ""}`.trim(),
         60
       ),
       description: `${shortDescription}\nMeasurements: ${
         input.size || "See photos"
       }\nCondition: ${input.condition || "Good"}\nBundle discount available.`,
       hashtags: makeHashtags([brand, model, ...tags, "poshmark"], 8)
+    },
+    {
+      marketplaceKey: "etsy",
+      title: clampChars(seoCore, 140),
+      description: `${shortDescription}\nConfirm handmade/vintage eligibility before posting.`
     },
     {
       marketplaceKey: "depop",
@@ -113,32 +138,11 @@ function generateForAll(input) {
       hashtags: makeHashtags([brand, model, ...tags, "depop"], 8)
     },
     {
-      marketplaceKey: "etsy",
-      title: clampChars(seoCore, 140),
-      description: `${shortDescription}\nProcessing time: 1-3 business days.`
-    },
-    {
-      marketplaceKey: "tiktok",
-      title: clampChars(`${seoCore} ${input.condition || ""}`.trim(), 60),
-      description: clampChars(`Hook: Great deal on ${brand} ${model}. Only $${price}.`, 140),
-      hashtags
-    },
-    {
       marketplaceKey: "offerup",
-      title: clampChars(`${brand} ${model} ${input.condition || ""}`.trim(), 70),
+      title: clampChars(`${itemName || `${brand} ${model}`.trim()} ${input.condition || ""}`.trim(), 70),
       description: `${shortDescription}\nMeetup or shipping available. ${estimateShippingText(
         input.weightLb
       )}`
-    },
-    {
-      marketplaceKey: "amazon",
-      title: clampChars(seoCore, 200),
-      description: `${shortDescription}\nCondition: ${input.condition || "Used"}`
-    },
-    {
-      marketplaceKey: "walmart",
-      title: clampChars(seoCore, 200),
-      description: `${shortDescription}\nCondition: ${input.condition || "Used"}`
     }
   ];
 
@@ -149,13 +153,10 @@ function generateForAll(input) {
     platform: marketplace.label,
     price,
     profit: profitFor(item.marketplaceKey, input, price),
-    copyBlocks:
-      item.marketplaceKey === "tiktok"
-        ? [{ field: "Video Caption", text: `${item.description}\n\n${hashtags.join(" ")}` }]
-        : [
-            { field: "Title", text: item.title },
-            { field: "Description", text: item.description }
-          ]
+    copyBlocks: [
+      { field: "Title", text: item.title },
+      { field: "Description", text: item.description }
+    ]
     };
   });
 }
