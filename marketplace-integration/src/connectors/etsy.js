@@ -1,14 +1,21 @@
 // Etsy — Open API v3 (✅ open platform)
-// Auth: x-api-key = `<keystring>:<shared_secret>` on EVERY request,
+// Auth: x-api-key = your app's keystring alone, on EVERY request,
 //       plus OAuth2 Bearer token (PKCE) for scoped write ops (listings_w).
+// PKCE (code_verifier) is what proves this app's identity during the OAuth
+// exchange -- Etsy v3 does not take a client_secret anywhere in this file.
+// ETSY_SHARED_SECRET is intentionally unused here; nothing in Etsy's v3 API
+// key auth wants it joined to the keystring.
 const BASE = 'https://openapi.etsy.com/v3';
 const TOKEN_URL = 'https://api.etsy.com/v3/public/oauth/token';
 const AUTHORIZE_URL = 'https://www.etsy.com/oauth/connect';
 
 function apiKeyHeader() {
-  const k = process.env.ETSY_KEYSTRING, s = process.env.ETSY_SHARED_SECRET;
-  if (!k || !s) throw new Error('ETSY_KEYSTRING / ETSY_SHARED_SECRET not set.');
-  return `${k}:${s}`;
+  // Was `${keystring}:${sharedSecret}` -- Etsy's x-api-key wants the
+  // keystring alone; the colon-joined pair failed auth on every call
+  // (listActiveListings, createListing, uploadListingImage, updateListing).
+  const k = process.env.ETSY_KEYSTRING;
+  if (!k) throw new Error('ETSY_KEYSTRING not set.');
+  return k;
 }
 function shopId() {
   const id = process.env.ETSY_SHOP_ID;
@@ -106,6 +113,12 @@ export async function createListing(body) {
 }
 
 // Upload an image to an existing listing (needs image bytes / url).
+// UNVERIFIED, unlike the x-api-key fix above: every other call in this file
+// is shop-scoped (/application/shops/{shopId}/listings/...) but this path
+// isn't, and Etsy v3's image endpoint may expect a multipart file upload
+// rather than a URL-encoded image_url field. Confirm against current Etsy
+// docs before this is ever called with real credentials -- not fixed here
+// because I'm not confident enough in either detail to change it blind.
 export async function uploadListingImage(listingId, { imageUrl } = {}) {
   const body = new URLSearchParams({ image_url: imageUrl });
   const res = await fetch(`${BASE}/application/listings/${listingId}/images`, {
