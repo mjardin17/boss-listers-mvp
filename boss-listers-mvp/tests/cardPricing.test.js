@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { getCardValuation, isExactMatch } = require('../lib/cardPricing');
+const { getCardValuation, textMatchesIdentity } = require('../lib/cardPricing');
 const { VALUATION_STATUS, emptyCardFields } = require('../lib/cardFields');
 
 const IDENTIFIED_CARD = {
@@ -80,53 +80,53 @@ test('getCardValuation: exact match returns PROVIDER_ESTIMATE (never VERIFIED_SA
   assert.notEqual(result.status, VALUATION_STATUS.VERIFIED_SALES);
 });
 
-test('isExactMatch: rejects when card number differs', () => {
+test('textMatchesIdentity: rejects when card number differs', () => {
   const product = { cardNumber: '999', set: 'Topps Chrome', graded: false };
-  assert.equal(isExactMatch(IDENTIFIED_CARD, product), false);
+  assert.equal(textMatchesIdentity(IDENTIFIED_CARD, product), false);
 });
 
-test('isExactMatch: rejects raw card matched against a graded product', () => {
+test('textMatchesIdentity: rejects raw card matched against a graded product', () => {
   const product = { cardNumber: '123', set: 'Topps Chrome', graded: true, gradingCompany: 'PSA', grade: '10' };
-  assert.equal(isExactMatch({ ...IDENTIFIED_CARD, graded: false }, product), false);
+  assert.equal(textMatchesIdentity({ ...IDENTIFIED_CARD, graded: false }, product), false);
 });
 
-test('isExactMatch: rejects graded card with different grade', () => {
+test('textMatchesIdentity: rejects graded card with different grade', () => {
   const wanted = { ...IDENTIFIED_CARD, graded: true, gradingCompany: 'PSA', grade: '9' };
   const product = { cardNumber: '123', set: 'Topps Chrome', graded: true, gradingCompany: 'PSA', grade: '10' };
-  assert.equal(isExactMatch(wanted, product), false);
+  assert.equal(textMatchesIdentity(wanted, product), false);
 });
 
-test('isExactMatch: rejects graded card with different grading company (same numeric grade)', () => {
+test('textMatchesIdentity: rejects graded card with different grading company (same numeric grade)', () => {
   const wanted = { ...IDENTIFIED_CARD, graded: true, gradingCompany: 'PSA', grade: '10' };
   const product = { cardNumber: '123', set: 'Topps Chrome', graded: true, gradingCompany: 'BGS', grade: '10' };
-  assert.equal(isExactMatch(wanted, product), false);
+  assert.equal(textMatchesIdentity(wanted, product), false);
 });
 
-test('isExactMatch: rejects multi-card lots', () => {
+test('textMatchesIdentity: rejects multi-card lots', () => {
   const product = { cardNumber: '123', set: 'Topps Chrome', graded: false, isLot: true };
-  assert.equal(isExactMatch(IDENTIFIED_CARD, product), false);
+  assert.equal(textMatchesIdentity(IDENTIFIED_CARD, product), false);
 });
 
-test('isExactMatch: rejects reprints', () => {
+test('textMatchesIdentity: rejects reprints', () => {
   const product = { cardNumber: '123', set: 'Topps Chrome', graded: false, isReprint: true };
-  assert.equal(isExactMatch(IDENTIFIED_CARD, product), false);
+  assert.equal(textMatchesIdentity(IDENTIFIED_CARD, product), false);
 });
 
-test('isExactMatch: rejects digital cards', () => {
+test('textMatchesIdentity: rejects digital cards', () => {
   const product = { cardNumber: '123', set: 'Topps Chrome', graded: false, isDigital: true };
-  assert.equal(isExactMatch(IDENTIFIED_CARD, product), false);
+  assert.equal(textMatchesIdentity(IDENTIFIED_CARD, product), false);
 });
 
-test('isExactMatch: rejects different parallel', () => {
+test('textMatchesIdentity: rejects different parallel', () => {
   const wanted = { ...IDENTIFIED_CARD, parallel: 'Gold Refractor' };
   const product = { cardNumber: '123', set: 'Topps Chrome', graded: false, parallel: 'Superfractor' };
-  assert.equal(isExactMatch(wanted, product), false);
+  assert.equal(textMatchesIdentity(wanted, product), false);
 });
 
-test('isExactMatch: accepts a genuine exact match on all dimensions', () => {
+test('textMatchesIdentity: accepts a genuine exact match on all dimensions', () => {
   const wanted = { ...IDENTIFIED_CARD, graded: true, gradingCompany: 'PSA', grade: '10', autograph: true };
   const product = {
     cardNumber: '123', set: 'Topps Chrome', year: '2024', graded: true, gradingCompany: 'PSA', grade: '10', autograph: true,
   };
-  assert.equal(isExactMatch(wanted, product), true);
+  assert.equal(textMatchesIdentity(wanted, product), true);
 });
