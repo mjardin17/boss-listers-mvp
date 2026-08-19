@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Boss Listers AI — Universal Marketplace Assistant",
+  "version": "2.0.0",
+  "description": "Cross-listing browser assistant for Boss Listers AI. Enables automated listing, inventory sync, and background session bridge for non-API marketplaces.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://www.facebook.com/*",
+    "https://www.mercari.com/*",
+    "https://poshmark.com/*",
+    "https://www.vinted.com/*",
+    "https://www.depop.com/*",
+    "https://www.grailed.com/*",
+    "https://offerup.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Boss Listers AI Bridge"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.facebook.com/marketplace/*",
+        "https://www.mercari.com/*",
+        "https://poshmark.com/*",
+        "https://www.vinted.com/*",
+        "https://www.depop.com/*",
+        "https://www.grailed.com/*",
+        "https://offerup.com/*"
+      ],
+      "js": ["content_script.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
