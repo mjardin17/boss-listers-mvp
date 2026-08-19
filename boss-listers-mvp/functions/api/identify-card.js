@@ -6,6 +6,7 @@
 
 import { identifyCard } from '../../lib/cardIdentification.js';
 import { getCardValuation } from '../../lib/cardPricing.js';
+import { getCardValuation as getCardValuationEbay } from '../../lib/cardPricingEbay.js';
 import { IDENTIFICATION_STATUS } from '../../lib/cardFields.js';
 import { rest } from '../../lib/supabaseRest.js';
 
@@ -64,19 +65,39 @@ export async function onRequestPost({ request, env, data }) {
       identification.status === IDENTIFICATION_STATUS.CONFIRMED ||
       identification.status === IDENTIFICATION_STATUS.LIKELY;
 
-    const valuation = canPrice
-      ? await getCardValuation({ fields: identification.fields, apiToken: env.PRICECHARTING_API_TOKEN })
-      : {
+    let valuation;
+    if (!canPrice) {
+      valuation = {
+        status: 'insufficient',
+        low: null,
+        market: null,
+        high: null,
+        confidenceScore: 0,
+        provider: 'none',
+        matchedProduct: null,
+        fetchedAt: new Date().toISOString(),
+        explanation: 'Card identity not yet confirmed — resolve the candidate match before pricing.',
+      };
+    } else {
+      // Try eBay first (free), then fall back to PriceCharting
+      if (env.EBAY_APP_TOKEN) {
+        valuation = await getCardValuationEbay(identification.fields, env.EBAY_APP_TOKEN);
+      } else if (env.PRICECHARTING_API_TOKEN) {
+        valuation = await getCardValuation({ fields: identification.fields, apiToken: env.PRICECHARTING_API_TOKEN });
+      } else {
+        valuation = {
           status: 'insufficient',
           low: null,
           market: null,
           high: null,
           confidenceScore: 0,
-          provider: 'pricecharting',
+          provider: 'none',
           matchedProduct: null,
           fetchedAt: new Date().toISOString(),
-          explanation: 'Card identity not yet confirmed — resolve the candidate match before pricing.',
+          explanation: 'No pricing provider configured. Set EBAY_APP_TOKEN or PRICECHARTING_API_TOKEN in your environment.',
         };
+      }
+    }
 
     return jsonResponse({
       ok: true,
