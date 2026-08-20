@@ -1,21 +1,37 @@
 // Etsy — Open API v3 (✅ open platform)
-// Auth: x-api-key = your app's keystring alone, on EVERY request,
+// Auth: x-api-key = `<keystring>:<shared_secret>` on EVERY request,
 //       plus OAuth2 Bearer token (PKCE) for scoped write ops (listings_w).
-// PKCE (code_verifier) is what proves this app's identity during the OAuth
-// exchange -- Etsy v3 does not take a client_secret anywhere in this file.
-// ETSY_SHARED_SECRET is intentionally unused here; nothing in Etsy's v3 API
-// key auth wants it joined to the keystring.
+// PKCE (code_verifier) proves this app's identity during the OAuth exchange;
+// the shared secret is separately required by the API-key header itself.
 const BASE = 'https://openapi.etsy.com/v3';
 const TOKEN_URL = 'https://api.etsy.com/v3/public/oauth/token';
 const AUTHORIZE_URL = 'https://www.etsy.com/oauth/connect';
 
 function apiKeyHeader() {
-  // Was `${keystring}:${sharedSecret}` -- Etsy's x-api-key wants the
-  // keystring alone; the colon-joined pair failed auth on every call
-  // (listActiveListings, createListing, uploadListingImage, updateListing).
+  // VERIFIED AGAINST LIVE ETSY 2026-08-20 — do not "simplify" this again.
+  // Probed GET https://openapi.etsy.com/v3/application/openapi-ping with each
+  // candidate header against the real production API:
+  //   x-api-key: <keystring>                  -> 403 "Shared secret is
+  //                                              required in x-api-key header."
+  //   x-api-key: <shared_secret>              -> 403 "API key not found..."
+  //   x-api-key: <keystring>:<shared_secret>  -> 200 {"application_id":...}
+  //
+  // Commit 9ba86b3 (2026-08-16) changed this to the keystring alone and broke
+  // every authenticated Etsy call. Its own message says "Verified: mocked
+  // fetch shows x-api-key now carries the keystring alone" — it asserted
+  // against a mock, which can only confirm the code matches the author's
+  // intent, never that the intent matches Etsy. Restored here with evidence
+  // from the live API instead.
   const k = process.env.ETSY_KEYSTRING;
   if (!k) throw new Error('ETSY_KEYSTRING not set.');
-  return k;
+  const s = process.env.ETSY_SHARED_SECRET;
+  if (!s) {
+    throw new Error(
+      'ETSY_SHARED_SECRET not set. Etsy v3 requires x-api-key to be ' +
+      '`<keystring>:<shared_secret>`; the keystring alone returns 403.'
+    );
+  }
+  return `${k}:${s}`;
 }
 function shopId() {
   const id = process.env.ETSY_SHOP_ID;

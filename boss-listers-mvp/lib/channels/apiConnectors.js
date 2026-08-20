@@ -377,13 +377,26 @@ class EtsyConnector extends BaseConnector {
     return { status: CONNECTION_STATUS.CONFIG_REQUIRED, detail: "App credentials present — connect a shop via Connect Etsy to test a real listing call." };
   }
 
-  /** App-level ping — proves ETSY_KEYSTRING itself is valid, independent of
+  /** App-level ping — proves the app credentials are valid, independent of
    * any tenant's connection. Etsy's openapi-ping endpoint needs only the
-   * api key, no OAuth token, so this can run before any tenant connects. */
+   * api key, no OAuth token, so this can run before any tenant connects.
+   *
+   * x-api-key must be `<keystring>:<shared_secret>`. VERIFIED against the
+   * live production API 2026-08-20: the keystring alone returns
+   * 403 "Shared secret is required in x-api-key header."; the colon-joined
+   * pair returns 200 with the real application_id. Do not drop the secret. */
   async testConnection() {
+    const keystring = process.env.ETSY_KEYSTRING;
+    const sharedSecret = process.env.ETSY_SHARED_SECRET;
+    if (!keystring || !sharedSecret) {
+      return {
+        status: CONNECTION_STATUS.CONFIG_REQUIRED,
+        detail: "Etsy ping needs both ETSY_KEYSTRING and ETSY_SHARED_SECRET (x-api-key is the colon-joined pair)",
+      };
+    }
     try {
       const res = await fetch(`${EtsyConnector.API_BASE}/openapi-ping`, {
-        headers: { "x-api-key": process.env.ETSY_KEYSTRING },
+        headers: { "x-api-key": `${keystring}:${sharedSecret}` },
         signal: AbortSignal.timeout(10_000),
       });
       return res.ok
