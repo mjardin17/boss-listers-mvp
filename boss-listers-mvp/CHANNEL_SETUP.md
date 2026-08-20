@@ -43,10 +43,48 @@ and seeds the channel rows. From the viral-engine repo: `npx supabase db push`.
    - Each consumer degrades gracefully if the other is missing: without the Edge Function vars, sync stops but `/channels` may still show eBay as connected; without this app's vars, sync keeps running but `/channels` shows eBay as not connected.
 
 ### Etsy
-1. Register an app at https://www.etsy.com/developers/register (instant for personal use).
-2. Callback URL to whitelist: `https://YOUR_DEPLOYED_APP/api/channels/etsy/callback` (route to be added when you have the keystring).
-3. Env vars (server-side): `ETSY_KEYSTRING`, `ETSY_SHARED_SECRET`, `ETSY_REDIRECT_URI`, `ETSY_REFRESH_TOKEN` (after OAuth).
-4. Scopes requested: `listings_r listings_w transactions_r shops_r`.
+Same shared-app-registration, per-tenant-consent model as eBay above — one app
+registration serves every customer; each customer clicks **Connect Etsy** on
+`/channels` and consents with their own Etsy account. There is no single
+shared `ETSY_REFRESH_TOKEN` — each tenant's token is stored encrypted per-tenant
+(see `inventory-sync/supabase/migrations/0013-0015`).
+
+1. Register an app at https://www.etsy.com/developers/register.
+   Etsy reviews the request for `listings_w`/write scopes — **not instant**,
+   unlike what this doc previously said. As of 2026-08-20, approval is
+   pending; no confirmed turnaround time.
+2. Under "What type of application" pick **Seller Tools**; users = **Just
+   myself or colleagues**; commercial = **No**; scopes = **Upload or edit
+   listings** + **Read sales data**.
+3. This gives a **Keystring** and **Shared secret**. Set server-side:
+   `ETSY_KEYSTRING`, `ETSY_SHARED_SECRET`, `ETSY_REDIRECT_URI`.
+   Also set the public (non-secret) client-side pair used to build the
+   authorize URL: `NEXT_PUBLIC_ETSY_KEYSTRING` (same value as
+   `ETSY_KEYSTRING` — Etsy's Keystring doubles as the OAuth `client_id`,
+   it's not itself a secret), `NEXT_PUBLIC_ETSY_REDIRECT_URI` (same value as
+   `ETSY_REDIRECT_URI`).
+4. Redirect URI to register in the app's Settings AND set as
+   `ETSY_REDIRECT_URI`/`NEXT_PUBLIC_ETSY_REDIRECT_URI`:
+   `https://YOUR_DEPLOYED_APP/channels/etsy-callback`
+   — a real page (`pages/channels/etsy-callback.js`), not the API route
+   directly, same reasoning as eBay's callback (needs the customer's own
+   browser session to know which tenant is connecting).
+5. Scopes requested: `listings_r listings_w transactions_r shops_r`.
+6. Etsy uses OAuth 2.0 + **PKCE** (public-client style) — no client secret
+   in the token exchange. `pages/channels.js`'s `startEtsyConnect()`
+   generates the `code_verifier`/`code_challenge` client-side; the callback
+   page reads the verifier back out of `sessionStorage` and sends it to
+   `/api/channels/etsy/callback`, which does the actual exchange server-side.
+7. Etsy is shop-scoped, not just account-scoped — every listing call needs a
+   `shop_id`. The callback route looks this up automatically right after
+   connecting (`GET /v3/application/users/{user_id}/shops`) and stores it in
+   `tenant_marketplace_connections.metadata`. If that lookup fails, the
+   connection still saves but listing calls will refuse with a clear
+   "reconnect" error until the shop_id is resolved.
+8. [Likely, not yet exercised against a live token as of 2026-08-20 — Etsy
+   app registration was pending review this whole build. Re-verify the
+   token/shops endpoint response shapes the first time a real OAuth
+   consent actually completes.]
 
 ### Shopify (only if you open a Shopify store)
 Custom app in the store admin → Admin API token.

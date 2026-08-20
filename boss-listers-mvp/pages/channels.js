@@ -2,6 +2,84 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { requireSession, authedFetch } from "../lib/clientAuth";
 
+// Client ID and RuName are not secrets — they're the public half of the
+// OAuth authorize URL, same as any "Sign in with Google" client_id. The
+// actual secret (EBAY_CLIENT_SECRET) never leaves the server; it's only
+// used in pages/api/channels/ebay/callback.js during the code exchange.
+const EBAY_CLIENT_ID = process.env.NEXT_PUBLIC_EBAY_CLIENT_ID;
+const EBAY_RUNAME = process.env.NEXT_PUBLIC_EBAY_RUNAME;
+
+const EBAY_STATE_STORAGE_KEY = "boss_ebay_oauth_state";
+
+// Starts the eBay connect flow. Generates a random anti-CSRF state value,
+// stashes it in sessionStorage, then navigates. Without this, an attacker
+// could complete their OWN eBay OAuth consent, capture their own
+// authorization code, and trick a logged-in victim into opening
+// /channels/ebay-callback?code=<attacker's code> — the victim's session
+// would link the ATTACKER's eBay account to the VICTIM's tenant. The
+// callback page verifies the returned state matches before proceeding.
+function startEbayConnect() {
+  const state = crypto.randomUUID();
+  sessionStorage.setItem(EBAY_STATE_STORAGE_KEY, state);
+
+  const scope = "https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account";
+  const params = new URLSearchParams({
+    client_id: EBAY_CLIENT_ID,
+    redirect_uri: EBAY_RUNAME,
+    response_type: "code",
+    scope,
+    state,
+  });
+  window.location.href = `https://auth.ebay.com/oauth2/authorize?${params.toString()}`;
+}
+
+// Etsy — same shared-app-registration, per-tenant-consent pattern as eBay,
+// but OAuth 2.0 + PKCE (public client): no client secret ever appears
+// client-side, but a code_verifier has to be generated here, stashed for
+// the callback page to send back to the server, and proven via a SHA-256
+// code_challenge in this authorize request.
+const ETSY_KEYSTRING = process.env.NEXT_PUBLIC_ETSY_KEYSTRING;
+const ETSY_REDIRECT_URI = process.env.NEXT_PUBLIC_ETSY_REDIRECT_URI;
+const ETSY_OAUTH_SCOPES = "listings_r listings_w transactions_r shops_r";
+const ETSY_STATE_STORAGE_KEY = "boss_etsy_oauth_state";
+const ETSY_VERIFIER_STORAGE_KEY = "boss_etsy_code_verifier";
+
+function base64UrlEncode(bytes) {
+  let binary = "";
+  bytes.forEach((b) => { binary += String.fromCharCode(b); });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function generateCodeVerifier() {
+  const bytes = crypto.getRandomValues(new Uint8Array(64));
+  return base64UrlEncode(bytes); // ~86 chars, well within PKCE's 43-128 range
+}
+
+async function computeCodeChallenge(verifier) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
+async function startEtsyConnect() {
+  const state = crypto.randomUUID();
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = await computeCodeChallenge(codeVerifier);
+
+  sessionStorage.setItem(ETSY_STATE_STORAGE_KEY, state);
+  sessionStorage.setItem(ETSY_VERIFIER_STORAGE_KEY, codeVerifier);
+
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: ETSY_KEYSTRING,
+    redirect_uri: ETSY_REDIRECT_URI,
+    scope: ETSY_OAUTH_SCOPES,
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+  });
+  window.location.href = `https://www.etsy.com/oauth/connect?${params.toString()}`;
+}
+
 // Channels dashboard: honest per-channel status, live connection tests,
 // and the manual listing-package generator. No channel is ever shown as
 // "Connected" unless a real authenticated API test succeeded.
@@ -88,6 +166,8 @@ export default function ChannelsPage() {
   const [sku, setSku] = useState("");
   const [packages, setPackages] = useState([]);
   const [busy, setBusy] = useState(false);
+  // Keyed by marketplace id: { ebay: {connected, account_identifier}, etsy: {...} }
+  const [tenantConnections, setTenantConnections] = useState({});
 
   const loadChannels = useCallback(async () => {
     try {
@@ -100,10 +180,32 @@ export default function ChannelsPage() {
     }
   }, []);
 
+  // Per-tenant connection status per marketplace — distinct from the
+  // app-level "Test connection" above, which only proves the SHARED
+  // credentials work, not whether THIS customer has connected their own
+  // account/shop. Generalized to loop over both eBay and Etsy rather than
+  // duplicating the eBay-only version that existed before Etsy was added.
+  const loadTenantConnections = useCallback(async () => {
+    const results = {};
+    await Promise.all(
+      ["ebay", "etsy"].map(async (marketplace) => {
+        try {
+          const res = await authedFetch(`/api/channels/${marketplace}/status`);
+          const data = await res.json();
+          if (data.ok) results[marketplace] = data;
+        } catch {
+          // Non-fatal — that card just shows "not connected" if this fails.
+        }
+      })
+    );
+    setTenantConnections(results);
+  }, []);
+
   useEffect(() => {
     if (!requireSession()) return;
     loadChannels();
-  }, [loadChannels]);
+    loadTenantConnections();
+  }, [loadChannels, loadTenantConnections]);
 
   async function runTest(channelId) {
     setTesting(channelId);
@@ -172,6 +274,29 @@ export default function ChannelsPage() {
               </div>
               <p style={{ fontSize: 13, color: "#4b5563", minHeight: 40 }}>{ch.detail}</p>
               {ch.last_sync_at && <p style={{ fontSize: 12 }}>Last sync: {ch.last_sync_at}</p>}
+
+              {(ch.id === "ebay" || ch.id === "etsy") && (() => {
+                const conn = tenantConnections[ch.id];
+                const connectFn = ch.id === "ebay" ? startEbayConnect : startEtsyConnect;
+                const label = ch.id === "ebay" ? "eBay" : "Etsy";
+                return (
+                  <div style={{ margin: "8px 0", padding: 10, borderRadius: 8, background: conn?.connected ? "#f0fdf4" : "#f9fafb" }}>
+                    {conn?.connected ? (
+                      <p style={{ fontSize: 13, margin: 0, color: "#166534" }}>
+                        ✓ Your {label} {ch.id === "etsy" ? "shop" : "account"} is connected{conn.account_identifier ? ` (${conn.account_identifier})` : ""}.
+                      </p>
+                    ) : (
+                      <>
+                        <p style={{ fontSize: 13, margin: "0 0 8px" }}>Connect your own {label} {ch.id === "etsy" ? "shop" : "account"} to start listing.</p>
+                        <button type="button" onClick={connectFn} className="btn-primary" style={{ fontSize: 13 }}>
+                          Connect {label}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {ch.mode === "api" && (
                   <button type="button" disabled={testing === ch.id} onClick={() => runTest(ch.id)}>
