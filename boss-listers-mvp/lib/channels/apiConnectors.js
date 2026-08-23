@@ -547,10 +547,18 @@ class EtsyConnector extends BaseConnector {
       shopId = cached.shopId;
     }
 
+    // api_key must be the colon-joined "<keystring>:<shared_secret>" pair —
+    // EtsyListingClient.__init__ (lib/etsy_listing.py) rejects a bare
+    // keystring outright with EtsyValidationError before any network call,
+    // exactly matching what testConnection() above already found live: a
+    // bare keystring gets 403 "Shared secret is required in x-api-key
+    // header." A prior version of this line sent the bare keystring, which
+    // would have failed every single Etsy listing call, including dry-run
+    // drafts, on first use.
     const requestBody = {
       access_token: accessToken || "dry-run-placeholder",
       shop_id: shopId || "dry-run-placeholder",
-      api_key: process.env.ETSY_KEYSTRING,
+      api_key: `${process.env.ETSY_KEYSTRING}:${process.env.ETSY_SHARED_SECRET}`,
       product,
       dry_run: dryRun,
       target_state: targetState,
@@ -705,6 +713,130 @@ class WooCommerceConnector extends BaseConnector {
       ? { status: CONNECTION_STATUS.CONNECTED, detail: "WooCommerce REST API reachable" }
       : { status: CONNECTION_STATUS.CONFIG_REQUIRED, detail: `WooCommerce auth failed (HTTP ${res.status})` };
   }
+
+  /**
+   * Create a product listing via WooCommerce's REST API v3. Unlike
+   * eBay/Etsy, WooCommerce has no separate "offer" or "draft object" step —
+   * one POST creates the product with a `status` field. The safety model
+   * mirrors eBay/Etsy anyway for consistency: `dryRun` (default true)
+   * returns the payload without any network call; going live additionally
+   * requires `options.publish: true` AND `options.confirm === "PUBLISH_LIVE"`
+   * — so a caller can create real DRAFT products (visible only in the
+   * store's admin, not on the storefront) with just `dryRun: false`, the
+   * same middle ground Etsy's target_state:"draft" already has.
+   *
+   * @param {object} product { title, description, shortDescription, price,
+   *   sku, images: string[], quantity, condition }
+   * @param {object} [options]
+   * @param {boolean} [options.dryRun=true]
+   * @param {boolean} [options.publish=false] Only meaningful when dryRun is
+   *   false. false => creates a real draft product. true => goes live on
+   *   the storefront and additionally requires options.confirm.
+   * @param {string} [options.confirm] Must be exactly "PUBLISH_LIVE" to
+   *   publish; ignored otherwise.
+   * @returns {Promise<object>}
+   * @throws {WooCommerceListingError}
+   */
+  async createListing(product, options = {}) {
+    const { dryRun = true, publish = false, confirm } = options;
+
+    if (!product || !product.title) {
+      throw new WooCommerceListingError(
+        "invalid_product", "product.title is required.", { statusCode: 400 },
+      );
+    }
+    if (publish && confirm !== "PUBLISH_LIVE") {
+      throw new WooCommerceListingError(
+        "confirm_required",
+        "Publishing live requires options.publish=true AND options.confirm==='PUBLISH_LIVE'.",
+        { statusCode: 400 },
+      );
+    }
+
+    const payload = {
+      name: product.title,
+      type: "simple",
+      status: publish ? "publish" : "draft",
+      regular_price: typeof product.price === "number" ? product.price.toFixed(2) : String(product.price || ""),
+      description: product.description || "",
+      short_description: product.shortDescription || product.condition || "",
+      images: (product.images || []).filter(Boolean).map((src) => ({ src })),
+      manage_stock: true,
+      stock_quantity: Number.isFinite(product.quantity) ? product.quantity : 1,
+    };
+    if (product.sku) payload.sku = String(product.sku);
+
+    if (dryRun) {
+      return { ok: true, dry_run: true, published: false, payload };
+    }
+
+    if (!this.hasRequiredEnv(WooCommerceConnector.ENV)) {
+      throw new WooCommerceListingError(
+        "not_configured",
+        "WOOCOMMERCE_STORE_URL / WOOCOMMERCE_CONSUMER_KEY / WOOCOMMERCE_CONSUMER_SECRET are not set.",
+        { statusCode: 409 },
+      );
+    }
+
+    const base = WooCommerceConnector.normalizeUrl(process.env.WOOCOMMERCE_STORE_URL);
+    const auth = Buffer.from(
+      `${process.env.WOOCOMMERCE_CONSUMER_KEY}:${process.env.WOOCOMMERCE_CONSUMER_SECRET}`,
+    ).toString("base64");
+
+    let res;
+    try {
+      res = await fetch(`${base}/wp-json/wc/v3/products`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      throw new WooCommerceListingError(
+        "request_failed",
+        err.name === "TimeoutError" ? "WooCommerce did not respond within 15s" : `WooCommerce request failed: ${err.message}`,
+        { statusCode: 502 },
+      );
+    }
+
+    let body;
+    try {
+      body = await res.json();
+    } catch {
+      throw new WooCommerceListingError(
+        "bad_response", `WooCommerce returned a non-JSON response (HTTP ${res.status})`, { statusCode: 502 },
+      );
+    }
+
+    if (!res.ok) {
+      throw new WooCommerceListingError(
+        body?.code || "listing_failed",
+        body?.message || `WooCommerce returned HTTP ${res.status}`,
+        { statusCode: res.status, wooBody: body },
+      );
+    }
+
+    return {
+      ok: true,
+      dry_run: false,
+      published: payload.status === "publish",
+      productId: body.id,
+      permalink: body.permalink,
+      payload,
+    };
+  }
 }
 
-module.exports = { EbayConnector, EbayListingError, EtsyConnector, EtsyListingError, ShopifyConnector, WooCommerceConnector };
+/** Thrown by WooCommerceConnector.createListing() on any failure. Mirrors
+ * EbayListingError/EtsyListingError's shape for consistent caller handling. */
+class WooCommerceListingError extends Error {
+  constructor(code, message, { statusCode, wooBody } = {}) {
+    super(message);
+    this.name = "WooCommerceListingError";
+    this.code = code;
+    this.statusCode = statusCode || 502;
+    this.wooBody = wooBody;
+  }
+}
+
+module.exports = { EbayConnector, EbayListingError, EtsyConnector, EtsyListingError, ShopifyConnector, WooCommerceConnector, WooCommerceListingError };

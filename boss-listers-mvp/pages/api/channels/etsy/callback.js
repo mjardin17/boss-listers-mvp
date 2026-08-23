@@ -71,10 +71,18 @@ export default async function handler(req, res) {
   let shopId = null;
   try {
     const userId = tokenBody.access_token.split(".")[0];
+    // x-api-key must be colon-joined "<keystring>:<shared_secret>" — same
+    // format lib/etsy_listing.py's EtsyListingClient uses for every request,
+    // and the format apiConnectors.js's testConnection() verified live
+    // against openapi-ping (bare keystring -> 403 "Shared secret is required
+    // in x-api-key header."). A bare keystring here would silently fail this
+    // shop lookup on every real connect (caught by the empty catch below),
+    // meaning shopId would never populate and every listing attempt would
+    // then hit "etsy_shop_id_missing" — not obviously connected to this line.
     const shopsRes = await fetch(`https://openapi.etsy.com/v3/application/users/${userId}/shops`, {
       headers: {
         Authorization: `Bearer ${tokenBody.access_token}`,
-        "x-api-key": process.env.ETSY_KEYSTRING,
+        "x-api-key": `${process.env.ETSY_KEYSTRING}:${process.env.ETSY_SHARED_SECRET}`,
       },
       signal: AbortSignal.timeout(10_000),
     });
