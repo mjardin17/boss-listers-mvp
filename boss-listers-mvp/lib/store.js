@@ -35,6 +35,19 @@ async function saveListing(payload) {
   return item;
 }
 
+async function updateListing(id, payload) {
+  const existing = memory.listings[id];
+  if (!existing) return null;
+  const item = {
+    ...existing,
+    updatedAt: new Date().toISOString(),
+    payload
+  };
+  memory.listings[id] = item;
+  await saveFile();
+  return item;
+}
+
 async function listListings(sessionId) {
   await ensureInitialized();
   const all = Object.values(memory.listings || {});
@@ -68,4 +81,4 @@ async function deleteListing(id) {
   return false;
 }
 
-module.exports = { saveListing, listListings, getListing, deleteListing };
+module.exports = { saveListing, updateListing, listListings, getListing, deleteListing };
