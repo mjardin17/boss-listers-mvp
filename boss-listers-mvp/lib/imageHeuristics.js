@@ -1,7 +1,5 @@
 // lib/imageHeuristics.js
 const path = require("path");
-const exif = require("exif-parser");
-const fs = require("fs");
 
 function wordsFromFilename(name) {
   return name
@@ -196,29 +194,6 @@ async function inferFromFile(fullpath, originalName = "") {
   }
 
   out.tags = Array.from(new Set(out.tags)).slice(0, 20);
-  return out;
-}
-
-// Node/dev-mode path: filename heuristics + EXIF (pages/api/analyze.js,
-// local `next dev` only — fs and exif-parser don't exist in Workers).
-async function inferFromFile(fullpath) {
-  const out = inferFromFilename(path.basename(fullpath));
-
-  try {
-    const buf = fs.readFileSync(fullpath);
-    const parser = exif.create(buf);
-    const result = parser.parse();
-    if (result.tags) {
-      if (result.tags.Model && !out.titleHint)
-        out.titleHint = String(result.tags.Model);
-      if (result.tags.Make)
-        out.tags.push(String(result.tags.Make).toLowerCase());
-    }
-    out.tags = Array.from(new Set(out.tags)).slice(0, 20);
-  } catch (e) {
-    // ignore EXIF errors
-  }
-
   return out;
 }
 

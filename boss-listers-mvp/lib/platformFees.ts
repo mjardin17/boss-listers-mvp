@@ -1,4 +1,4 @@
-import { ResellerProduct, PlatformName, ResellerStats, SyncLogEntry } from "./types";
+import { ResellerProduct, PlatformName, ResellerStats, SyncLogEntry } from "./platformTypes";
 
 const todayStr = (offset: number = 0): string => {
   const d = new Date();
