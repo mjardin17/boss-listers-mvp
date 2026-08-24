@@ -1,7 +1,7 @@
 // functions/api/listings.js
 // GET/POST/DELETE listing history (via Supabase)
 
-import { listListings, getListing, saveListing, deleteListing } from '../../lib/supabaseListings.js';
+import { listListings, getListing, saveListing, deleteListing } from '../lib/supabaseListings.js';
 
 export async function onRequestGet({ request, env, data }) {
   try {

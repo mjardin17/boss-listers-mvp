@@ -4,11 +4,11 @@
 // analyze.js. Never auto-prices a NEEDS_REVIEW/UNKNOWN identification —
 // the caller must resolve a candidate first (see pages/card-scan.js).
 
-import { identifyCard } from '../../lib/cardIdentification.js';
-import { getCardValuation } from '../../lib/cardPricing.js';
-import { getCardValuation as getCardValuationEbay } from '../../lib/cardPricingEbay.js';
-import { IDENTIFICATION_STATUS } from '../../lib/cardFields.js';
-import { rest } from '../../lib/supabaseRest.js';
+import { identifyCard } from '../lib/cardIdentification.js';
+import { getCardValuation } from '../lib/cardPricing.js';
+import { getCardValuation as getCardValuationEbay } from '../lib/cardPricingEbay.js';
+import { IDENTIFICATION_STATUS } from '../lib/cardFields.js';
+import { rest } from '../lib/supabaseRest.js';
 
 const MAX_UPLOAD_BYTES_DEFAULT = 8_000_000; // cards need higher-res photos than the general scanner
 

@@ -101,6 +101,9 @@ export default function Home() {
   const [costOfGoods, setCostOfGoods] = useState("");
   const [weightLb, setWeightLb] = useState("1");
   const [description, setDescription] = useState("");
+  const [inventory, setInventory] = useState(demoProducts);
+  const [selectedSku, setSelectedSku] = useState(null);
+  const [publishingEbay, setPublishingEbay] = useState(false);
 
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -109,6 +112,17 @@ export default function Home() {
   useEffect(() => {
     requireSession();
     sessionIdRef.current = getSessionId();
+
+    // Load real inventory from Supabase
+    authedFetch("/api/inventory")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok && data.products?.length) {
+          setInventory(data.products);
+        }
+      })
+      .catch((err) => console.error("Failed to load inventory:", err));
+
     return () => {
       photoPreviews.forEach((url) => {
         if (url.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -171,19 +185,20 @@ export default function Home() {
   }
 
   function applyDemoProduct(product) {
-    setBrand(product.brand);
-    setModel(product.model);
-    setCondition(product.condition);
+    setBrand(product.brand || "");
+    setModel(product.model || "");
+    setCondition(product.condition || "Used");
     setSize(product.size || "");
-    setCategoryHint(product.categoryHint);
-    setSuggestedPrice(product.suggestedPrice);
-    setCostOfGoods(product.costOfGoods);
-    setWeightLb(product.weightLb);
-    setDescription(product.description);
+    setCategoryHint(product.categoryHint || "");
+    setSuggestedPrice(product.suggestedPrice || "");
+    setCostOfGoods(product.costOfGoods || "");
+    setWeightLb(product.weightLb || "1");
+    setDescription(product.description || "");
+    setSelectedSku(product.sku || `${product.brand}-${product.model}`);
     setPricing(null);
     setAnalysisResult(null);
     setOutputs([]);
-    showToast("Demo product loaded");
+    showToast("Product loaded - ready to list");
   }
 
   async function runAnalyze(generate) {
@@ -293,6 +308,52 @@ export default function Home() {
     anchor.click();
     URL.revokeObjectURL(anchor.href);
     showToast(`Exported ${item.platform}`);
+  }
+
+  async function publishToEbay() {
+    if (!selectedSku) {
+      showToast("Select a product first");
+      return;
+    }
+    const selectedProduct = inventory.find((p) => (p.sku || `${p.brand}-${p.model}`) === selectedSku);
+    if (!selectedProduct) {
+      showToast("Product not found");
+      return;
+    }
+    setPublishingEbay(true);
+    try {
+      const response = await fetch("http://localhost:8791/ebay/create-listing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sku: selectedProduct.sku || selectedSku,
+          title: brand || model || selectedProduct.title || "Item",
+          description: description || selectedProduct.description || "",
+          price: parseFloat(suggestedPrice) || 29.99,
+          quantity: 1,
+          condition: condition || "Used",
+          category_id: 261328,
+          cost_of_goods: parseFloat(costOfGoods) || 0,
+          dry_run: true,
+          confirm: null
+        })
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Listing service failed");
+      }
+      const result = await response.json();
+      if (result.payload) {
+        console.log("Dry-run payload:", result.payload);
+        showToast("Listing payload ready - confirm PUBLISH_LIVE to go live");
+      } else {
+        showToast("Dry-run complete - review the payload in console");
+      }
+    } catch (error) {
+      showToast(`Listing failed: ${error.message}`);
+    } finally {
+      setPublishingEbay(false);
+    }
   }
 
   return (
@@ -433,15 +494,15 @@ export default function Home() {
               </div>
             </div>
             <div className="demo-grid">
-              {demoProducts.map((product) => (
+              {inventory.map((product) => (
                 <button
                   type="button"
                   className="demo-card"
-                  key={`${product.brand}-${product.model}`}
+                  key={product.sku || `${product.brand}-${product.model}`}
                   onClick={() => applyDemoProduct(product)}
                 >
-                  <strong>{product.brand}</strong>
-                  <span>{product.model}</span>
+                  <strong>{product.brand || product.title}</strong>
+                  <span>{product.model || product.condition}</span>
                 </button>
               ))}
             </div>
@@ -599,6 +660,22 @@ export default function Home() {
                 Save product
               </button>
             </div>
+            {selectedSku && (
+              <div className="stack-actions">
+                <button
+                  type="button"
+                  className="btn-accent"
+                  onClick={publishToEbay}
+                  disabled={publishingEbay}
+                  style={{ marginTop: "1rem" }}
+                >
+                  {publishingEbay ? "Publishing to eBay..." : "List on eBay (Real)"}
+                </button>
+                <p className="panel-sub" style={{ marginTop: "0.5rem", fontSize: "0.85rem" }}>
+                  Publishes this item to your eBay account
+                </p>
+              </div>
+            )}
           </section>
         </aside>
       </div>

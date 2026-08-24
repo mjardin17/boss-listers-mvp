@@ -28,6 +28,22 @@ async function createTenant(accessToken, tenantName) {
   if (!res.ok) throw new Error(`Couldn't set up your workspace (${res.status})`);
 }
 
+// create_tenant_for_user always INSERTs a new tenant — calling it on every
+// sign-in would create a duplicate workspace per login. Check membership
+// first (RLS-scoped to the caller's own rows) and only create one if truly
+// missing — the real gap when Supabase requires email confirmation: signup
+// never got to call createTenant() because it only had an access_token on
+// auto-confirm, so the user is left permanently "authenticated but no
+// tenant" until sign-in backfills it here.
+async function hasTenant(accessToken) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/tenant_members?select=tenant_id&limit=1`, {
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Couldn't check your workspace (${res.status})`);
+  const rows = await res.json();
+  return rows.length > 0;
+}
+
 export default function Login() {
   const [mode, setMode] = useState("signin"); // "signin" | "signup"
   const [email, setEmail] = useState("");
@@ -54,6 +70,9 @@ export default function Login() {
         setSession({ accessToken: auth.access_token, refreshToken: auth.refresh_token, email });
       } else {
         const auth = await supabaseAuthCall("/auth/v1/token?grant_type=password", { email, password });
+        if (!(await hasTenant(auth.access_token))) {
+          await createTenant(auth.access_token, `${email}'s workspace`);
+        }
         setSession({ accessToken: auth.access_token, refreshToken: auth.refresh_token, email });
       }
       window.location.href = "/capture";

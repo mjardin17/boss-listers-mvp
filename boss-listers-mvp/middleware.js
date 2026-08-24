@@ -1,11 +1,27 @@
 // middleware.js
-// HTTP Basic Auth gate for all /api/* routes
-// Fails closed: if env vars are missing, returns 503
+// HTTP Basic Auth gate for all routes except _next static assets and health.
+// Fails closed: if env vars are missing, returns 503.
+//
+// Runs on Next.js Edge Runtime, which does NOT support Node's `crypto` module
+// (`timingSafeEqual` throws "The edge runtime does not support Node.js
+// 'crypto' module" on every call — this previously made EVERY login attempt
+// fail with "Invalid credentials" regardless of correct credentials, since
+// the throw was silently caught and mapped to a 401). Fixed by comparing
+// SHA-256 digests computed via Web Crypto's `crypto.subtle`, which IS
+// available in the Edge Runtime and gives the same constant-time-compare
+// property (fixed-length digest bytes, no early-exit on the raw secret).
 
 import { NextResponse } from 'next/server';
-import { timingSafeEqual } from 'crypto';
 
-export function middleware(request) {
+async function sha256Hex(value) {
+  const data = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export async function middleware(request) {
   const user = process.env.APP_BASIC_AUTH_USER;
   const pass = process.env.APP_BASIC_AUTH_PASS;
 
@@ -39,22 +55,20 @@ export function middleware(request) {
   }
 
   try {
-    const decoded = Buffer.from(encoded, 'base64').toString('utf-8');
+    const decoded = atob(encoded);
     const idx = decoded.indexOf(':');
     const username = idx === -1 ? decoded : decoded.slice(0, idx);
     const password = idx === -1 ? '' : decoded.slice(idx + 1);
 
-    const expectedUser = Buffer.from(user);
-    const expectedPass = Buffer.from(pass);
-    const actualUser = Buffer.from(username);
-    const actualPass = Buffer.from(password);
+    const [expectedUserHash, expectedPassHash, actualUserHash, actualPassHash] =
+      await Promise.all([
+        sha256Hex(user),
+        sha256Hex(pass),
+        sha256Hex(username),
+        sha256Hex(password),
+      ]);
 
-    if (
-      expectedUser.length !== actualUser.length ||
-      expectedPass.length !== actualPass.length ||
-      !timingSafeEqual(expectedUser, actualUser) ||
-      !timingSafeEqual(expectedPass, actualPass)
-    ) {
+    if (expectedUserHash !== actualUserHash || expectedPassHash !== actualPassHash) {
       return NextResponse.json(
         { ok: false, error: 'Unauthorized' },
         { status: 401 }

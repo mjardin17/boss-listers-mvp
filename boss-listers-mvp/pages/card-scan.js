@@ -222,7 +222,7 @@ export default function CardScan() {
                     }}
                   >
                     {photo ? (
-                      <img src={photo.previewUrl} alt={`${side} of card`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      <img src={photo.previewUrl} alt={`${side} of card`} style={{ width: "100%", height: "100%", objectFit: "cover", imageOrientation: "from-image" }} />
                     ) : (
                       <span style={{ color: "var(--muted, #9aa3b5)", fontSize: "1.5rem" }}>+</span>
                     )}

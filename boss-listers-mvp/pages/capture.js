@@ -111,7 +111,7 @@ export default function Capture() {
                 <img
                   src={p.previewUrl}
                   alt=""
-                  style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "var(--radius)" }}
+                  style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "var(--radius)", imageOrientation: "from-image" }}
                 />
                 <button
                   type="button"
@@ -201,7 +201,7 @@ export default function Capture() {
                 key={i}
                 src={p.previewUrl}
                 alt=""
-                style={{ width: 90, height: 90, objectFit: "cover", borderRadius: "var(--radius)", flexShrink: 0 }}
+                style={{ width: 90, height: 90, objectFit: "cover", borderRadius: "var(--radius)", flexShrink: 0, imageOrientation: "from-image" }}
               />
             ))}
           </div>

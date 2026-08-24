@@ -19,8 +19,8 @@
 // tenant_id so the webhook can attribute subscriptions correctly instead
 // of trusting a client-supplied sessionId alone.
 
-import { rest } from '../../lib/supabaseRest.js';
-import { resolveSession } from '../../lib/supabaseAuth.js';
+import { rest } from '../lib/supabaseRest.js';
+import { resolveSession } from '../lib/supabaseAuth.js';
 
 const PRICE_ID = 'price_boss_listers_monthly';
 

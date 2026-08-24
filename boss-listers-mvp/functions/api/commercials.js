@@ -8,7 +8,7 @@
 // a jobId. Fixed by requiring data.tenantId (from _middleware.js) on
 // every query, same pattern as lib/supabaseListings.js.
 
-import { rest } from '../../lib/supabaseRest.js';
+import { rest } from '../lib/supabaseRest.js';
 
 export async function onRequestGet({ request, env, data }) {
   try {

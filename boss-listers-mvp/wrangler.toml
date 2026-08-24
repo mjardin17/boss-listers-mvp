@@ -18,8 +18,8 @@ RATE_LIMIT_MAX = "10"
 ANALYZE_DAILY_BUDGET = "200"
 STRIPE_PRODUCT_ID = "prod_boss_listers_59"
 STRIPE_PRICE_ID = "price_boss_listers_monthly_59"
-VIDEO_PIPELINE_WEBHOOK_URL = "http://localhost:3001/webhook"
-VIDEO_PIPELINE_WEBHOOK_SECRET = "changeme"
+VIDEO_PIPELINE_WEBHOOK_URL = "http://localhost:8002/webhook"
+VIDEO_PIPELINE_WEBHOOK_SECRET = "boss-listers-webhook-secret-2026"
 
 [env.preview.vars]
 SUPABASE_URL = "https://irslzufsqjveyibkfjtz.supabase.co"

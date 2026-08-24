@@ -434,8 +434,15 @@ button {
   color: var(--muted);
 }
 
+.btn-accent {
+  background: linear-gradient(135deg, var(--accent), #5eead4);
+  color: #042f1a;
+  font-weight: 600;
+}
+
 .btn-primary:disabled,
-.btn-secondary:disabled {
+.btn-secondary:disabled,
+.btn-accent:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }

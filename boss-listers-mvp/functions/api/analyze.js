@@ -8,12 +8,12 @@
 // Tenant-scoped: data.tenantId comes from functions/_middleware.js, never
 // from the request itself.
 
-import { inferFromFilename } from '../../lib/imageHeuristics.js';
-import { generateForAll } from '../../lib/generator.js';
-import { getPricingRecommendation } from '../../lib/pricingIntelligence.js';
-import { analyzeProductImageFromBytes } from '../../lib/openaiVision.js';
-import { saveListing } from '../../lib/supabaseListings.js';
-import { rest } from '../../lib/supabaseRest.js';
+import { inferFromFilename } from '../lib/imageHeuristics.js';
+import { generateForAll } from '../lib/generator.js';
+import { getPricingRecommendation } from '../lib/pricingIntelligence.js';
+import { analyzeProductImageFromBytes } from '../lib/openaiVision.js';
+import { saveListing } from '../lib/supabaseListings.js';
+import { rest } from '../lib/supabaseRest.js';
 
 const MAX_PHOTOS = 8;
 
