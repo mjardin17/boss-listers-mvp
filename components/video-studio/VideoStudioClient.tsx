@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  useEffect,
   useMemo,
+  useRef,
   useState
 } from "react";
 
@@ -9,6 +11,12 @@ import type {
   VideoProject,
   VideoScene
 } from "../../lib/video-studio/types";
+
+const POLL_INTERVAL_MS = 2000;
+const IN_FLIGHT_STATUSES = new Set([
+  "QUEUED",
+  "RENDERING"
+]);
 
 function uid() {
   return (
@@ -49,6 +57,79 @@ export function VideoStudioClient({
     setBusy
   ] =
     useState(false);
+
+  const projectIdRef =
+    useRef<string | null>(
+      null
+    );
+
+  useEffect(() => {
+    projectIdRef.current =
+      project?.id || null;
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (
+      !project ||
+      !IN_FLIGHT_STATUSES.has(
+        project.renderStatus
+      )
+    ) {
+      return;
+    }
+
+    // Polls the real render status the worker process writes to disk —
+    // stops itself as soon as the status leaves QUEUED/RENDERING, or if
+    // the project changes out from under it (e.g. user navigates away).
+    const interval =
+      setInterval(
+        async () => {
+          const id =
+            projectIdRef.current;
+
+          if (!id) {
+            return;
+          }
+
+          try {
+            const response =
+              await fetch(
+                `/api/video-studio/projects/${id}`
+              );
+
+            if (
+              !response.ok
+            ) {
+              return;
+            }
+
+            const data =
+              await response.json();
+
+            if (
+              projectIdRef.current ===
+              id
+            ) {
+              setProject(
+                data.project
+              );
+            }
+          } catch {
+            // Transient poll failure — try again on the next tick rather
+            // than surfacing a disruptive error for a background check.
+          }
+        },
+        POLL_INTERVAL_MS
+      );
+
+    return () =>
+      clearInterval(
+        interval
+      );
+  }, [
+    project?.id,
+    project?.renderStatus
+  ]);
 
   const duration =
     useMemo(
