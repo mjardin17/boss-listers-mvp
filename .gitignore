@@ -20,3 +20,6 @@ public/uploads/*
 .vercel
 .env*
 secrets.txt
+
+.video-studio-data/
+*.mp4

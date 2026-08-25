@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.73",
+    "@remotion/bundler": "^4.0.517",
+    "@remotion/renderer": "^4.0.517",
     "@supabase/supabase-js": "^2.106.1",
     "ai": "^6.0.208",
     "browser-image-compression": "^2.0.2",
@@ -27,6 +29,7 @@
     "openai": "^6.38.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "remotion": "^4.0.517",
     "uuid": "^9.0.0",
     "zod": "^4.4.3"
   },

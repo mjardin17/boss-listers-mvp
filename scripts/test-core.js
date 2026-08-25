@@ -184,3 +184,127 @@ test("stock reconciliation locks inventory and delists other channels after sell
   assert.equal(result.platformListingStates[1].publishStatus, "DELISTED");
   assert.equal(result.platformListingStates.every((state) => state.syncState === "LOCKED"), true);
 });
+
+test("video studio: VideoProjectSchema accepts a minimal valid project with real defaults filled in", () => {
+  const { VideoProjectSchema } = loadTsModule("lib/video-studio/types.ts");
+  const project = VideoProjectSchema.parse({
+    id: "proj-1",
+    title: "Test Project",
+    projectType: "PRODUCT_COMMERCIAL",
+    aspectRatio: "9:16",
+    scenes: [
+      { id: "s1", assetUrl: "https://example.com/a.jpg", assetType: "image", durationSeconds: 3 }
+    ],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z"
+  });
+
+  assert.equal(project.fps, 30);
+  assert.equal(project.renderStatus, "DRAFT");
+  assert.equal(project.audio.musicVolume, 0.35);
+  assert.equal(project.cta.text, "Shop now");
+  assert.equal(project.scenes[0].transition, "fade");
+});
+
+test("video studio: VideoProjectSchema rejects a project with zero scenes", () => {
+  const { VideoProjectSchema } = loadTsModule("lib/video-studio/types.ts");
+  assert.throws(() => {
+    VideoProjectSchema.parse({
+      id: "proj-2",
+      title: "Empty",
+      projectType: "PRODUCT_COMMERCIAL",
+      aspectRatio: "9:16",
+      scenes: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    });
+  });
+});
+
+test("video studio: platform presets map each aspect ratio to the correct real dimensions", () => {
+  const { PLATFORM_PRESETS, getCanvas } = loadTsModule("lib/video-studio/presets.ts");
+
+  assert.deepEqual(PLATFORM_PRESETS["9:16"], { width: 1080, height: 1920, fps: 30 });
+  assert.deepEqual(PLATFORM_PRESETS["1:1"], { width: 1080, height: 1080, fps: 30 });
+  assert.deepEqual(PLATFORM_PRESETS["16:9"], { width: 1920, height: 1080, fps: 30 });
+  assert.deepEqual(getCanvas("9:16"), PLATFORM_PRESETS["9:16"]);
+});
+
+test("video studio: templates are data-driven and getTemplate falls back to the first template on an unknown id", () => {
+  const { VIDEO_TEMPLATES, getTemplate } = loadTsModule("lib/video-studio/templates.ts");
+
+  assert.equal(VIDEO_TEMPLATES.length, 6);
+  assert.equal(getTemplate("fast-product-sale").name, "Fast Product Sale");
+  assert.equal(getTemplate("does-not-exist"), VIDEO_TEMPLATES[0]);
+});
+
+test("video studio: buildListingVideoDraft converts a real listing into a scene-per-photo draft with price and CTA preserved", () => {
+  const presetsModule = loadTsModule("lib/video-studio/presets.ts");
+  const templatesModule = loadTsModule("lib/video-studio/templates.ts");
+  const { buildListingVideoDraft } = loadTsModule("lib/video-studio/draft.ts", {
+    "./presets": presetsModule,
+    "./templates": templatesModule
+  });
+
+  const draft = buildListingVideoDraft({
+    id: "listing-1",
+    inventoryId: "inv-1",
+    title: "2007 Bowman Chrome Adrian Peterson Rookie Card",
+    description: "HOF rookie card, moderate edge wear.",
+    price: 19.99,
+    photos: [
+      "https://i.ebayimg.com/images/g/NxAAAeSwUnlphyVD/s-l1600.jpg",
+      "https://i.ebayimg.com/images/g/RioAAeSw~8dphyVC/s-l1600.jpg"
+    ],
+    marketplace: "ebay",
+    listingUrl: "https://www.ebay.com/itm/123456",
+    brand: "Bowman",
+    category: "Trading Cards"
+  });
+
+  assert.equal(draft.scenes.length, 2);
+  assert.equal(draft.projectType, "PRODUCT_COMMERCIAL");
+  assert.equal(draft.aspectRatio, "9:16");
+  assert.equal(draft.scenes[0].headline, "2007 Bowman Chrome Adrian Peterson Rookie Card");
+  assert.equal(draft.scenes[draft.scenes.length - 1].headline, "$19.99");
+  assert.equal(draft.cta.destinationUrl, "https://www.ebay.com/itm/123456");
+  assert.equal(draft.cta.showQrCode, true);
+});
+
+test("video studio: buildListingVideoDraft falls back to a placeholder scene when a listing has no photos", () => {
+  const presetsModule = loadTsModule("lib/video-studio/presets.ts");
+  const templatesModule = loadTsModule("lib/video-studio/templates.ts");
+  const { buildListingVideoDraft } = loadTsModule("lib/video-studio/draft.ts", {
+    "./presets": presetsModule,
+    "./templates": templatesModule
+  });
+
+  const draft = buildListingVideoDraft({
+    id: "listing-2",
+    title: "No Photo Item",
+    photos: [],
+    price: null
+  });
+
+  assert.equal(draft.scenes.length, 1);
+  assert.equal(draft.scenes[0].assetUrl, "/video-studio/placeholder-product.png");
+  assert.equal(draft.cta.destinationUrl, "");
+  assert.equal(draft.cta.showQrCode, false);
+});
+
+test("video studio: buildListingVideoDraft respects the chosen template's project type and CTA default", () => {
+  const presetsModule = loadTsModule("lib/video-studio/presets.ts");
+  const templatesModule = loadTsModule("lib/video-studio/templates.ts");
+  const { buildListingVideoDraft } = loadTsModule("lib/video-studio/draft.ts", {
+    "./presets": presetsModule,
+    "./templates": templatesModule
+  });
+
+  const draft = buildListingVideoDraft(
+    { id: "listing-3", title: "Service job photo", photos: ["https://example.com/before.jpg"] },
+    "local-service"
+  );
+
+  assert.equal(draft.projectType, "SERVICE_COMMERCIAL");
+  assert.equal(draft.cta.text, "Get an estimate");
+});
