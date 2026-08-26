@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader, CheckCircle, AlertCircle, XCircle, SkipForward } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { PostProgressItem } from "../types/photo-workflow";
 
 interface PostProgressProps {
@@ -38,6 +39,8 @@ export function PostProgress({
   isPosting,
   onCancel,
 }: PostProgressProps) {
+  const [autoScroll, setAutoScroll] = useState(true);
+
   const stats = {
     total: progress.length,
     pending: progress.filter((p) => p.status === "pending").length,
@@ -55,11 +58,35 @@ export function PostProgress({
   const platformItems = progress.filter((p) => p.type === "platform");
   const marketplaceItems = progress.filter((p) => p.type === "marketplace");
 
+  // Auto-scroll to the first in-progress or error item
+  useEffect(() => {
+    if (autoScroll && isPosting) {
+      const firstUnfinished = progress.find(
+        (p) => p.status === "pending" || p.status === "in_progress" || p.status === "error"
+      );
+      if (firstUnfinished) {
+        const element = document.getElementById(`progress-item-${firstUnfinished.id}`);
+        element?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+  }, [progress, isPosting, autoScroll]);
+
   return (
     <div className="w-full">
-      <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-        Posting Progress
-      </h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+          Posting Progress
+        </h2>
+        <label className="flex items-center gap-2 text-xs cursor-pointer text-gray-600 dark:text-gray-400">
+          <input
+            type="checkbox"
+            checked={autoScroll}
+            onChange={(e) => setAutoScroll(e.target.checked)}
+            className="rounded"
+          />
+          Auto-scroll
+        </label>
+      </div>
 
       {/* Summary Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
@@ -105,7 +132,7 @@ export function PostProgress({
           <div
             className="h-full bg-gradient-to-r from-green-500 to-green-600 dark:from-green-600 dark:to-green-700 transition-all duration-500"
             style={{
-              width: `${(stats.success / stats.total) * 100}%`,
+              width: `${stats.total > 0 ? (stats.success / stats.total) * 100 : 0}%`,
             }}
           />
         </div>
@@ -120,11 +147,14 @@ export function PostProgress({
           <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
             📱 Social Platforms
           </h3>
-          <div className="space-y-2">
+          <div className="space-y-2 max-h-64 overflow-y-auto">
             {platformItems.map((item) => (
               <div
                 key={item.id}
-                className={`border rounded-lg p-3 flex items-center justify-between ${STATUS_COLORS[item.status]}`}
+                id={`progress-item-${item.id}`}
+                className={`border rounded-lg p-3 flex items-center justify-between transition-all ${
+                  STATUS_COLORS[item.status]
+                }`}
               >
                 <div className="flex items-center gap-3 flex-1">
                   <div className="flex-shrink-0">
@@ -141,7 +171,7 @@ export function PostProgress({
                     )}
                   </div>
                 </div>
-                <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-400 flex-shrink-0 ml-2">
                   {STATUS_TEXT[item.status]}
                 </span>
               </div>
@@ -156,11 +186,14 @@ export function PostProgress({
           <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
             🏪 Marketplaces
           </h3>
-          <div className="space-y-2">
+          <div className="space-y-2 max-h-64 overflow-y-auto">
             {marketplaceItems.map((item) => (
               <div
                 key={item.id}
-                className={`border rounded-lg p-3 flex items-center justify-between ${STATUS_COLORS[item.status]}`}
+                id={`progress-item-${item.id}`}
+                className={`border rounded-lg p-3 flex items-center justify-between transition-all ${
+                  STATUS_COLORS[item.status]
+                }`}
               >
                 <div className="flex items-center gap-3 flex-1">
                   <div className="flex-shrink-0">
@@ -177,7 +210,7 @@ export function PostProgress({
                     )}
                   </div>
                 </div>
-                <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-400 flex-shrink-0 ml-2">
                   {STATUS_TEXT[item.status]}
                 </span>
               </div>

@@ -11,6 +11,12 @@ interface ProductInfoProps {
   onUpdate: (updatedInfo: ProductInfoType) => void;
 }
 
+// Common field character limits
+const FIELD_LIMITS: Record<string, number> = {
+  title: 200,
+  description: 4000,
+};
+
 export function ProductInfo({
   productInfo,
   extracting,
@@ -115,47 +121,87 @@ export function ProductInfo({
   }) => {
     const displayValue = Array.isArray(value) ? value.join(", ") : String(value);
     const isEditing = editingField === field;
+    const limit = FIELD_LIMITS[field as string];
+    const charCount =
+      typeof displayValue === "string" ? displayValue.length : 0;
+    const isOverLimit = limit && charCount > limit;
 
     return (
       <div className="py-3 border-b border-gray-200 dark:border-gray-700 last:border-0">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-1">
           <label className="text-sm font-medium text-gray-600 dark:text-gray-400">
             {label}
           </label>
-          {!isEditing && (
-            <button
-              onClick={() => handleStartEdit(field)}
-              className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            >
-              Edit
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {limit && (
+              <span
+                className={`text-xs font-medium ${
+                  isOverLimit
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-gray-500 dark:text-gray-500"
+                }`}
+              >
+                {charCount}/{limit}
+              </span>
+            )}
+            {!isEditing && (
+              <button
+                onClick={() => handleStartEdit(field)}
+                className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              >
+                Edit
+              </button>
+            )}
+          </div>
         </div>
 
         {isEditing ? (
-          <div className="mt-2 flex gap-2">
-            <input
-              type={type}
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              autoFocus
-              className="flex-1 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={handleSaveEdit}
-              className="px-3 py-1.5 bg-blue-600 dark:bg-blue-700 text-white rounded text-sm font-medium hover:bg-blue-700 dark:hover:bg-blue-800 transition-colors"
-            >
-              Save
-            </button>
-            <button
-              onClick={() => setEditingField(null)}
-              className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-            >
-              Cancel
-            </button>
+          <div className="mt-2 flex flex-col gap-2">
+            {type === "textarea" ? (
+              <textarea
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                autoFocus
+                rows={4}
+                className="px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+            ) : (
+              <input
+                type={type}
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                autoFocus
+                className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            )}
+            {limit && editValue.length > limit && (
+              <p className="text-xs text-red-600 dark:text-red-400">
+                Text exceeds {limit} character limit by {editValue.length - limit} characters
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveEdit}
+                className="px-3 py-1.5 bg-blue-600 dark:bg-blue-700 text-white rounded text-sm font-medium hover:bg-blue-700 dark:hover:bg-blue-800 transition-colors"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setEditingField(null)}
+                className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         ) : (
-          <p className="mt-1 text-gray-900 dark:text-white font-medium">
+          <p
+            className={`mt-1 font-medium ${
+              isOverLimit
+                ? "text-red-600 dark:text-red-400"
+                : "text-gray-900 dark:text-white"
+            }`}
+          >
             {displayValue || "-"}
           </p>
         )}
@@ -231,7 +277,7 @@ export function ProductInfo({
 
       <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
         <p className="text-sm text-blue-600 dark:text-blue-400">
-          💡 Click "Edit" on any field to customize the details before posting
+          💡 Click "Edit" on any field to customize the details before posting. Character counts help ensure content fits platform limits.
         </p>
       </div>
     </div>

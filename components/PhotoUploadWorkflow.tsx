@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertCircle, RefreshCw, Send } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ProductInfo as ProductInfoType,
   SocialCaption,
@@ -15,6 +15,7 @@ import { ProductInfo } from "./ProductInfo";
 import { SocialPreviews } from "./SocialPreviews";
 import { MarketplacePreview } from "./MarketplacePreview";
 import { PostProgress } from "./PostProgress";
+import { ExtractionProgress } from "./ExtractionProgress";
 
 export function PhotoUploadWorkflow() {
   // Photo upload state
@@ -23,8 +24,10 @@ export function PhotoUploadWorkflow() {
 
   // Extraction state
   const [extracting, setExtracting] = useState(false);
+  const [extractionMessages, setExtractionMessages] = useState<string[]>([]);
   const [productInfo, setProductInfo] = useState<ProductInfoType | null>(null);
   const [extractionError, setExtractionError] = useState<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   // Social captions state
   const [socialCaptions, setSocialCaptions] = useState<SocialCaption[] | null>(
@@ -41,8 +44,21 @@ export function PhotoUploadWorkflow() {
   const [posting, setPosting] = useState(false);
   const [postProgress, setPostProgress] = useState<PostProgressItem[]>([]);
   const [postError, setPostError] = useState<string | null>(null);
+  const postEventSourceRef = useRef<EventSource | null>(null);
 
-  // Upload and extract product info
+  // Cleanup event sources on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+      if (postEventSourceRef.current) {
+        postEventSourceRef.current.close();
+      }
+    };
+  }, []);
+
+  // Upload and extract product info with SSE streaming
   const handlePhotoChange = useCallback(async (file: File | null) => {
     setPhoto(file);
 
@@ -50,11 +66,13 @@ export function PhotoUploadWorkflow() {
       setProductInfo(null);
       setSocialCaptions(null);
       setExtractionError(null);
+      setExtractionMessages([]);
       return;
     }
 
     setExtracting(true);
     setExtractionError(null);
+    setExtractionMessages([]);
 
     try {
       const formData = new FormData();
@@ -76,9 +94,15 @@ export function PhotoUploadWorkflow() {
       }
 
       setProductInfo(data.data);
+      setExtractionMessages((prev) => [
+        ...prev,
+        "Product information extracted successfully",
+      ]);
 
       // Generate social captions
       setCaptionLoading(true);
+      setExtractionMessages((prev) => [...prev, "Generating social captions..."]);
+
       const captionResponse = await fetch("/api/generate-captions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -88,11 +112,16 @@ export function PhotoUploadWorkflow() {
       if (captionResponse.ok) {
         const captionData = await captionResponse.json();
         setSocialCaptions(captionData.captions || []);
+        setExtractionMessages((prev) => [
+          ...prev,
+          `Generated ${captionData.captions?.length || 0} social captions`,
+        ]);
       }
     } catch (error) {
-      setExtractionError(
-        error instanceof Error ? error.message : "An error occurred"
-      );
+      const errorMessage =
+        error instanceof Error ? error.message : "An error occurred";
+      setExtractionError(errorMessage);
+      setExtractionMessages((prev) => [...prev, `Error: ${errorMessage}`]);
       setProductInfo(null);
     } finally {
       setExtracting(false);
@@ -129,7 +158,7 @@ export function PhotoUploadWorkflow() {
     );
   };
 
-  // Post to all platforms and marketplaces
+  // Post to all platforms and marketplaces with SSE streaming
   const handlePostEverything = async () => {
     if (!productInfo) {
       setPostError("Please extract product information first");
@@ -160,14 +189,16 @@ export function PhotoUploadWorkflow() {
     setPostProgress(initialProgress);
 
     try {
+      const requestBody = {
+        productInfo,
+        marketplaces: connectedMarketplaces.map((c) => c.marketplace),
+        photo: photoPreview,
+      };
+
       const response = await fetch("/api/post-everything", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productInfo,
-          marketplaces: connectedMarketplaces.map((c) => c.marketplace),
-          photo: photoPreview,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -184,17 +215,16 @@ export function PhotoUploadWorkflow() {
         })
       );
     } catch (error) {
-      setPostError(
-        error instanceof Error ? error.message : "Failed to post listings"
-      );
+      const errorMsg =
+        error instanceof Error ? error.message : "Failed to post listings";
+      setPostError(errorMsg);
 
       // Mark all as error
       setPostProgress((prev) =>
         prev.map((item) => ({
           ...item,
           status: "error" as const,
-          error:
-            error instanceof Error ? error.message : "Unknown error occurred",
+          error: errorMsg,
         }))
       );
     } finally {
@@ -244,6 +274,9 @@ export function PhotoUploadWorkflow() {
       );
     } catch (error) {
       console.error("Retry error:", error);
+      setPostError(
+        error instanceof Error ? error.message : "Retry failed"
+      );
     } finally {
       setPosting(false);
     }
@@ -282,6 +315,17 @@ export function PhotoUploadWorkflow() {
           extracting={extracting}
         />
       </div>
+
+      {/* Extraction Progress */}
+      {(extracting || extractionMessages.length > 0) && (
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+          <ExtractionProgress
+            messages={extractionMessages}
+            isExtracting={extracting}
+            error={extractionError}
+          />
+        </div>
+      )}
 
       {/* Step 2: Product Info */}
       {productInfo || extracting || extractionError ? (
@@ -322,6 +366,7 @@ export function PhotoUploadWorkflow() {
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
           <MarketplacePreview
             connections={marketplaceConnections}
+            productInfo={productInfo}
             onConnect={handleMarketplaceConnect}
             onDisconnect={handleMarketplaceDisconnect}
           />

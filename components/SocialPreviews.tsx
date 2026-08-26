@@ -35,6 +35,18 @@ const PLATFORM_ICONS: Record<string, string> = {
   threads: "💬",
 };
 
+// Platform-specific character limits
+const PLATFORM_LIMITS: Record<string, number> = {
+  instagram: 2200,
+  tiktok: 2200,
+  facebook: 63206,
+  twitter: 280,
+  pinterest: 500,
+  linkedin: 3000,
+  youtube_shorts: 5000,
+  threads: 500,
+};
+
 export function SocialPreviews({ captions, loading }: SocialPreviewsProps) {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -43,6 +55,16 @@ export function SocialPreviews({ captions, loading }: SocialPreviewsProps) {
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 2000);
   };
+
+  const getCharacterCount = (caption: string, hashtags: string[]): number => {
+    const hashtagString = hashtags.join(" ");
+    return caption.length + (hashtagString.length > 0 ? 1 + hashtagString.length : 0);
+  };
+
+  const isOverLimit = (
+    count: number,
+    limit: number
+  ): boolean => count > limit;
 
   if (loading) {
     return (
@@ -82,67 +104,88 @@ export function SocialPreviews({ captions, loading }: SocialPreviewsProps) {
       </h2>
 
       <div className="space-y-3">
-        {captions.map((caption, index) => (
-          <div
-            key={index}
-            className={`border rounded-lg p-4 transition-all ${PLATFORM_COLORS[caption.platform] || "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"}`}
-          >
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div>
-                <p className="font-semibold text-gray-900 dark:text-white capitalize flex items-center gap-2">
-                  <span className="text-lg">
-                    {PLATFORM_ICONS[caption.platform] || "📱"}
-                  </span>
-                  {caption.platform.replace("_", " ")}
-                </p>
-                {caption.mediaRecommendations && (
-                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                    {caption.mediaRecommendations}
+        {captions.map((caption, index) => {
+          const charCount = getCharacterCount(caption.caption, caption.hashtags);
+          const limit = PLATFORM_LIMITS[caption.platform] || 280;
+          const isOver = isOverLimit(charCount, limit);
+
+          return (
+            <div
+              key={index}
+              className={`border rounded-lg p-4 transition-all ${
+                isOver
+                  ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                  : PLATFORM_COLORS[caption.platform] ||
+                    "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-900 dark:text-white capitalize flex items-center gap-2">
+                    <span className="text-lg">
+                      {PLATFORM_ICONS[caption.platform] || "📱"}
+                    </span>
+                    {caption.platform.replace("_", " ")}
                   </p>
-                )}
-              </div>
-              <button
-                onClick={() =>
-                  handleCopy(
-                    `${caption.caption}\n\n${caption.hashtags.join(" ")}`,
-                    index
-                  )
-                }
-                className="flex-shrink-0 p-2 hover:bg-white/50 dark:hover:bg-white/10 rounded transition-colors"
-                title="Copy caption and hashtags"
-              >
-                {copiedIndex === index ? (
-                  <Check className="w-4 h-4 text-green-600 dark:text-green-400" />
-                ) : (
-                  <Copy className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                )}
-              </button>
-            </div>
-
-            <p className="text-gray-900 dark:text-white text-sm mb-3 leading-relaxed">
-              {caption.caption}
-            </p>
-
-            {caption.hashtags.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {caption.hashtags.map((tag, tagIndex) => (
-                  <span
-                    key={tagIndex}
-                    className="text-xs bg-white/40 dark:bg-white/10 px-2 py-1 rounded text-gray-700 dark:text-gray-300"
+                  <p
+                    className={`text-xs mt-1 font-medium ${
+                      isOver
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-gray-600 dark:text-gray-400"
+                    }`}
                   >
-                    {tag}
-                  </span>
-                ))}
+                    {charCount} / {limit} characters{" "}
+                    {isOver && "(Over limit)"}
+                  </p>
+                  {caption.mediaRecommendations && (
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                      {caption.mediaRecommendations}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() =>
+                    handleCopy(
+                      `${caption.caption}\n\n${caption.hashtags.join(" ")}`,
+                      index
+                    )
+                  }
+                  className="flex-shrink-0 p-2 hover:bg-white/50 dark:hover:bg-white/10 rounded transition-colors"
+                  title="Copy caption and hashtags"
+                >
+                  {copiedIndex === index ? (
+                    <Check className="w-4 h-4 text-green-600 dark:text-green-400" />
+                  ) : (
+                    <Copy className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  )}
+                </button>
               </div>
-            )}
-          </div>
-        ))}
+
+              <p className="text-gray-900 dark:text-white text-sm mb-3 leading-relaxed">
+                {caption.caption}
+              </p>
+
+              {caption.hashtags.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {caption.hashtags.map((tag, tagIndex) => (
+                    <span
+                      key={tagIndex}
+                      className="text-xs bg-white/40 dark:bg-white/10 px-2 py-1 rounded text-gray-700 dark:text-gray-300"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
         <p className="text-sm text-amber-600 dark:text-amber-400">
-          ⚡ Captions are AI-generated and optimized for each platform. Click
-          the copy icon to add them to your posts.
+          ⚡ Captions are AI-generated and optimized for each platform. Character
+          counts include hashtags. Click the copy icon to add them to your posts.
         </p>
       </div>
     </div>
