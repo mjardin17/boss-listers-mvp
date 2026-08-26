@@ -87,7 +87,8 @@ export async function POST(
 
   const project =
     await getVideoProject(
-      projectId
+      projectId,
+      session.tenantId
     );
 
   if (!project) {
@@ -104,6 +105,7 @@ export async function POST(
 
   await transitionRender(
     projectId,
+    session.tenantId,
     "QUEUED",
     {
       progress: 0
@@ -122,7 +124,8 @@ export async function POST(
       process.execPath,
       [
         worker,
-        projectId
+        projectId,
+        session.tenantId
       ],
       {
         detached: true,

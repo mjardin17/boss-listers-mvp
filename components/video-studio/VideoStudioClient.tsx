@@ -31,10 +31,10 @@ function uid() {
 }
 
 export function VideoStudioClient({
-  initialProject
+  projectId
 }: {
-  initialProject?:
-    | VideoProject
+  projectId?:
+    | string
     | null;
 }) {
   const [
@@ -44,8 +44,17 @@ export function VideoStudioClient({
     useState<
       VideoProject | null
     >(
-      initialProject ||
-        null
+      null
+    );
+
+  const [
+    loading,
+    setLoading
+  ] =
+    useState(
+      Boolean(
+        projectId
+      )
     );
 
   const [
@@ -69,6 +78,49 @@ export function VideoStudioClient({
     projectIdRef.current =
       project?.id || null;
   }, [project?.id]);
+
+  // The server component can't resolve a session (tokens live in
+  // localStorage, not a cookie — see lib/clientAuth.js), so this client
+  // component loads the project itself once it has a real token to send.
+  useEffect(() => {
+    if (!projectId) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response =
+          await authedFetch(
+            `/api/video-studio/projects/${projectId}`
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !cancelled &&
+          response.ok
+        ) {
+          setProject(
+            data.project
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(
+            false
+          );
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   useEffect(() => {
     if (
@@ -294,6 +346,14 @@ export function VideoStudioClient({
     });
 
     setAssetUrl("");
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6 text-zinc-300">
+        Loading project…
+      </div>
+    );
   }
 
   if (!project) {

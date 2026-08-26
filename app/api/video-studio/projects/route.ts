@@ -20,12 +20,10 @@ export const runtime =
 
 // These routes require a valid logged-in session, same as every other
 // /api/* route in this app (see lib/clientAuth.js) — before this they
-// were open to anyone, unauthenticated, which is not production-safe.
-// Note: project storage itself (lib/video-studio/projectStore.ts) is
-// still a flat filesystem, not yet tenant-scoped — this gate stops
-// anonymous access but does not yet isolate one tenant's projects from
-// another's. That's the "durable persistence" work still flagged as
-// separate, future scope.
+// were open to anyone, unauthenticated. Project storage is now tenant-
+// scoped Supabase (see 0011_video_studio_projects.sql), not a flat
+// filesystem, so session.tenantId is what actually isolates one tenant's
+// projects from another's.
 async function requireSession(
   request: Request
 ) {
@@ -70,7 +68,9 @@ export async function GET(
 
   return NextResponse.json({
     projects:
-      await listVideoProjects()
+      await listVideoProjects(
+        session.tenantId
+      )
   });
 }
 
@@ -104,7 +104,8 @@ export async function POST(
       {
         project:
           await saveVideoProject(
-            project
+            project,
+            session.tenantId
           )
       },
       {

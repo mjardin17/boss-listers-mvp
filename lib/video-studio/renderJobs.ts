@@ -6,6 +6,8 @@ import {
 export async function transitionRender(
   projectId: string,
 
+  tenantId: string,
+
   status:
     | "READY"
     | "QUEUED"
@@ -21,7 +23,8 @@ export async function transitionRender(
 ) {
   const project =
     await getVideoProject(
-      projectId
+      projectId,
+      tenantId
     );
 
   if (!project) {
@@ -57,6 +60,7 @@ export async function transitionRender(
   } as const;
 
   return saveVideoProject(
-    next
+    next,
+    tenantId
   );
 }

@@ -1,147 +1,97 @@
-import {
-  promises as fs
-} from "fs";
+// lib/video-studio/projectStore.ts
+// Real, tenant-scoped Supabase persistence — replaces the flat-filesystem
+// version this started with. Requires supabase/migrations/0011_video_studio_projects.sql
+// to have been applied (public.video_studio_projects table + RLS policies,
+// same pattern as lib/supabaseListings.js's tenant scoping).
+//
+// The whole VideoProject is stored as one jsonb column (see the migration's
+// own comment for why — same shape as public.listings' input/outputs
+// columns), so these functions parse/serialize the jsonb rather than
+// mapping individual scene/audio/cta fields to their own columns.
 
-import path from "path";
+import { rest } from "../supabaseRest";
 
 import {
   VideoProjectSchema,
   type VideoProject
 } from "./types";
 
-const ROOT =
-  process.env
-    .VIDEO_STUDIO_DATA_DIR ||
-  path.join(
-    process.cwd(),
-    ".video-studio-data"
-  );
+type Row = {
+  id: string;
+  tenant_id: string;
+  project: VideoProject;
+  render_status: string;
+  created_at: string;
+  updated_at: string;
+};
 
-const PROJECTS =
-  path.join(
-    ROOT,
-    "projects"
-  );
-
-async function ensure() {
-  await fs.mkdir(
-    PROJECTS,
-    {
-      recursive: true
-    }
-  );
-}
-
-function fileFor(
-  id: string
-) {
-  if (
-    !/^[a-zA-Z0-9_-]+$/.test(
-      id
-    )
-  ) {
-    throw new Error(
-      "Invalid project id"
-    );
-  }
-
-  return path.join(
-    PROJECTS,
-    `${id}.json`
-  );
+function rowToProject(row: Row): VideoProject {
+  return VideoProjectSchema.parse(row.project);
 }
 
 export async function saveVideoProject(
-  project: VideoProject
-) {
-  await ensure();
+  project: VideoProject,
+  tenantId: string
+): Promise<VideoProject> {
+  if (!tenantId) {
+    throw new Error("saveVideoProject requires tenantId");
+  }
 
-  const parsed =
-    VideoProjectSchema.parse({
-      ...project,
-      updatedAt:
-        new Date()
-          .toISOString()
-    });
+  const parsed = VideoProjectSchema.parse({
+    ...project,
+    updatedAt: new Date().toISOString()
+  });
 
-  await fs.writeFile(
-    fileFor(parsed.id),
-    JSON.stringify(
-      parsed,
-      null,
-      2
-    ),
-    "utf8"
+  await rest(
+    process.env,
+    "POST",
+    "video_studio_projects?on_conflict=id",
+    // rest()'s JS default (body = null) makes TS infer this parameter as
+    // strictly `null | undefined` with no other type annotation to go on
+    // — cast, not a real type mismatch (lib/supabaseListings.js's own
+    // calls hit the same JS-inference quirk and aren't typed either).
+    {
+      id: parsed.id,
+      tenant_id: tenantId,
+      project: parsed,
+      render_status: parsed.renderStatus,
+      updated_at: parsed.updatedAt
+    } as unknown as null,
+    { Prefer: "resolution=merge-duplicates" } as unknown as null
   );
 
   return parsed;
 }
 
 export async function getVideoProject(
-  id: string
-) {
-  await ensure();
-
-  try {
-    return VideoProjectSchema.parse(
-      JSON.parse(
-        await fs.readFile(
-          fileFor(id),
-          "utf8"
-        )
-      )
-    );
-  } catch (error: any) {
-    if (
-      error?.code ===
-      "ENOENT"
-    ) {
-      return null;
-    }
-
-    throw error;
+  id: string,
+  tenantId: string
+): Promise<VideoProject | null> {
+  if (!tenantId) {
+    throw new Error("getVideoProject requires tenantId");
   }
+
+  const rows: Row[] = await rest(
+    process.env,
+    "GET",
+    `video_studio_projects?id=eq.${encodeURIComponent(id)}&tenant_id=eq.${encodeURIComponent(tenantId)}`
+  );
+
+  return rows.length ? rowToProject(rows[0]) : null;
 }
 
-export async function listVideoProjects() {
-  await ensure();
+export async function listVideoProjects(
+  tenantId: string
+): Promise<VideoProject[]> {
+  if (!tenantId) {
+    throw new Error("listVideoProjects requires tenantId");
+  }
 
-  const files =
-    (
-      await fs.readdir(
-        PROJECTS
-      )
-    ).filter(
-      (name) =>
-        name.endsWith(
-          ".json"
-        )
-    );
-
-  const projects =
-    await Promise.all(
-      files.map(
-        async (name) => {
-          const raw =
-            await fs.readFile(
-              path.join(
-                PROJECTS,
-                name
-              ),
-              "utf8"
-            );
-
-          return VideoProjectSchema.parse(
-            JSON.parse(raw)
-          );
-        }
-      )
-    );
-
-  return projects.sort(
-    (a, b) =>
-      b.updatedAt.localeCompare(
-        a.updatedAt
-      )
+  const rows: Row[] = await rest(
+    process.env,
+    "GET",
+    `video_studio_projects?tenant_id=eq.${encodeURIComponent(tenantId)}&order=updated_at.desc`
   );
+
+  return rows.map(rowToProject);
 }

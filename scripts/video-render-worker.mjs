@@ -11,12 +11,28 @@ import {
   renderMedia
 } from "@remotion/renderer";
 
+// lib/supabaseRest.js is CommonJS — import its default (module.exports)
+// rather than a named import, which Node's ESM/CJS interop can't always
+// statically resolve for a dynamically assigned module.exports object.
+import supabaseRestPkg from "../lib/supabaseRest.js";
+
+const { rest } = supabaseRestPkg;
+
 const projectId =
   process.argv[2];
+
+const tenantId =
+  process.argv[3];
 
 if (!projectId) {
   throw new Error(
     "project id required"
+  );
+}
+
+if (!tenantId) {
+  throw new Error(
+    "tenant id required — this worker reads/writes tenant-scoped Supabase rows"
   );
 }
 
@@ -26,13 +42,6 @@ const root =
   path.join(
     process.cwd(),
     ".video-studio-data"
-  );
-
-const projectFile =
-  path.join(
-    root,
-    "projects",
-    `${projectId}.json`
   );
 
 const outputDir =
@@ -49,33 +58,47 @@ await fs.mkdir(
 );
 
 const readProject =
-  async () =>
-    JSON.parse(
-      await fs.readFile(
-        projectFile,
-        "utf8"
-      )
-    );
+  async () => {
+    const rows =
+      await rest(
+        process.env,
+        "GET",
+        `video_studio_projects?id=eq.${encodeURIComponent(projectId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`
+      );
+
+    if (!rows.length) {
+      throw new Error(
+        `video project ${projectId} not found for tenant ${tenantId}`
+      );
+    }
+
+    return rows[0].project;
+  };
 
 const writeProject =
   async (
     project
   ) =>
-    fs.writeFile(
-      projectFile,
-
-      JSON.stringify(
-        {
+    rest(
+      process.env,
+      "POST",
+      "video_studio_projects?on_conflict=id",
+      {
+        id:
+          projectId,
+        tenant_id:
+          tenantId,
+        render_status:
+          project.renderStatus,
+        project: {
           ...project,
 
           updatedAt:
             new Date()
               .toISOString()
-        },
-
-        null,
-        2
-      )
+        }
+      },
+      { Prefer: "resolution=merge-duplicates" }
     );
 
 try {

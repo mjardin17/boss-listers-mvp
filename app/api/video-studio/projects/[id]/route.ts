@@ -71,7 +71,8 @@ export async function GET(
 
   const project =
     await getVideoProject(
-      params.id
+      params.id,
+      session.tenantId
     );
 
   if (!project) {
@@ -132,7 +133,8 @@ export async function PUT(
     return NextResponse.json({
       project:
         await saveVideoProject(
-          project
+          project,
+          session.tenantId
         )
     });
   } catch (

@@ -2,33 +2,28 @@ import {
   VideoStudioClient
 } from "../../components/video-studio/VideoStudioClient";
 
-import {
-  getVideoProject
-} from "../../lib/video-studio/projectStore";
-
 export const dynamic =
   "force-dynamic";
 
-export default async function VideoStudioPage({
+export default function VideoStudioPage({
   searchParams
 }: {
   searchParams: {
     project?: string;
   };
 }) {
-  const project =
-    searchParams.project
-      ? await getVideoProject(
-          searchParams.project
-        )
-      : null;
-
+  // Sessions live in the browser (localStorage, see lib/clientAuth.js),
+  // not a cookie — a server component has no way to resolve a tenantId
+  // here, so this no longer fetches the project server-side. The client
+  // component loads it itself via authedFetch, which actually has the
+  // token available.
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-5 text-white sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <VideoStudioClient
-          initialProject={
-            project
+          projectId={
+            searchParams.project ||
+            null
           }
         />
       </div>
