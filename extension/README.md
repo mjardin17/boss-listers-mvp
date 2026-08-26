@@ -4,18 +4,49 @@ Fills the title/price/description on marketplace listing-creation pages from Bos
 
 ## What's automated vs. manual
 
-| Platform | Title/Price/Description | Category/Condition/Brand | Photos | API Auto-Post |
-|---|---|---|---|---|
-| Facebook Marketplace | Auto-filled & auto-submitted | Manual | Manual | — |
-| Poshmark | Auto-filled & auto-submitted | Manual | Manual | — |
-| Craigslist | Auto-filled & auto-submitted | Manual | Manual | — |
-| Mercari | Auto-filled & auto-submitted (best-effort) | Manual | Manual | — |
-| Pinterest | Auto-filled & auto-submitted | Manual (optional board) | Manual | — |
-| Amazon Seller Central | Auto-filled & auto-submitted | Manual (strict categories) | Manual | — |
-| WooCommerce | Auto-filled & auto-submitted | Manual | Manual | — |
-| eBay | — | — | — | ✅ Full API integration |
-| Etsy | — | — | — | ✅ Full API integration |
-| OfferUp | **Not supported.** OfferUp killed web posting. Use the manual package's copy from the OfferUp mobile app instead. | — | — | — |
+### General Marketplaces
+| Platform | Auto-fill & Submit | Manual Entry | API Post |
+|---|---|---|---|
+| Facebook Marketplace | ✅ Title, Price, Description | Category, Photos | — |
+| Poshmark | ✅ Title, Price, Description | Brand, Size, Photos | — |
+| Craigslist | ✅ Title, Price, Description | Category, Photos | — |
+| Mercari | ✅ Title, Price, Description (best-effort) | Category, Photos | — |
+| Pinterest | ✅ Title, Description | Board, Photos | — |
+| Amazon Seller Central | ✅ Title, Price, Description | Category, ASIN, Photos | — |
+| WooCommerce | ✅ Title, Price, Description | Category, Photos | — |
+
+### Books & Media
+| Platform | Auto-fill & Submit | Manual Entry | API Post |
+|---|---|---|---|
+| AbeBooks | ✅ Title, Price, Description | Condition, Edition, Photos | — |
+| Alibris | ✅ Title, Price, Description | Condition, Edition, Photos | — |
+| Reverb | ✅ Title, Price, Description | Condition, Category, Photos | — |
+| Discogs | ✅ Title, Price, Description | Pressing, Condition, Photos | — |
+
+### Fashion & Apparel
+| Platform | Auto-fill & Submit | Manual Entry | API Post |
+|---|---|---|---|
+| Depop | ✅ Title, Price, Description | Size, Category, Photos | — |
+| Vinted | ✅ Title, Price, Description | Size, Condition, Photos | — |
+| Grailed | ✅ Title, Price, Description | Size, Era, Photos | — |
+| Vestiaire Collective | ✅ Title, Price, Description | Size, Condition, Photos | — |
+| The RealReal | ✅ Title, Price, Description | Condition, Category, Photos | — |
+
+### Sneakers & Collectibles
+| Platform | Auto-fill & Submit | Manual Entry | API Post |
+|---|---|---|---|
+| StockX | ✅ Title, Price, Description | Size, Condition, Photos | — |
+| GOAT | ✅ Title, Price, Description | Size, Condition, Photos | — |
+
+### Other
+| Platform | Auto-fill & Submit | Manual Entry | API Post |
+|---|---|---|---|
+| Shopify | ✅ Title, Price, Description | Category, Photos | — |
+| Mercado Libre | ✅ Title, Price, Description | Category, Photos | — |
+| 5Miles | ✅ Title, Price, Description | Category, Photos | — |
+| TikTok Shop | ✅ Title, Price, Description | Category, Photos | — |
+| eBay | — | — | ✅ Full API integration |
+| Etsy | — | — | ✅ Full API integration |
 
 Photos are never auto-attached anywhere — browsers don't let extension
 scripts hand a remote image URL to a file `<input>` without the user
