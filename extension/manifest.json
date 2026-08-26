@@ -1,43 +1,34 @@
 {
   "manifest_version": 3,
-  "name": "Boss Listers AI — Universal Marketplace Assistant",
-  "version": "2.0.0",
-  "description": "Cross-listing browser assistant for Boss Listers AI. Enables automated listing, inventory sync, and background session bridge for non-API marketplaces.",
-  "permissions": [
-    "storage",
-    "activeTab",
-    "scripting",
-    "alarms"
-  ],
+  "name": "Boss Listers — Manual Listing Autofill",
+  "version": "3.0.0",
+  "description": "Pulls a Boss Listers manual listing package for a SKU and fills the matching fields on the marketplace's own listing form. Never submits/publishes for you — you review and click post yourself.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "host_permissions": [
-    "https://www.facebook.com/*",
-    "https://www.mercari.com/*",
-    "https://poshmark.com/*",
-    "https://www.vinted.com/*",
-    "https://www.depop.com/*",
-    "https://www.grailed.com/*",
-    "https://offerup.com/*"
+    "https://www.facebook.com/marketplace/create/*",
+    "https://poshmark.com/create-listing*",
+    "https://post.craigslist.org/*",
+    "https://www.mercari.com/sell/*",
+    "https://www.pinterest.com/pin/create/*",
+    "https://www.pinterest.com/dashboard/*"
   ],
-  "background": {
-    "service_worker": "background.js"
-  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Boss Listers AI Bridge"
+    "default_title": "Boss Listers Autofill"
   },
   "content_scripts": [
     {
       "matches": [
-        "https://www.facebook.com/marketplace/*",
-        "https://www.mercari.com/*",
-        "https://poshmark.com/*",
-        "https://www.vinted.com/*",
-        "https://www.depop.com/*",
-        "https://www.grailed.com/*",
-        "https://offerup.com/*"
+        "https://www.facebook.com/marketplace/create/*",
+        "https://poshmark.com/create-listing*",
+        "https://post.craigslist.org/*",
+        "https://www.mercari.com/sell/*",
+        "https://www.pinterest.com/pin/create/*",
+        "https://www.pinterest.com/dashboard/*"
       ],
       "js": ["content_script.js"],
-      "run_at": "document_end"
+      "run_at": "document_idle"
     }
   ]
 }
