@@ -171,6 +171,38 @@ const HANDLERS = {
   "sellercentral.amazon.com": fillAmazon,
 };
 
+function fillGenericForm(fields, autoSubmit) {
+  const filled = [];
+  const byHint = (hints) =>
+    Array.from(document.querySelectorAll("input, textarea, [contenteditable], .form-control, [data-field]")).find((el) => {
+      const text = `${el.getAttribute("placeholder") || ""} ${el.getAttribute("aria-label") || ""} ${el.getAttribute("name") || ""} ${el.getAttribute("data-field") || ""} ${el.title || ""}`.toLowerCase();
+      return hints.some((h) => text.includes(h));
+    });
+
+  const title = byHint(["title", "name", "product name", "item name", "heading"]);
+  const desc = byHint(["description", "describe", "details", "about", "story"]);
+  const price = byHint(["price", "cost", "amount", "value"]);
+
+  if (title) { setNativeValue(title, fields.title); filled.push("title"); }
+  if (desc) { setNativeValue(desc, fields.description); filled.push("description"); }
+  if (price) { setNativeValue(price, String(fields.price).replace(/[^0-9.]/g, "")); filled.push("price"); }
+
+  if (autoSubmit) {
+    setTimeout(() => {
+      const submitBtn = Array.from(document.querySelectorAll("button, input[type=submit], [role=button]")).find(b =>
+        (b.textContent || b.value || "").toLowerCase().includes("post") ||
+        (b.textContent || b.value || "").toLowerCase().includes("publish") ||
+        (b.textContent || b.value || "").toLowerCase().includes("list") ||
+        (b.textContent || b.value || "").toLowerCase().includes("create") ||
+        (b.textContent || b.value || "").toLowerCase().includes("save")
+      );
+      if (submitBtn) submitBtn.click();
+    }, 500);
+  }
+
+  return { filled, skipped: ["category"], reason: "Category/condition/brand set manually from platform options." };
+}
+
 function getHandlerForUrl() {
   const hostname = location.hostname;
   // Check exact matches first
@@ -182,6 +214,16 @@ function getHandlerForUrl() {
   // Shopify detection
   if (hostname.includes("myshopify.com") || hostname.includes("admin.shopify.com")) {
     return fillWoocommerce; // Use same handler for Shopify (similar form structure)
+  }
+  // All other supported platforms: use generic form filler
+  const supportedPlatforms = [
+    "abebooks.com", "alibris.com", "reverb.com", "discogs.com",
+    "depop.com", "vinted.com", "grailed.com", "vestiairecollective.com",
+    "therealreal.com", "stockx.com", "goat.com", "mercadolibre.com",
+    "5miles.com", "tiktok.com"
+  ];
+  if (supportedPlatforms.some(p => hostname.includes(p))) {
+    return fillGenericForm;
   }
   return null;
 }

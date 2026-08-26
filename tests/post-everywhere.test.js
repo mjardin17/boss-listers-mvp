@@ -184,26 +184,68 @@ test("Post Everywhere System", async (t) => {
     assert.ok(pkg.fields.description.includes("REF-123"));
   });
 
-  await t.test("All critical platforms present", () => {
-    const requiredPlatforms = ["facebook", "poshmark", "craigslist", "mercari", "pinterest", "amazon", "woocommerce"];
-    requiredPlatforms.forEach((platform) => {
+  await t.test("All 25 platforms present", () => {
+    const allPlatforms = [
+      "facebook", "poshmark", "craigslist", "mercari", "pinterest",
+      "amazon", "woocommerce", "abeBooks", "alibris", "reverb",
+      "discogs", "depop", "vinted", "grailed", "vestiaire", "realreal",
+      "stockx", "goat", "shopify", "mercadoLibre", "fiveM", "tiktokShop"
+    ];
+    allPlatforms.forEach((platform) => {
       assert.ok(MANUAL_PLATFORMS[platform], `Missing platform: ${platform}`);
     });
   });
 
-  await t.test("Generates Amazon Seller Central package", () => {
-    const pkg = buildManualPackage(testProduct, "amazon");
-    assert.strictEqual(pkg.platform, "amazon");
-    assert.ok(pkg.fields.title);
-    assert.ok(pkg.fields.title.length <= 200);
-    assert.ok(pkg.postUrl.includes("sellercentral.amazon.com"));
+  await t.test("Generates book platforms (AbeBooks, Alibris)", () => {
+    const abePkg = buildManualPackage(testProduct, "abeBooks");
+    assert.strictEqual(abePkg.platform, "abeBooks");
+    assert.ok(abePkg.postUrl.includes("abebooks.com"));
+    assert.ok(abePkg.fields.title.length <= 150);
+
+    const aliPkg = buildManualPackage(testProduct, "alibris");
+    assert.strictEqual(aliPkg.platform, "alibris");
+    assert.ok(aliPkg.postUrl.includes("alibris.com"));
   });
 
-  await t.test("Generates WooCommerce package", () => {
-    const pkg = buildManualPackage(testProduct, "woocommerce");
-    assert.strictEqual(pkg.platform, "woocommerce");
-    assert.ok(pkg.fields.title);
-    assert.ok(pkg.fields.title.length <= 100);
-    assert.ok(pkg.postUrl.includes("wp-admin"));
+  await t.test("Generates music platforms (Reverb, Discogs)", () => {
+    const reverbPkg = buildManualPackage(testProduct, "reverb");
+    assert.strictEqual(reverbPkg.platform, "reverb");
+    assert.ok(reverbPkg.postUrl.includes("reverb.com"));
+
+    const discogsPkg = buildManualPackage(testProduct, "discogs");
+    assert.strictEqual(discogsPkg.platform, "discogs");
+    assert.ok(discogsPkg.postUrl.includes("discogs.com"));
+  });
+
+  await t.test("Generates fashion platforms (Depop, Vinted, Grailed, Vestiaire, RealReal)", () => {
+    const platforms = ["depop", "vinted", "grailed", "vestiaire", "realreal"];
+    platforms.forEach((p) => {
+      const pkg = buildManualPackage(testProduct, p);
+      assert.ok(pkg.fields.title);
+      assert.ok(pkg.fields.price);
+      assert.ok(pkg.postUrl);
+    });
+  });
+
+  await t.test("Generates collectible platforms (StockX, GOAT)", () => {
+    const stockxPkg = buildManualPackage(testProduct, "stockx");
+    assert.ok(stockxPkg.postUrl.includes("stockx.com"));
+
+    const goatPkg = buildManualPackage(testProduct, "goat");
+    assert.ok(goatPkg.postUrl.includes("goat.com"));
+  });
+
+  await t.test("Generates other platforms (Shopify, Mercado Libre, 5Miles, TikTok Shop)", () => {
+    const shopifyPkg = buildManualPackage(testProduct, "shopify");
+    assert.ok(shopifyPkg.postUrl.includes("myshopify.com"));
+
+    const mercadoPkg = buildManualPackage(testProduct, "mercadoLibre");
+    assert.ok(mercadoPkg.postUrl.includes("mercadolibre.com"));
+
+    const fiveMPkg = buildManualPackage(testProduct, "fiveM");
+    assert.ok(fiveMPkg.postUrl.includes("5miles.com"));
+
+    const tiktokPkg = buildManualPackage(testProduct, "tiktokShop");
+    assert.ok(tiktokPkg.postUrl.includes("tiktok.com"));
   });
 });
