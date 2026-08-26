@@ -11,7 +11,10 @@
     "https://post.craigslist.org/*",
     "https://www.mercari.com/sell/*",
     "https://www.pinterest.com/pin/create/*",
-    "https://www.pinterest.com/dashboard/*"
+    "https://www.pinterest.com/dashboard/*",
+    "https://sellercentral.amazon.com/products/new*",
+    "https://*.myshopify.com/*",
+    "https://*wp-admin*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -25,7 +28,10 @@
         "https://post.craigslist.org/*",
         "https://www.mercari.com/sell/*",
         "https://www.pinterest.com/pin/create/*",
-        "https://www.pinterest.com/dashboard/*"
+        "https://www.pinterest.com/dashboard/*",
+        "https://sellercentral.amazon.com/products/new*",
+        "https://*.myshopify.com/*",
+        "https://*wp-admin*"
       ],
       "js": ["content_script.js"],
       "run_at": "document_idle"

@@ -10,7 +10,16 @@ const HOST_TO_PLATFORM = {
   "www.mercari.com": "mercari",
   "www.pinterest.com": "pinterest",
   "pinterest.com": "pinterest",
+  "sellercentral.amazon.com": "amazon",
 };
+
+function getPlatformFromUrl(url) {
+  const host = new URL(url).hostname;
+  if (HOST_TO_PLATFORM[host]) return HOST_TO_PLATFORM[host];
+  if (host.includes("wp-admin") || url.includes("wp-admin")) return "woocommerce";
+  if (host.includes("myshopify.com")) return "shopify";
+  return null;
+}
 
 const els = {
   apiBaseUrl: document.getElementById("apiBaseUrl"),
@@ -50,8 +59,8 @@ async function detectPlatform() {
     els.platformBadge.textContent = "no active tab";
     return null;
   }
+  const platform = getPlatformFromUrl(tab.url);
   const host = new URL(tab.url).hostname;
-  const platform = HOST_TO_PLATFORM[host];
   els.platformBadge.textContent = platform ? `platform: ${platform}` : `unsupported page (${host})`;
   return platform;
 }

@@ -185,9 +185,25 @@ test("Post Everywhere System", async (t) => {
   });
 
   await t.test("All critical platforms present", () => {
-    const requiredPlatforms = ["facebook", "poshmark", "craigslist", "mercari", "pinterest"];
+    const requiredPlatforms = ["facebook", "poshmark", "craigslist", "mercari", "pinterest", "amazon", "woocommerce"];
     requiredPlatforms.forEach((platform) => {
       assert.ok(MANUAL_PLATFORMS[platform], `Missing platform: ${platform}`);
     });
+  });
+
+  await t.test("Generates Amazon Seller Central package", () => {
+    const pkg = buildManualPackage(testProduct, "amazon");
+    assert.strictEqual(pkg.platform, "amazon");
+    assert.ok(pkg.fields.title);
+    assert.ok(pkg.fields.title.length <= 200);
+    assert.ok(pkg.postUrl.includes("sellercentral.amazon.com"));
+  });
+
+  await t.test("Generates WooCommerce package", () => {
+    const pkg = buildManualPackage(testProduct, "woocommerce");
+    assert.strictEqual(pkg.platform, "woocommerce");
+    assert.ok(pkg.fields.title);
+    assert.ok(pkg.fields.title.length <= 100);
+    assert.ok(pkg.postUrl.includes("wp-admin"));
   });
 });

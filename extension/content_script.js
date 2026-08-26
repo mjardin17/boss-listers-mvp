@@ -123,6 +123,44 @@ function fillPinterest(fields, autoSubmit) {
   return { filled, skipped: ["category"], reason: "Pinterest boards are optional — auto-filled pin will go to your main feed." };
 }
 
+function fillAmazon(fields, autoSubmit) {
+  const filled = [];
+  const titleInput = document.querySelector('input[aria-label="Product name"], input[name="title"], input[placeholder*="Product name"]');
+  const descInput = document.querySelector('textarea[aria-label*="Description"], textarea[name="description"]');
+  const priceInput = document.querySelector('input[aria-label*="Price"], input[name="price"]');
+  if (titleInput) { setNativeValue(titleInput, fields.title); filled.push("title"); }
+  if (descInput) { setNativeValue(descInput, fields.description); filled.push("description"); }
+  if (priceInput) { setNativeValue(priceInput, String(fields.price).replace(/[^0-9.]/g, "")); filled.push("price"); }
+  if (autoSubmit) {
+    setTimeout(() => {
+      const submitBtn = Array.from(document.querySelectorAll("button")).find(b =>
+        b.textContent.toLowerCase().includes("save") || b.textContent.toLowerCase().includes("create")
+      );
+      if (submitBtn) submitBtn.click();
+    }, 500);
+  }
+  return { filled, skipped: ["category", "condition"], reason: "Amazon requires category selection and may need ASIN/UPC — set these manually." };
+}
+
+function fillWoocommerce(fields, autoSubmit) {
+  const filled = [];
+  const titleInput = document.getElementById("title") || document.querySelector('input#post-title-meta');
+  const descInput = document.getElementById("content") || document.querySelector('.wp-editor-area, [data-field="description"]');
+  const priceInput = document.querySelector('input[name="_regular_price"], input.wc_input_price');
+  if (titleInput) { setNativeValue(titleInput, fields.title); filled.push("title"); }
+  if (descInput) { setNativeValue(descInput, fields.description); filled.push("description"); }
+  if (priceInput) { setNativeValue(priceInput, String(fields.price).replace(/[^0-9.]/g, "")); filled.push("price"); }
+  if (autoSubmit) {
+    setTimeout(() => {
+      const submitBtn = document.getElementById("publish") || Array.from(document.querySelectorAll("button")).find(b =>
+        b.textContent.includes("Publish") || b.textContent.includes("Update")
+      );
+      if (submitBtn) submitBtn.click();
+    }, 500);
+  }
+  return { filled, skipped: ["category"], reason: "WooCommerce product categories are site-specific — assign category from your product taxonomy." };
+}
+
 const HANDLERS = {
   "www.facebook.com": fillFacebook,
   "poshmark.com": fillPoshmark,
@@ -130,7 +168,23 @@ const HANDLERS = {
   "www.mercari.com": fillMercari,
   "www.pinterest.com": fillPinterest,
   "pinterest.com": fillPinterest,
+  "sellercentral.amazon.com": fillAmazon,
 };
+
+function getHandlerForUrl() {
+  const hostname = location.hostname;
+  // Check exact matches first
+  if (HANDLERS[hostname]) return HANDLERS[hostname];
+  // WooCommerce detection (WordPress admin with WooCommerce)
+  if (hostname.includes("wp-admin") || location.pathname.includes("wp-admin")) {
+    return fillWoocommerce;
+  }
+  // Shopify detection
+  if (hostname.includes("myshopify.com") || hostname.includes("admin.shopify.com")) {
+    return fillWoocommerce; // Use same handler for Shopify (similar form structure)
+  }
+  return null;
+}
 
 function showBanner(text) {
   const existing = document.getElementById("boss-listers-banner");
@@ -150,7 +204,7 @@ function showBanner(text) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action !== "FILL_LISTING") return undefined;
-  const handler = HANDLERS[location.hostname];
+  const handler = getHandlerForUrl();
   if (!handler) {
     sendResponse({ ok: false, error: `No autofill handler for ${location.hostname}` });
     return undefined;

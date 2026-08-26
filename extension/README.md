@@ -11,6 +11,8 @@ Fills the title/price/description on marketplace listing-creation pages from Bos
 | Craigslist | Auto-filled & auto-submitted | Manual | Manual | — |
 | Mercari | Auto-filled & auto-submitted (best-effort) | Manual | Manual | — |
 | Pinterest | Auto-filled & auto-submitted | Manual (optional board) | Manual | — |
+| Amazon Seller Central | Auto-filled & auto-submitted | Manual (strict categories) | Manual | — |
+| WooCommerce | Auto-filled & auto-submitted | Manual | Manual | — |
 | eBay | — | — | — | ✅ Full API integration |
 | Etsy | — | — | — | ✅ Full API integration |
 | OfferUp | **Not supported.** OfferUp killed web posting. Use the manual package's copy from the OfferUp mobile app instead. | — | — | — |
