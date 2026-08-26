@@ -13,6 +13,7 @@
     "start:render": "next start -p $PORT"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.3",
     "@ai-sdk/openai": "^3.0.73",
     "@remotion/bundler": "^4.0.517",
     "@remotion/renderer": "^4.0.517",
