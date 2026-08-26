@@ -11,11 +11,39 @@ import {
   VideoProjectSchema
 } from "../../../../../lib/video-studio/types";
 
+import {
+  resolveSession
+} from "../../../../../lib/supabaseAuth";
+
 export const runtime =
   "nodejs";
 
+// See app/api/video-studio/projects/route.ts for why this exists — same
+// session gate, same "not yet tenant-scoped in storage" caveat.
+async function requireSession(
+  request: Request
+) {
+  const authHeader =
+    request.headers.get(
+      "authorization"
+    ) || "";
+  const token =
+    authHeader.startsWith(
+      "Bearer "
+    )
+      ? authHeader.slice(7)
+      : null;
+
+  return token
+    ? resolveSession(
+        process.env,
+        token
+      )
+    : null;
+}
+
 export async function GET(
-  _: Request,
+  request: Request,
   {
     params
   }: {
@@ -24,6 +52,23 @@ export async function GET(
     };
   }
 ) {
+  const session =
+    await requireSession(
+      request
+    );
+
+  if (!session) {
+    return NextResponse.json(
+      {
+        error:
+          "Unauthorized"
+      },
+      {
+        status: 401
+      }
+    );
+  }
+
   const project =
     await getVideoProject(
       params.id
@@ -56,6 +101,23 @@ export async function PUT(
     };
   }
 ) {
+  const session =
+    await requireSession(
+      request
+    );
+
+  if (!session) {
+    return NextResponse.json(
+      {
+        error:
+          "Unauthorized"
+      },
+      {
+        status: 401
+      }
+    );
+  }
+
   try {
     const body =
       await request.json();

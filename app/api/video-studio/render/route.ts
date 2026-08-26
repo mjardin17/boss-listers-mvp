@@ -16,12 +16,58 @@ import {
   transitionRender
 } from "../../../../lib/video-studio/renderJobs";
 
+import {
+  resolveSession
+} from "../../../../lib/supabaseAuth";
+
 export const runtime =
   "nodejs";
+
+// Spawns a real, compute-costing render process — this one especially
+// cannot be left open to anonymous callers. Same session gate as the
+// other video-studio routes.
+async function requireSession(
+  request: Request
+) {
+  const authHeader =
+    request.headers.get(
+      "authorization"
+    ) || "";
+  const token =
+    authHeader.startsWith(
+      "Bearer "
+    )
+      ? authHeader.slice(7)
+      : null;
+
+  return token
+    ? resolveSession(
+        process.env,
+        token
+      )
+    : null;
+}
 
 export async function POST(
   request: Request
 ) {
+  const session =
+    await requireSession(
+      request
+    );
+
+  if (!session) {
+    return NextResponse.json(
+      {
+        error:
+          "Unauthorized"
+      },
+      {
+        status: 401
+      }
+    );
+  }
+
   const {
     projectId
   } =

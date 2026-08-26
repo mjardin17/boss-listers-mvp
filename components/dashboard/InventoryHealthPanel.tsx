@@ -6,6 +6,7 @@ import { useState } from "react";
 import type { InventoryRecord } from "../../app/saas/schemas";
 import { buildListingVideoDraft } from "../../lib/video-studio/draft";
 import { inventoryItemToVideoSource } from "../../integration/listingAdapter";
+import { authedFetch } from "../../lib/clientAuth";
 import { PlatformStatusBadges } from "./PlatformStatusBadges";
 import { listingTitle, money, staleInventory } from "./workflow";
 
@@ -22,7 +23,7 @@ export function InventoryHealthPanel({ inventory }: { inventory: InventoryRecord
       const source = inventoryItemToVideoSource(item);
       const draft = buildListingVideoDraft(source);
 
-      const response = await fetch("/api/video-studio/projects", {
+      const response = await authedFetch("/api/video-studio/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft)

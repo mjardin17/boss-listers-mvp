@@ -12,6 +12,8 @@ import type {
   VideoScene
 } from "../../lib/video-studio/types";
 
+import { authedFetch } from "../../lib/clientAuth";
+
 const POLL_INTERVAL_MS = 2000;
 const IN_FLIGHT_STATUSES = new Set([
   "QUEUED",
@@ -93,7 +95,7 @@ export function VideoStudioClient({
 
           try {
             const response =
-              await fetch(
+              await authedFetch(
                 `/api/video-studio/projects/${id}`
               );
 
@@ -154,7 +156,7 @@ export function VideoStudioClient({
     setBusy(true);
 
     const response =
-      await fetch(
+      await authedFetch(
         `/api/video-studio/projects/${project.id}`,
         {
           method:
@@ -199,7 +201,7 @@ export function VideoStudioClient({
     await save();
 
     const response =
-      await fetch(
+      await authedFetch(
         "/api/video-studio/render",
         {
           method:
