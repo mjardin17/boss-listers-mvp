@@ -1,18 +1,22 @@
-import React from "react";
-import "../styles/globals.css";
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-export const metadata = {
-  title: "Boss Listers AI",
-  description: "Mobile reseller sourcing scanner and inventory workflow",
+const inter = Inter({ subsets: ["latin"] });
+
+export const metadata: Metadata = {
+  title: "Boss Listers - Post Everywhere Instantly",
+  description: "Auto-post your items to 27 marketplaces and 8 social platforms with AI-powered extraction.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en" className="dark">
-      <body className="bg-neutral-950 text-neutral-50 antialiased min-h-screen">
-        {children}
-      </body>
+    <html lang="en">
+      <body className={inter.className}>{children}</body>
     </html>
   );
 }
