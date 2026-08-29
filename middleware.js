@@ -22,6 +22,15 @@ async function sha256Hex(value) {
 }
 
 export async function middleware(request) {
+  // Disabled for local dev only (2026-08-29) — this gate was stacking with
+  // the app's own login and re-prompting on every request, breaking local
+  // testing. NODE_ENV is "production" for `next build && next start` and
+  // any real deployment, so this only skips the gate under `next dev`.
+  // Re-enable for local testing by removing this block if ever needed.
+  if (process.env.NODE_ENV !== 'production') {
+    return NextResponse.next();
+  }
+
   const user = process.env.APP_BASIC_AUTH_USER;
   const pass = process.env.APP_BASIC_AUTH_PASS;
 
