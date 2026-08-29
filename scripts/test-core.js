@@ -308,3 +308,37 @@ test("video studio: buildListingVideoDraft respects the chosen template's projec
   assert.equal(draft.projectType, "SERVICE_COMMERCIAL");
   assert.equal(draft.cta.text, "Get an estimate");
 });
+
+test("cross-list titles do not repeat brand or category already present in the title", () => {
+  const platformRules = loadTsModule("lib/crossListEngine/platformRules.ts");
+  const { buildCrossListDrafts } = loadTsModule("lib/crossListEngine/adaptListing.ts", {
+    "./platformRules": platformRules
+  });
+  const drafts = buildCrossListDrafts({
+    title: "Hot Wheels 2023 Treasure Hunt Nissan Skyline",
+    brand: "Hot Wheels",
+    category: "Toys",
+    condition: "New"
+  });
+
+  const ebay = drafts.find((draft) => draft.platform === "ebay");
+  assert.equal(ebay.title, "Hot Wheels 2023 Treasure Hunt Nissan Skyline Toys");
+  for (const draft of drafts) {
+    assert.equal(/hot wheels.*hot wheels/i.test(draft.title), false);
+  }
+});
+
+test("cross-list titles still prepend a brand the title is missing", () => {
+  const platformRules = loadTsModule("lib/crossListEngine/platformRules.ts");
+  const { buildCrossListDrafts } = loadTsModule("lib/crossListEngine/adaptListing.ts", {
+    "./platformRules": platformRules
+  });
+  const [draft] = buildCrossListDrafts({
+    title: "2023 Treasure Hunt Nissan Skyline",
+    brand: "Hot Wheels",
+    category: "Toys",
+    condition: "New"
+  });
+
+  assert.equal(draft.title.startsWith("Hot Wheels 2023 Treasure Hunt"), true);
+});

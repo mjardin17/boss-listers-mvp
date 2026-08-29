@@ -18,10 +18,20 @@ function unique(values: string[]) {
   return Array.from(new Set(values.map((value) => cleanText(value)).filter(Boolean)));
 }
 
+function containsPhrase(haystack: string, phrase: string) {
+  if (!phrase) return false;
+  return ` ${haystack.toLowerCase()} `.includes(` ${phrase.toLowerCase()} `);
+}
+
 function titleForPlatform(input: CrossListInput, platform: CrossListPlatform) {
   const rule = PLATFORM_RULES[platform];
-  const parts = unique([input.brand || "", input.title, input.category || ""]);
-  const title = cleanText(parts.join(" "));
+  const base = cleanText(input.title || "");
+  const brand = cleanText(input.brand || "");
+  const category = cleanText(input.category || "");
+  const prefix = brand && !containsPhrase(base, brand) ? brand : "";
+  const head = cleanText([prefix, base].filter(Boolean).join(" "));
+  const suffix = category && !containsPhrase(head, category) ? category : "";
+  const title = cleanText([head, suffix].filter(Boolean).join(" "));
   return truncateAtWord(title || "Resale item", rule.titleLimit);
 }
 
