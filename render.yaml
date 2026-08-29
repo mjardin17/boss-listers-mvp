@@ -3,8 +3,7 @@ services:
     name: boss-listers-mvp
     runtime: node
     plan: starter
-    rootDir: boss-listers-mvp
-    branch: feat/supabase-inventory
+    branch: main
     healthCheckPath: /api/health
     buildCommand: npm ci && npm run build
     startCommand: npm run start:render
