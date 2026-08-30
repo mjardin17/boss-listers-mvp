@@ -17,6 +17,7 @@ export default function Capture() {
   const [photos, setPhotos] = useState([]); // { file, previewUrl }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [publishing, setPublishing] = useState(false);
   const [result, setResult] = useState(null);
   const cameraInputRef = useRef(null);
 
@@ -66,6 +67,64 @@ export default function Capture() {
       setError(err.message || "Upload failed — check your connection and try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handlePublish() {
+    if (!result?.outputs?.length) {
+      setError("No listing data to publish.");
+      return;
+    }
+
+    setPublishing(true);
+    setError("");
+
+    try {
+      const ebayListing = result.outputs.find((o) => o.platform === "eBay");
+      if (!ebayListing) {
+        setError("No eBay listing generated. Try regenerating.");
+        setPublishing(false);
+        return;
+      }
+
+      const payload = {
+        product: {
+          title: ebayListing.title,
+          description: ebayListing.description,
+          price: result.pricing?.recommendedPrice || 29.99,
+          quantity: 1,
+          condition: "UsedGood",
+        },
+        policies: {
+          shippingCost: 5.0,
+          returnDays: 14,
+          paymentMethods: ["credit_debit_card", "paypal"],
+        },
+        dryRun: false,
+        confirm: true,
+      };
+
+      const res = await authedFetch("/api/channels/ebay/create-listing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        setError(data.error || "Failed to publish listing");
+        setPublishing(false);
+        return;
+      }
+
+      // Success
+      alert(`✓ Published to eBay! Listing ID: ${data.listingId || "pending"}`);
+      startOver();
+    } catch (err) {
+      setError(err.message || "Publish failed");
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -224,9 +283,22 @@ export default function Capture() {
             </article>
           ))}
 
-          <button type="button" className="btn-secondary" style={{ width: "100%", marginTop: "1rem" }} onClick={startOver}>
-            Add another item
-          </button>
+          {error && <p style={{ color: "var(--danger)", marginTop: "1rem" }}>{error}</p>}
+
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ flex: 1, padding: "1rem" }}
+              disabled={publishing}
+              onClick={handlePublish}
+            >
+              {publishing ? "Publishing..." : "Publish to eBay →"}
+            </button>
+            <button type="button" className="btn-secondary" onClick={startOver}>
+              Add another
+            </button>
+          </div>
         </div>
       )}
     </div>

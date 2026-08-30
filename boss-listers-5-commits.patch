@@ -1,0 +1,2496 @@
+From d87a88fac4adee059ae2595a2852cfb8944fc507 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 30 Aug 2026 19:10:15 +0000
+Subject: [PATCH 1/5] fix: set rootDir to current directory for Render
+ deployment
+
+---
+ render.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/render.yaml b/render.yaml
+index dcc6d55..5f06fd5 100644
+--- a/render.yaml
++++ b/render.yaml
+@@ -4,6 +4,7 @@ services:
+     runtime: node
+     plan: starter
+     branch: main
++    rootDir: .
+     healthCheckPath: /api/health
+     buildCommand: npm ci && npm run build
+     startCommand: npm run start:render
+-- 
+2.43.0
+
+
+From dbdca204ff6c8635f83e86c59f8679bd1dcb1778 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 30 Aug 2026 19:19:20 +0000
+Subject: [PATCH 2/5] fix: remove rootDir to use repo root by default
+
+---
+ render.yaml | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/render.yaml b/render.yaml
+index 5f06fd5..dcc6d55 100644
+--- a/render.yaml
++++ b/render.yaml
+@@ -4,7 +4,6 @@ services:
+     runtime: node
+     plan: starter
+     branch: main
+-    rootDir: .
+     healthCheckPath: /api/health
+     buildCommand: npm ci && npm run build
+     startCommand: npm run start:render
+-- 
+2.43.0
+
+
+From 937782e70ce18e41def1a24c65e9f9ca593b032f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 30 Aug 2026 22:29:28 +0000
+Subject: [PATCH 3/5] Integrate CrossPost Studio dashboard frontend
+
+- Add complete dashboard with 6 pages (Dashboard, Inventory, Listing Editor, Cross-Posting Center, Analytics, AI Command Center)
+- Implement DashboardContext for page routing and mobile state management
+- Add layout components (TopBar, Sidebar, MobileMenu, BottomTabBar, CommandPalette)
+- Remove Google Fonts import to fix network-related build errors
+- Update globals.css with CrossPost Studio dark theme (#08080c, #f4f4f5, #6366f1 accent)
+- Add responsive grid layouts with mobile-first design
+- Update landing page with working navigation to /dashboard
+- Fix TypeScript path aliases and Next.js layout export issues
+- Build compiles successfully without errors
+
+Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PN8Du7tJt3cr8HuKVFaGwD
+---
+ app/dashboard/layout.tsx                      |  49 ++++
+ app/dashboard/page.tsx                        |  34 +++
+ app/globals.css                               |  75 +++++-
+ app/layout.tsx                                |   5 +-
+ app/page.tsx                                  |  17 +-
+ components/dashboard/BottomTabBar.tsx         | 164 +++++++++++++
+ components/dashboard/CommandPalette.tsx       |  96 ++++++++
+ components/dashboard/DashboardContext.tsx     |  22 ++
+ components/dashboard/MobileMenu.tsx           | 189 +++++++++++++++
+ components/dashboard/Sidebar.tsx              | 189 +++++++++++++++
+ components/dashboard/TopBar.tsx               |  83 +++++++
+ .../dashboard/pages/AICommandCenter.tsx       |  88 +++++++
+ components/dashboard/pages/Analytics.tsx      | 109 +++++++++
+ .../dashboard/pages/CrossPostingCenter.tsx    | 104 ++++++++
+ components/dashboard/pages/Dashboard.tsx      | 166 +++++++++++++
+ components/dashboard/pages/Inventory.tsx      | 188 +++++++++++++++
+ components/dashboard/pages/ListingEditor.tsx  | 222 ++++++++++++++++++
+ package-lock.json                             |  37 +--
+ 18 files changed, 1784 insertions(+), 53 deletions(-)
+ create mode 100644 app/dashboard/layout.tsx
+ create mode 100644 app/dashboard/page.tsx
+ create mode 100644 components/dashboard/BottomTabBar.tsx
+ create mode 100644 components/dashboard/CommandPalette.tsx
+ create mode 100644 components/dashboard/DashboardContext.tsx
+ create mode 100644 components/dashboard/MobileMenu.tsx
+ create mode 100644 components/dashboard/Sidebar.tsx
+ create mode 100644 components/dashboard/TopBar.tsx
+ create mode 100644 components/dashboard/pages/AICommandCenter.tsx
+ create mode 100644 components/dashboard/pages/Analytics.tsx
+ create mode 100644 components/dashboard/pages/CrossPostingCenter.tsx
+ create mode 100644 components/dashboard/pages/Dashboard.tsx
+ create mode 100644 components/dashboard/pages/Inventory.tsx
+ create mode 100644 components/dashboard/pages/ListingEditor.tsx
+
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+new file mode 100644
+index 0000000..5363d19
+--- /dev/null
++++ b/app/dashboard/layout.tsx
+@@ -0,0 +1,49 @@
++"use client";
++
++import { useState, ReactNode } from "react";
++import { DashboardContext } from "@/components/dashboard/DashboardContext";
++import Sidebar from "@/components/dashboard/Sidebar";
++import TopBar from "@/components/dashboard/TopBar";
++import MobileMenu from "@/components/dashboard/MobileMenu";
++import BottomTabBar from "@/components/dashboard/BottomTabBar";
++import CommandPalette from "@/components/dashboard/CommandPalette";
++
++export default function DashboardLayout({ children }: { children: ReactNode }) {
++  const [currentPage, setCurrentPage] = useState("dashboard");
++  const [isMobile, setIsMobile] = useState(false);
++  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
++  const [cmdOpen, setCmdOpen] = useState(false);
++
++  return (
++    <DashboardContext.Provider
++      value={{
++        currentPage,
++        setCurrentPage,
++        isMobile,
++        setIsMobile,
++        mobileMenuOpen,
++        setMobileMenuOpen,
++        cmdOpen,
++        setCmdOpen,
++      }}
++    >
++      <div className="flex flex-col h-screen bg-[#08080c] text-[#f4f4f5] overflow-hidden">
++        <TopBar />
++
++        <div className="flex flex-1 min-h-0">
++          {!isMobile && <Sidebar />}
++          <main className="flex-1 overflow-y-auto">
++            <div className="max-w-7xl mx-auto p-6 md:p-8 pb-24 md:pb-16">
++              {children}
++            </div>
++          </main>
++        </div>
++
++        {isMobile && mobileMenuOpen && <MobileMenu />}
++        {isMobile && <BottomTabBar />}
++
++        <CommandPalette />
++      </div>
++    </DashboardContext.Provider>
++  );
++}
+diff --git a/app/dashboard/page.tsx b/app/dashboard/page.tsx
+new file mode 100644
+index 0000000..e344fd8
+--- /dev/null
++++ b/app/dashboard/page.tsx
+@@ -0,0 +1,34 @@
++"use client";
++
++import { useDashboard } from "@/components/dashboard/DashboardContext";
++import Dashboard from "@/components/dashboard/pages/Dashboard";
++import Inventory from "@/components/dashboard/pages/Inventory";
++import ListingEditor from "@/components/dashboard/pages/ListingEditor";
++import CrossPostingCenter from "@/components/dashboard/pages/CrossPostingCenter";
++import Analytics from "@/components/dashboard/pages/Analytics";
++import AICommandCenter from "@/components/dashboard/pages/AICommandCenter";
++
++export default function DashboardPage() {
++  const { currentPage } = useDashboard();
++
++  const renderPage = () => {
++    switch (currentPage) {
++      case "dashboard":
++        return <Dashboard />;
++      case "inventory":
++        return <Inventory />;
++      case "editor":
++        return <ListingEditor />;
++      case "crosspost":
++        return <CrossPostingCenter />;
++      case "analytics":
++        return <Analytics />;
++      case "aicommand":
++        return <AICommandCenter />;
++      default:
++        return <Dashboard />;
++    }
++  };
++
++  return renderPage();
++}
+diff --git a/app/globals.css b/app/globals.css
+index e772434..e155dd4 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -2,11 +2,76 @@
+ @tailwind components;
+ @tailwind utilities;
+ 
+-html {
+-  scroll-behavior: smooth;
++@layer base {
++  * {
++    @apply antialiased;
++  }
++
++  html {
++    @apply scroll-smooth;
++  }
++
++  body {
++    @apply bg-[#08080c] text-[#f4f4f5];
++  }
++
++  input[type="checkbox"] {
++    @apply w-4 h-4 cursor-pointer accent-[#6366f1];
++  }
++
++  input[type="number"]::-webkit-outer-spin-button,
++  input[type="number"]::-webkit-inner-spin-button {
++    @apply appearance-none m-0;
++  }
++
++  input[type="number"] {
++    @apply appearance-none;
++  }
++}
++
++@layer components {
++  .btn-primary {
++    @apply px-4 py-2 bg-[#6366f1] hover:bg-[#4f46e5] text-white font-semibold rounded-lg transition-colors;
++  }
++
++  .card {
++    @apply p-4 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#18181b];
++  }
++
++  .input-base {
++    @apply px-3 py-2 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] text-[#f4f4f5] focus:outline-none focus:border-[#6366f1];
++  }
++}
++
++/* Scrollbar Styling */
++::-webkit-scrollbar {
++  width: 8px;
++  height: 8px;
++}
++
++::-webkit-scrollbar-track {
++  background: transparent;
++}
++
++::-webkit-scrollbar-thumb {
++  background: rgba(255, 255, 255, 0.12);
++  border-radius: 4px;
++}
++
++::-webkit-scrollbar-thumb:hover {
++  background: rgba(255, 255, 255, 0.18);
++}
++
++/* Animations */
++@keyframes pulse {
++  0%, 100% {
++    opacity: 1;
++  }
++  50% {
++    opacity: 0.5;
++  }
+ }
+ 
+-body {
+-  background-color: rgb(15, 23, 42);
+-  color: rgb(241, 245, 249);
++.animate-pulse {
++  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+ }
+diff --git a/app/layout.tsx b/app/layout.tsx
+index 984b6a3..58cdc36 100644
+--- a/app/layout.tsx
++++ b/app/layout.tsx
+@@ -1,9 +1,6 @@
+ import type { Metadata } from "next";
+-import { Inter } from "next/font/google";
+ import "./globals.css";
+ 
+-const inter = Inter({ subsets: ["latin"] });
+-
+ export const metadata: Metadata = {
+   title: "Boss Listers - Post Everywhere Instantly",
+   description: "Auto-post your items to 27 marketplaces and 8 social platforms with AI-powered extraction.",
+@@ -16,7 +13,7 @@ export default function RootLayout({
+ }) {
+   return (
+     <html lang="en">
+-      <body className={inter.className}>{children}</body>
++      <body>{children}</body>
+     </html>
+   );
+ }
+diff --git a/app/page.tsx b/app/page.tsx
+index 92d6903..65795d3 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -1,6 +1,7 @@
+ "use client";
+ 
+ import { useState } from "react";
++import Link from "next/link";
+ import { Menu, X, CheckCircle2 } from "lucide-react";
+ 
+ export default function Home() {
+@@ -17,9 +18,9 @@ export default function Home() {
+             <a href="#features" className="hover:text-emerald-400">Features</a>
+             <a href="#pricing" className="hover:text-emerald-400">Pricing</a>
+           </div>
+-          <button className="hidden md:block px-6 py-2 bg-emerald-500 hover:bg-emerald-600 rounded-lg">
++          <Link href="/dashboard" className="hidden md:block px-6 py-2 bg-emerald-500 hover:bg-emerald-600 rounded-lg text-center">
+             Start Free
+-          </button>
++          </Link>
+         </div>
+       </nav>
+ 
+@@ -31,12 +32,12 @@ export default function Home() {
+           Take a photo. AI extracts. Post to 27 marketplaces + 8 social platforms with one click.
+         </p>
+         <div className="flex flex-col sm:flex-row gap-4 justify-center">
+-          <button className="px-8 py-3 bg-emerald-500 rounded-lg font-semibold">
++          <Link href="/dashboard" className="px-8 py-3 bg-emerald-500 hover:bg-emerald-600 rounded-lg font-semibold text-center text-white transition-colors">
+             Start Free Trial
+-          </button>
+-          <button className="px-8 py-3 border border-slate-600 rounded-lg">
++          </Link>
++          <a href="#features" className="px-8 py-3 border border-slate-600 rounded-lg font-semibold text-center hover:bg-slate-800 transition-colors">
+             Watch Demo
+-          </button>
++          </a>
+         </div>
+       </section>
+ 
+@@ -106,9 +107,9 @@ export default function Home() {
+       <section className="py-20 px-4">
+         <div className="max-w-4xl mx-auto bg-gradient-to-r from-emerald-600 to-cyan-600 rounded-2xl p-12 text-center">
+           <h2 className="text-4xl font-bold mb-4">Ready to Automate?</h2>
+-          <button className="px-8 py-4 bg-white text-emerald-600 font-bold rounded-lg">
++          <Link href="/dashboard" className="inline-block px-8 py-4 bg-white text-emerald-600 font-bold rounded-lg hover:bg-gray-100 transition-colors">
+             Start Free Trial
+-          </button>
++          </Link>
+         </div>
+       </section>
+ 
+diff --git a/components/dashboard/BottomTabBar.tsx b/components/dashboard/BottomTabBar.tsx
+new file mode 100644
+index 0000000..a8e001a
+--- /dev/null
++++ b/components/dashboard/BottomTabBar.tsx
+@@ -0,0 +1,164 @@
++"use client";
++
++import { useDashboard } from "@/components/dashboard/DashboardContext";
++
++const NAV_ITEMS = [
++  { id: "dashboard", label: "Home", icon: "dot" },
++  { id: "inventory", label: "Stock", icon: "stack" },
++  { id: "editor", label: "Editor", icon: "pencil" },
++  { id: "crosspost", label: "Post", icon: "nodes" },
++  { id: "analytics", label: "Stats", icon: "bars" },
++  { id: "aicommand", label: "AI", icon: "spark" },
++];
++
++function TabGlyph({ type, active }: { type: string; active: boolean }) {
++  const color = active ? "#818cf8" : "#71717a";
++  const size = 18;
++
++  switch (type) {
++    case "dot":
++      return (
++        <div
++          className="rounded-full"
++          style={{
++            width: size * 0.56,
++            height: size * 0.56,
++            background: color,
++          }}
++        />
++      );
++    case "stack":
++      return (
++        <div className="relative" style={{ width: size, height: size }}>
++          <div
++            className="rounded absolute"
++            style={{
++              left: 0,
++              right: 0,
++              top: size * 0.1,
++              height: size * 0.3,
++              background: color,
++              opacity: 0.5,
++            }}
++          />
++          <div
++            className="rounded absolute"
++            style={{
++              left: 0,
++              right: 0,
++              bottom: size * 0.1,
++              height: size * 0.3,
++              background: color,
++            }}
++          />
++        </div>
++      );
++    case "pencil":
++      return (
++        <div
++          className="absolute rounded"
++          style={{
++            width: size * 0.6,
++            height: size * 0.6,
++            left: size * 0.2,
++            top: size * 0.2,
++            background: color,
++            transform: "rotate(45deg)",
++          }}
++        />
++      );
++    case "nodes":
++      return (
++        <div className="relative" style={{ width: size, height: size }}>
++          {[
++            { left: 0, top: size * 0.15 },
++            { right: 0, top: size * 0.15 },
++            { left: size * 0.38, bottom: 0 },
++          ].map((pos, i) => (
++            <div
++              key={i}
++              className="rounded-full absolute"
++              style={{
++                width: size * 0.24,
++                height: size * 0.24,
++                background: color,
++                ...pos,
++              }}
++            />
++          ))}
++        </div>
++      );
++    case "bars":
++      return (
++        <div className="relative" style={{ width: size, height: size }}>
++          {[
++            { left: 0, height: 0.5, opacity: 0.55 },
++            { left: size * 0.39, height: 0.9, opacity: 1 },
++            { left: size * 0.78, height: 0.68, opacity: 0.75 },
++          ].map((bar, i) => (
++            <div
++              key={i}
++              className="rounded absolute bottom-0"
++              style={{
++                width: size * 0.22,
++                height: `${bar.height * 100}%`,
++                background: color,
++                opacity: bar.opacity,
++                left: bar.left,
++              }}
++            />
++          ))}
++        </div>
++      );
++    case "spark":
++      return (
++        <div
++          className="absolute inset-0"
++          style={{
++            background: color,
++            clipPath:
++              "polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%)",
++          }}
++        />
++      );
++    default:
++      return null;
++  }
++}
++
++export default function BottomTabBar() {
++  const { currentPage, setCurrentPage } = useDashboard();
++
++  return (
++    <nav className="fixed bottom-0 left-0 right-0 h-16 md:hidden z-30 bg-[rgba(13,13,19,0.92)] backdrop-blur-lg border-t border-[rgba(255,255,255,0.08)] flex items-center justify-around px-2">
++      {NAV_ITEMS.map((item) => {
++        const active = currentPage === item.id;
++        return (
++          <button
++            key={item.id}
++            onClick={() => setCurrentPage(item.id)}
++            className="flex flex-col items-center justify-center gap-1 py-1.5 px-2 flex-1"
++          >
++            <div
++              className="relative w-5 h-5"
++              style={{
++                color: active ? "#818cf8" : "#71717a",
++              }}
++            >
++              <TabGlyph type={item.icon} active={active} />
++            </div>
++            <span
++              className={`text-xs ${
++                active
++                  ? "font-bold text-[#f4f4f5]"
++                  : "font-medium text-[#71717a]"
++              }`}
++            >
++              {item.label}
++            </span>
++          </button>
++        );
++      })}
++    </nav>
++  );
++}
+diff --git a/components/dashboard/CommandPalette.tsx b/components/dashboard/CommandPalette.tsx
+new file mode 100644
+index 0000000..478baf6
+--- /dev/null
++++ b/components/dashboard/CommandPalette.tsx
+@@ -0,0 +1,96 @@
++"use client";
++
++import { useState, useEffect } from "react";
++import { useDashboard } from "@/components/dashboard/DashboardContext";
++
++const COMMANDS = [
++  { label: "List everything on eBay", tag: "Bulk publish", icon: "nodes" },
++  { label: "Relist stale inventory", tag: "Automation", icon: "stack" },
++  { label: "Update prices", tag: "Pricing", icon: "bars" },
++  { label: "Find items worth buying", tag: "Sourcing", icon: "dot" },
++  { label: "Show today's profit", tag: "Analytics", icon: "spark" },
++];
++
++export default function CommandPalette() {
++  const { cmdOpen, setCmdOpen } = useDashboard();
++  const [query, setQuery] = useState("");
++
++  useEffect(() => {
++    const handleKeyDown = (e: KeyboardEvent) => {
++      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
++        e.preventDefault();
++        setCmdOpen(true);
++      }
++      if (e.key === "Escape") {
++        setCmdOpen(false);
++      }
++    };
++
++    window.addEventListener("keydown", handleKeyDown);
++    return () => window.removeEventListener("keydown", handleKeyDown);
++  }, [setCmdOpen]);
++
++  if (!cmdOpen) return null;
++
++  return (
++    <>
++      {/* Backdrop */}
++      <div
++        className="fixed inset-0 bg-[rgba(4,4,8,0.7)] backdrop-blur-md z-50"
++        onClick={() => {
++          setCmdOpen(false);
++          setQuery("");
++        }}
++      />
++
++      {/* Panel */}
++      <div className="fixed inset-0 z-50 flex items-start justify-center pt-12 md:pt-20">
++        <div
++          className="w-full max-w-lg mx-auto px-4 md:px-0 bg-[#18181b] border border-[rgba(255,255,255,0.08)] rounded-xl shadow-2xl overflow-hidden"
++          onClick={(e) => e.stopPropagation()}
++        >
++          {/* Header */}
++          <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[rgba(255,255,255,0.08)]">
++            <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-[#8b5cf6] to-[#4f46e5] flex-shrink-0 shadow-[0_0_14px_rgba(139,92,246,0.5)]" />
++            <input
++              autoFocus
++              type="text"
++              value={query}
++              onChange={(e) => setQuery(e.target.value)}
++              placeholder="Tell CrossPost AI what to do…"
++              className="flex-1 bg-transparent border-none outline-none text-base font-medium text-[#f4f4f5] placeholder-[#71717a]"
++            />
++            <kbd className="text-xs font-medium text-[#71717a] bg-[#27272a] border border-[rgba(255,255,255,0.08)] px-1.5 py-1 rounded">
++              ESC
++            </kbd>
++          </div>
++
++          {/* Content */}
++          <div className="max-h-96 overflow-y-auto">
++            <div className="p-2.5">
++              <div className="text-xs font-bold uppercase letter-spacing text-[#71717a] px-2.5 py-1.5">
++                Suggested
++              </div>
++              {COMMANDS.map((cmd, idx) => (
++                <div
++                  key={idx}
++                  onClick={() => {
++                    setQuery(cmd.label);
++                    setCmdOpen(false);
++                  }}
++                  className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-[#1f1f23] cursor-pointer transition-colors"
++                >
++                  <div className="w-7 h-7 rounded-lg bg-[#27272a] flex items-center justify-center flex-shrink-0 text-[#818cf8] text-sm">
++                    {cmd.icon.charAt(0).toUpperCase()}
++                  </div>
++                  <span className="text-sm text-[#f4f4f5] flex-1">{cmd.label}</span>
++                  <span className="text-xs text-[#71717a]">{cmd.tag}</span>
++                </div>
++              ))}
++            </div>
++          </div>
++        </div>
++      </div>
++    </>
++  );
++}
+diff --git a/components/dashboard/DashboardContext.tsx b/components/dashboard/DashboardContext.tsx
+new file mode 100644
+index 0000000..77ab10d
+--- /dev/null
++++ b/components/dashboard/DashboardContext.tsx
+@@ -0,0 +1,22 @@
++"use client";
++
++import { createContext, useContext } from "react";
++
++export interface DashboardContextType {
++  currentPage: string;
++  setCurrentPage: (page: string) => void;
++  isMobile: boolean;
++  setIsMobile: (mobile: boolean) => void;
++  mobileMenuOpen: boolean;
++  setMobileMenuOpen: (open: boolean) => void;
++  cmdOpen: boolean;
++  setCmdOpen: (open: boolean) => void;
++}
++
++export const DashboardContext = createContext<DashboardContextType | null>(null);
++
++export const useDashboard = () => {
++  const ctx = useContext(DashboardContext);
++  if (!ctx) throw new Error("useDashboard must be used within DashboardLayout");
++  return ctx;
++};
+diff --git a/components/dashboard/MobileMenu.tsx b/components/dashboard/MobileMenu.tsx
+new file mode 100644
+index 0000000..5cc2194
+--- /dev/null
++++ b/components/dashboard/MobileMenu.tsx
+@@ -0,0 +1,189 @@
++"use client";
++
++import { useDashboard } from "@/components/dashboard/DashboardContext";
++
++const NAV_ITEMS = [
++  { id: "dashboard", label: "Dashboard", icon: "dot" },
++  { id: "inventory", label: "Inventory", icon: "stack" },
++  { id: "editor", label: "Listing Editor", icon: "pencil" },
++  { id: "crosspost", label: "Cross-Posting", icon: "nodes" },
++  { id: "analytics", label: "Analytics", icon: "bars" },
++  { id: "aicommand", label: "AI Command", icon: "spark" },
++];
++
++function Glyph({ type }: { type: string }) {
++  const color = "#818cf8";
++  const size = 16;
++
++  switch (type) {
++    case "dot":
++      return (
++        <div
++          className="rounded-full"
++          style={{
++            width: size * 0.56,
++            height: size * 0.56,
++            background: color,
++          }}
++        />
++      );
++    case "stack":
++      return (
++        <div className="relative" style={{ width: size, height: size }}>
++          <div
++            className="rounded absolute"
++            style={{
++              left: 0,
++              right: 0,
++              top: size * 0.1,
++              height: size * 0.3,
++              background: color,
++              opacity: 0.5,
++            }}
++          />
++          <div
++            className="rounded absolute"
++            style={{
++              left: 0,
++              right: 0,
++              bottom: size * 0.1,
++              height: size * 0.3,
++              background: color,
++            }}
++          />
++        </div>
++      );
++    case "pencil":
++      return (
++        <div
++          className="absolute"
++          style={{
++            width: size * 0.6,
++            height: size * 0.6,
++            left: size * 0.2,
++            top: size * 0.2,
++            background: color,
++            transform: "rotate(45deg)",
++            borderRadius: 2,
++          }}
++        />
++      );
++    case "nodes":
++      return (
++        <div className="relative" style={{ width: size, height: size }}>
++          {[
++            { left: 0, top: size * 0.15 },
++            { right: 0, top: size * 0.15 },
++            { left: size * 0.38, bottom: 0 },
++          ].map((pos, i) => (
++            <div
++              key={i}
++              className="rounded-full absolute"
++              style={{
++                width: size * 0.24,
++                height: size * 0.24,
++                background: color,
++                ...pos,
++              }}
++            />
++          ))}
++        </div>
++      );
++    case "bars":
++      return (
++        <div className="relative" style={{ width: size, height: size }}>
++          {[
++            { left: 0, height: 0.5, opacity: 0.55 },
++            { left: size * 0.39, height: 0.9, opacity: 1 },
++            { left: size * 0.78, height: 0.68, opacity: 0.75 },
++          ].map((bar, i) => (
++            <div
++              key={i}
++              className="rounded absolute bottom-0"
++              style={{
++                width: size * 0.22,
++                height: `${bar.height * 100}%`,
++                background: color,
++                opacity: bar.opacity,
++                left: bar.left,
++              }}
++            />
++          ))}
++        </div>
++      );
++    case "spark":
++      return (
++        <div
++          className="absolute inset-0"
++          style={{
++            background: color,
++            clipPath:
++              "polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%)",
++          }}
++        />
++      );
++    default:
++      return null;
++  }
++}
++
++export default function MobileMenu() {
++  const { currentPage, setCurrentPage, setMobileMenuOpen } = useDashboard();
++
++  const handleNav = (pageId: string) => {
++    setCurrentPage(pageId);
++    setMobileMenuOpen(false);
++  };
++
++  return (
++    <>
++      {/* Overlay */}
++      <div
++        className="fixed inset-0 bg-[rgba(0,0,0,0.55)] backdrop-blur-sm z-40"
++        onClick={() => setMobileMenuOpen(false)}
++      />
++
++      {/* Menu */}
++      <div className="fixed top-14 left-0 bottom-0 w-64 bg-[#18181b] border-r border-[rgba(255,255,255,0.08)] z-50 flex flex-col p-4 animate-in slide-in-from-left-full duration-200">
++        <div className="text-xs font-bold uppercase letter-spacing tracking-wide text-[#71717a] mb-3">
++          Navigate
++        </div>
++
++        <div className="flex flex-col gap-1">
++          {NAV_ITEMS.map((item) => {
++            const active = currentPage === item.id;
++            return (
++              <button
++                key={item.id}
++                onClick={() => handleNav(item.id)}
++                className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
++                  active
++                    ? "bg-[#1f1f23] border border-[rgba(255,255,255,0.08)]"
++                    : "hover:bg-[#1f1f23]/50"
++                }`}
++              >
++                <div
++                  className="relative w-4 h-4"
++                  style={{
++                    color: active ? "#818cf8" : "#a1a1aa",
++                  }}
++                >
++                  <Glyph type={item.icon} />
++                </div>
++                <span
++                  className={`text-sm ${
++                    active
++                      ? "font-semibold text-[#f4f4f5]"
++                      : "font-medium text-[#a1a1aa]"
++                  }`}
++                >
++                  {item.label}
++                </span>
++              </button>
++            );
++          })}
++        </div>
++      </div>
++    </>
++  );
++}
+diff --git a/components/dashboard/Sidebar.tsx b/components/dashboard/Sidebar.tsx
+new file mode 100644
+index 0000000..2141ab7
+--- /dev/null
++++ b/components/dashboard/Sidebar.tsx
+@@ -0,0 +1,189 @@
++"use client";
++
++import { useDashboard } from "@/components/dashboard/DashboardContext";
++import { Activity, Inbox, Edit, Share2, BarChart3, Zap } from "lucide-react";
++
++const NAV_ITEMS = [
++  { id: "dashboard", label: "Dashboard", icon: "dot" },
++  { id: "inventory", label: "Inventory", icon: "stack" },
++  { id: "editor", label: "Listing Editor", icon: "pencil" },
++  { id: "crosspost", label: "Cross-Posting", icon: "nodes" },
++  { id: "analytics", label: "Analytics", icon: "bars" },
++  { id: "aicommand", label: "AI Command", icon: "spark", badge: "AI" },
++];
++
++function Glyph({ type, active }: { type: string; active: boolean }) {
++  const color = active ? "#818cf8" : "#a1a1aa";
++  const size = 14;
++
++  switch (type) {
++    case "dot":
++      return (
++        <div
++          className="rounded-full"
++          style={{
++            width: size * 0.56,
++            height: size * 0.56,
++            background: color,
++          }}
++        />
++      );
++    case "stack":
++      return (
++        <div className="relative" style={{ width: size, height: size }}>
++          <div
++            className="rounded absolute"
++            style={{
++              left: 0,
++              right: 0,
++              top: size * 0.1,
++              height: size * 0.3,
++              background: color,
++              opacity: 0.5,
++            }}
++          />
++          <div
++            className="rounded absolute"
++            style={{
++              left: 0,
++              right: 0,
++              bottom: size * 0.1,
++              height: size * 0.3,
++              background: color,
++            }}
++          />
++        </div>
++      );
++    case "pencil":
++      return (
++        <div
++          className="rounded absolute"
++          style={{
++            width: size * 0.6,
++            height: size * 0.6,
++            left: size * 0.2,
++            top: size * 0.2,
++            background: color,
++            transform: "rotate(45deg)",
++          }}
++        />
++      );
++    case "nodes":
++      return (
++        <div className="relative" style={{ width: size, height: size }}>
++          {[
++            { left: 0, top: size * 0.15 },
++            { right: 0, top: size * 0.15 },
++            { left: size * 0.38, bottom: 0 },
++          ].map((pos, i) => (
++            <div
++              key={i}
++              className="rounded-full absolute"
++              style={{
++                width: size * 0.24,
++                height: size * 0.24,
++                background: color,
++                ...pos,
++              }}
++            />
++          ))}
++        </div>
++      );
++    case "bars":
++      return (
++        <div className="relative" style={{ width: size, height: size }}>
++          {[
++            { left: 0, height: 0.5, opacity: 0.55 },
++            { left: size * 0.39, height: 0.9, opacity: 1 },
++            { left: size * 0.78, height: 0.68, opacity: 0.75 },
++          ].map((bar, i) => (
++            <div
++              key={i}
++              className="rounded absolute bottom-0"
++              style={{
++                width: size * 0.22,
++                height: `${bar.height * 100}%`,
++                background: color,
++                opacity: bar.opacity,
++                left: bar.left,
++              }}
++            />
++          ))}
++        </div>
++      );
++    case "spark":
++      return (
++        <div
++          className="absolute inset-0"
++          style={{
++            background: color,
++            clipPath:
++              "polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%)",
++          }}
++        />
++      );
++    default:
++      return null;
++  }
++}
++
++export default function Sidebar() {
++  const { currentPage, setCurrentPage } = useDashboard();
++
++  return (
++    <aside className="hidden md:flex w-56 flex-shrink-0 flex-col border-r border-[rgba(255,255,255,0.08)] bg-[#18181b] sticky top-14 h-[calc(100vh-56px)]">
++      {/* Nav Items */}
++      <div className="flex flex-col gap-0.5 p-3.5">
++        {NAV_ITEMS.map((item) => {
++          const active = currentPage === item.id;
++          return (
++            <button
++              key={item.id}
++              onClick={() => setCurrentPage(item.id)}
++              className={`flex items-center gap-3 px-2.5 py-2 rounded-lg transition-all ${
++                active
++                  ? "bg-[#1f1f23] border border-[rgba(255,255,255,0.08)]"
++                  : "hover:bg-[#1f1f23]/50"
++              }`}
++            >
++              <div
++                className="relative flex-shrink-0 w-4 h-4"
++                style={{ color: active ? "#818cf8" : "#a1a1aa" }}
++              >
++                <Glyph type={item.icon} active={active} />
++              </div>
++              <span
++                className={`text-sm flex-1 text-left ${
++                  active
++                    ? "font-semibold text-[#f4f4f5]"
++                    : "font-medium text-[#a1a1aa]"
++                }`}
++              >
++                {item.label}
++              </span>
++              {item.badge && (
++                <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-[rgba(99,102,241,0.15)] border border-[rgba(99,102,241,0.3)] text-[#6366f1]">
++                  {item.badge}
++                </span>
++              )}
++            </button>
++          );
++        })}
++      </div>
++
++      {/* AI Credits */}
++      <div className="mt-auto p-3.5 border-t border-[rgba(255,255,255,0.08)]">
++        <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-gradient-to-br from-[rgba(139,92,246,0.14)] to-[rgba(34,211,238,0.06)] border border-[rgba(139,92,246,0.22)]">
++          <span className="text-xs font-bold text-[#f4f4f5]">AI Credits</span>
++          <span className="text-xs text-[#71717a]">2,840 / 5,000 used</span>
++          <div className="h-1.5 rounded-full bg-[#27272a] overflow-hidden">
++            <div
++              className="h-full rounded-full bg-gradient-to-r from-[#6366f1] to-[#818cf8]"
++              style={{ width: "57%" }}
++            />
++          </div>
++        </div>
++      </div>
++    </aside>
++  );
++}
+diff --git a/components/dashboard/TopBar.tsx b/components/dashboard/TopBar.tsx
+new file mode 100644
+index 0000000..527f4fb
+--- /dev/null
++++ b/components/dashboard/TopBar.tsx
+@@ -0,0 +1,83 @@
++"use client";
++
++import { Menu, Search } from "lucide-react";
++import { useDashboard } from "@/components/dashboard/DashboardContext";
++
++export default function TopBar() {
++  const { isMobile, mobileMenuOpen, setMobileMenuOpen, cmdOpen, setCmdOpen } =
++    useDashboard();
++
++  return (
++    <header className="sticky top-0 z-40 h-14 flex items-center justify-between gap-3 px-4 md:px-6 border-b border-[rgba(255,255,255,0.08)] bg-[rgba(13,13,19,0.7)] backdrop-blur-md">
++      {/* Left: Logo + Hamburger */}
++      <div className="flex items-center gap-3 min-w-0">
++        {isMobile && (
++          <button
++            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
++            className="p-2 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] hover:bg-[#27272a] transition-colors"
++            aria-label="Toggle menu"
++          >
++            <Menu size={16} />
++          </button>
++        )}
++
++        {/* Logo */}
++        <div className="flex items-center gap-2 flex-shrink-0">
++          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#6366f1] to-[#818cf8] flex items-center justify-center shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
++            <div className="w-2.5 h-2.5 rounded-sm bg-[#0a0a10] transform rotate-45" />
++          </div>
++          <div className="flex items-baseline gap-1 whitespace-nowrap hidden sm:flex">
++            <span className="text-sm font-bold text-[#f4f4f5]">CrossPost</span>
++            <span className="text-sm font-medium text-[#71717a]">Studio</span>
++          </div>
++        </div>
++      </div>
++
++      {/* Center: Search */}
++      {!isMobile && (
++        <div
++          onClick={() => setCmdOpen(true)}
++          className="flex-1 max-w-xs flex items-center gap-2 h-9 px-3 bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] rounded-lg cursor-pointer hover:border-[rgba(255,255,255,0.12)] transition-colors"
++        >
++          <Search size={12} className="text-[#71717a] flex-shrink-0" />
++          <span className="text-sm text-[#71717a] flex-1">Ask or search…</span>
++          <div className="flex gap-1">
++            <kbd className="text-xs font-medium text-[#71717a] bg-[#27272a] border border-[rgba(255,255,255,0.08)] px-1.5 py-0.5 rounded">
++              ⌘
++            </kbd>
++            <kbd className="text-xs font-medium text-[#71717a] bg-[#27272a] border border-[rgba(255,255,255,0.08)] px-1.5 py-0.5 rounded">
++              K
++            </kbd>
++          </div>
++        </div>
++      )}
++
++      {/* Right: Search (mobile) + Theme + Avatar */}
++      <div className="flex items-center gap-2 flex-shrink-0">
++        {isMobile && (
++          <button
++            onClick={() => setCmdOpen(true)}
++            className="p-2 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] hover:bg-[#27272a]"
++          >
++            <Search size={16} />
++          </button>
++        )}
++
++        {/* Theme toggle placeholder */}
++        <div className="w-16 h-8 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] flex items-center p-0.5 gap-1 hidden md:flex text-xs font-semibold">
++          <button className="flex-1 rounded-md bg-gradient-to-br from-[#a78bfa] to-[#67e8f9] text-[#0a0a10] py-1">
++            Desktop
++          </button>
++          <button className="flex-1 rounded-md text-[#a1a1aa] py-1">Mobile</button>
++        </div>
++
++        <div className="w-px h-5 bg-[rgba(255,255,255,0.08)] hidden md:block" />
++
++        {/* Avatar */}
++        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#a78bfa] to-[#67e8f9] flex items-center justify-center text-xs font-bold text-[#0a0a10] flex-shrink-0">
++          JM
++        </div>
++      </div>
++    </header>
++  );
++}
+diff --git a/components/dashboard/pages/AICommandCenter.tsx b/components/dashboard/pages/AICommandCenter.tsx
+new file mode 100644
+index 0000000..6801452
+--- /dev/null
++++ b/components/dashboard/pages/AICommandCenter.tsx
+@@ -0,0 +1,88 @@
++"use client";
++
++import { useState } from "react";
++
++const COMMANDS = [
++  { label: "List everything on eBay", tag: "Bulk publish", icon: "nodes" },
++  { label: "Relist stale inventory", tag: "Automation", icon: "stack" },
++  { label: "Update prices", tag: "Pricing", icon: "bars" },
++  { label: "Find items worth buying", tag: "Sourcing", icon: "dot" },
++  { label: "Show today's profit", tag: "Analytics", icon: "spark" },
++];
++
++const HISTORY = [
++  { q: "Show today's profit", a: "Today's profit is $1,842 across 6 marketplaces, up 12% vs. yesterday. Top contributor: eBay ($712).", t: "10:14 AM" },
++  { q: "Relist stale inventory", a: "Relisted 12 items idle 45+ days on Poshmark and Depop. Estimated visibility lift: +18%.", t: "9:52 AM" },
++  { q: "Find items worth buying", a: "Found 4 candidates matching your margin threshold (>60% ROI) from today's estate sale feed.", t: "9:20 AM" },
++];
++
++export default function AICommandCenter() {
++  const [query, setQuery] = useState("");
++
++  return (
++    <div className="space-y-6">
++      {/* Hero */}
++      <div className="text-center space-y-3">
++        <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#818cf8] to-[#4f46e5] flex items-center justify-center mx-auto shadow-[0_8px_24px_rgba(99,102,241,0.35)]">
++          <div
++            className="w-4 h-4 bg-white"
++            style={{
++              clipPath: "polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%)",
++            }}
++          />
++        </div>
++        <h1 className="text-2xl font-bold text-[#f4f4f5]">AI Command Center</h1>
++        <p className="text-sm text-[#71717a]">Tell CrossPost AI what to do, in plain English.</p>
++      </div>
++
++      {/* Input */}
++      <div className="max-w-lg mx-auto w-full">
++        <div className="p-3.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b] flex items-center gap-2.5">
++          <input
++            type="text"
++            value={query}
++            onChange={e => setQuery(e.target.value)}
++            placeholder="e.g. Relist stale inventory on Poshmark"
++            className="flex-1 bg-transparent border-none outline-none text-base text-[#f4f4f5] placeholder-[#71717a]"
++          />
++          <button
++            disabled={!query}
++            className="w-8.5 h-8.5 rounded-lg bg-gradient-to-br from-[#818cf8] to-[#4f46e5] flex items-center justify-center flex-shrink-0 disabled:opacity-50"
++          >
++            <div className="w-0 h-0 border-t-[5px] border-b-[5px] border-l-[8px] border-t-transparent border-b-transparent border-l-white ml-0.5" />
++          </button>
++        </div>
++      </div>
++
++      {/* Suggested Commands */}
++      <div className="flex flex-wrap gap-2 justify-center max-w-2xl mx-auto">
++        {COMMANDS.map((cmd, idx) => (
++          <button
++            key={idx}
++            onClick={() => setQuery(cmd.label)}
++            className="flex items-center gap-2 px-3.5 py-2 rounded-full text-sm font-semibold text-[#f4f4f5] bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] hover:bg-[#27272a] hover:border-[rgba(255,255,255,0.12)] transition-all whitespace-nowrap"
++          >
++            <span className="text-xs">✨</span>
++            {cmd.label}
++          </button>
++        ))}
++      </div>
++
++      {/* Recent Commands */}
++      <div className="max-w-lg mx-auto w-full">
++        <div className="text-xs uppercase font-bold letter-spacing text-[#71717a] mb-3">Recent Commands</div>
++        <div className="space-y-2.5">
++          {HISTORY.map((cmd, idx) => (
++            <div key={idx} className="p-4 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++              <div className="flex items-center justify-between mb-2">
++                <span className="text-sm font-semibold text-[#f4f4f5]">{cmd.q}</span>
++                <span className="text-xs text-[#71717a] font-mono flex-shrink-0">{cmd.t}</span>
++              </div>
++              <div className="text-sm text-[#a1a1aa] leading-snug">{cmd.a}</div>
++            </div>
++          ))}
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/components/dashboard/pages/Analytics.tsx b/components/dashboard/pages/Analytics.tsx
+new file mode 100644
+index 0000000..d735a64
+--- /dev/null
++++ b/components/dashboard/pages/Analytics.tsx
+@@ -0,0 +1,109 @@
++"use client";
++
++const STATS = [
++  { label: "Revenue (30d)", value: "$24,680", sub: "+18.2%", tone: "green" },
++  { label: "Profit (30d)", value: "$9,412", sub: "+11.4%", tone: "green" },
++  { label: "Sell-Through Rate", value: "38.2%", sub: "+3.1 pts", tone: "accent" },
++  { label: "Avg. ROI", value: "184%", sub: "across all SKUs", tone: "gold" },
++];
++
++const BEST_PRODUCTS = [
++  { name: "Herman Miller Aeron Chair", sold: 14, revenue: 4380 },
++  { name: "Nikon F3 Camera Body", sold: 9, revenue: 2115 },
++  { name: "Polaroid SX-70", sold: 11, revenue: 1848 },
++  { name: "Sony WH-1000XM4", sold: 21, revenue: 3255 },
++];
++
++const SLOW_MOVERS = [
++  { name: "Kilim Wool Runner Rug", days: 118 },
++  { name: "Coach Crossbody — Tan", days: 96 },
++  { name: "Ceramic Table Lamp Set", days: 84 },
++];
++
++const REVENUE_DATA = [32, 28, 41, 38, 52, 48, 61, 58, 70, 66, 78, 84];
++
++export default function Analytics() {
++  const maxRevenue = Math.max(...REVENUE_DATA);
++
++  return (
++    <div className="space-y-6">
++      {/* Header */}
++      <div>
++        <h1 className="text-2xl font-bold text-[#f4f4f5]">Analytics</h1>
++        <p className="text-sm text-[#71717a] mt-1">Performance across every connected marketplace</p>
++      </div>
++
++      {/* Stat Cards */}
++      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
++        {STATS.map((stat, idx) => (
++          <div key={idx} className="flex flex-col gap-2 p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++            <span className="text-xs uppercase font-bold letter-spacing text-[#71717a]">{stat.label}</span>
++            <span className="text-2xl font-bold text-[#f4f4f5] font-mono letter-spacing">{stat.value}</span>
++            <span className={`text-sm font-semibold ${
++              stat.tone === "green" ? "text-[#34d399]" :
++              stat.tone === "gold" ? "text-[#fbbf24]" :
++              "text-[#818cf8]"
++            }`}>
++              {stat.sub}
++            </span>
++          </div>
++        ))}
++      </div>
++
++      {/* Revenue Trend */}
++      <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++        <div className="text-sm font-bold text-[#f4f4f5] mb-4">Revenue Trend — 12 Weeks</div>
++        <div className="flex items-end gap-1.5 h-32">
++          {REVENUE_DATA.map((value, idx) => {
++            const height = (value / maxRevenue) * 100;
++            const isLast = idx === REVENUE_DATA.length - 1;
++            return (
++              <div
++                key={idx}
++                className="flex-1 rounded-t"
++                style={{
++                  height: `${height}%`,
++                  background: isLast ? "linear-gradient(180deg, #818cf8, #4f46e5)" : "rgba(99, 102, 241, 0.28)",
++                }}
++              />
++            );
++          })}
++        </div>
++      </div>
++
++      {/* Best Products + Slow Movers */}
++      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
++        {/* Best Products */}
++        <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++          <div className="text-sm font-bold text-[#f4f4f5] mb-4">Best Products</div>
++          <div className="space-y-0">
++            {BEST_PRODUCTS.map((product, idx) => (
++              <div key={idx} className="flex items-center gap-3 py-2.5 border-b border-[rgba(255,255,255,0.08)] last:border-b-0">
++                <div className="w-5.5 h-5.5 rounded-lg bg-[#27272a] flex items-center justify-center text-xs font-bold text-[#a1a1aa] flex-shrink-0">
++                  {idx + 1}
++                </div>
++                <span className="text-sm font-semibold text-[#f4f4f5] flex-1 min-w-0">{product.name}</span>
++                <span className="text-xs text-[#71717a] font-mono">{product.sold} sold</span>
++                <span className="text-sm font-bold text-[#34d399] font-mono flex-shrink-0">${product.revenue}</span>
++              </div>
++            ))}
++          </div>
++        </div>
++
++        {/* Slow Movers */}
++        <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++          <div className="text-sm font-bold text-[#f4f4f5] mb-4">Slow Movers</div>
++          <div className="space-y-0">
++            {SLOW_MOVERS.map((product, idx) => (
++              <div key={idx} className="flex items-center gap-3 py-2.5 border-b border-[rgba(255,255,255,0.08)] last:border-b-0">
++                <div className="w-2 h-2 rounded-full bg-[#fb7185] flex-shrink-0" />
++                <span className="text-sm font-semibold text-[#f4f4f5] flex-1 min-w-0">{product.name}</span>
++                <span className="text-xs text-[#71717a] font-mono">{product.days}d idle</span>
++              </div>
++            ))}
++          </div>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/components/dashboard/pages/CrossPostingCenter.tsx b/components/dashboard/pages/CrossPostingCenter.tsx
+new file mode 100644
+index 0000000..a96c7ef
+--- /dev/null
++++ b/components/dashboard/pages/CrossPostingCenter.tsx
+@@ -0,0 +1,104 @@
++"use client";
++
++const MARKETPLACES = [
++  { id: "ebay", name: "eBay", mono: "eB", color: "#3b82f6", status: "live", listings: 342, lastSync: "2m ago", future: false },
++  { id: "facebook", name: "Facebook Marketplace", mono: "FB", color: "#4f7cff", status: "live", listings: 288, lastSync: "4m ago", future: false },
++  { id: "mercari", name: "Mercari", mono: "Mc", color: "#f97364", status: "syncing", listings: 201, lastSync: "Syncing…", future: false },
++  { id: "etsy", name: "Etsy", mono: "Et", color: "#f1641e", status: "live", listings: 96, lastSync: "11m ago", future: false },
++  { id: "poshmark", name: "Poshmark", mono: "Po", color: "#c2185b", status: "error", listings: 154, lastSync: "Failed 1h ago", future: false },
++  { id: "depop", name: "Depop", mono: "De", color: "#ff2300", status: "live", listings: 118, lastSync: "6m ago", future: false },
++  { id: "amazon", name: "Amazon", mono: "Az", color: "#ff9900", status: "coming", listings: 0, lastSync: "—", future: true },
++  { id: "shopify", name: "Shopify", mono: "Sh", color: "#95bf47", status: "coming", listings: 0, lastSync: "—", future: true },
++];
++
++export default function CrossPostingCenter() {
++  const liveCount = MARKETPLACES.filter(m => m.status === "live").length;
++  const totalListings = MARKETPLACES.reduce((a, m) => a + m.listings, 0);
++  const health = Math.round((liveCount / MARKETPLACES.filter(m => !m.future).length) * 100);
++
++  const getStatusInfo = (status: string) => {
++    switch(status) {
++      case "live": return { label: "Live syncing", color: "#34d399" };
++      case "syncing": return { label: "Syncing…", color: "#fbbf24" };
++      case "error": return { label: "Sync error", color: "#fb7185" };
++      case "coming": return { label: "Coming soon", color: "#71717a" };
++      default: return { label: "", color: "#71717a" };
++    }
++  };
++
++  return (
++    <div className="space-y-6">
++      {/* Header */}
++      <div className="flex items-center justify-between flex-wrap gap-4">
++        <div>
++          <h1 className="text-2xl font-bold text-[#f4f4f5]">Cross-Posting Center</h1>
++          <p className="text-sm text-[#71717a] mt-1">{liveCount} marketplaces connected · {totalListings} live listings</p>
++        </div>
++
++        <div className="flex items-center gap-3">
++          <div className="w-30 h-1.5 rounded-full bg-[#27272a] overflow-hidden">
++            <div
++              className="h-full rounded-full bg-gradient-to-r from-[#818cf8] to-[#34d399]"
++              style={{ width: `${health}%` }}
++            />
++          </div>
++          <span className="text-xs font-bold font-mono text-[#34d399] flex-shrink-0">{health}% Healthy</span>
++        </div>
++      </div>
++
++      {/* Marketplace Grid */}
++      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
++        {MARKETPLACES.map(m => {
++          const statusInfo = getStatusInfo(m.status);
++          return (
++            <div
++              key={m.id}
++              className={`p-4 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b] flex flex-col gap-3 ${
++                m.future ? "opacity-60" : ""
++              }`}
++            >
++              <div className="flex items-center gap-3">
++                <div
++                  className="w-8.5 h-8.5 rounded-lg flex items-center justify-center text-sm font-black text-[#0a0a10] flex-shrink-0"
++                  style={{ background: m.color }}
++                >
++                  {m.mono}
++                </div>
++                <div className="flex-1 min-w-0">
++                  <div className="text-sm font-bold text-[#f4f4f5]">{m.name}</div>
++                  <div className="flex items-center gap-1.5 mt-0.5">
++                    <div
++                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
++                      style={{
++                        background: statusInfo.color,
++                        animation: m.status === "syncing" ? "pulse 1.2s infinite" : "none",
++                      }}
++                    />
++                    <span className="text-xs text-[#71717a] font-semibold">{statusInfo.label}</span>
++                  </div>
++                </div>
++              </div>
++
++              <div className="flex items-center justify-between pt-2 border-t border-[rgba(255,255,255,0.08)]">
++                <div>
++                  <div className="text-lg font-black text-[#f4f4f5] font-mono">{m.listings}</div>
++                  <div className="text-xs text-[#71717a] uppercase letter-spacing font-bold">listings</div>
++                </div>
++                <button
++                  disabled={m.future}
++                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
++                    m.future
++                      ? "text-[#71717a] bg-[#27272a] cursor-not-allowed"
++                      : "text-[#f4f4f5] bg-[#27272a] hover:bg-[#1f1f23]"
++                  }`}
++                >
++                  {m.future ? "Notify Me" : "Sync Now"}
++                </button>
++              </div>
++            </div>
++          );
++        })}
++      </div>
++    </div>
++  );
++}
+diff --git a/components/dashboard/pages/Dashboard.tsx b/components/dashboard/pages/Dashboard.tsx
+new file mode 100644
+index 0000000..163a5c5
+--- /dev/null
++++ b/components/dashboard/pages/Dashboard.tsx
+@@ -0,0 +1,166 @@
++"use client";
++
++import { useState, useEffect } from "react";
++
++const STAT_CARDS = [
++  { label: "Revenue (30d)", value: "$24,680", sub: "+18.2% vs prior", tone: "green" },
++  { label: "Active Listings", value: "1,299", sub: "across 6 marketplaces", tone: "default" },
++  { label: "Open Orders", value: "47", sub: "12 need shipping", tone: "gold" },
++  { label: "Listings Pending", value: "23", sub: "queued to publish", tone: "accent" },
++];
++
++const MARKETPLACES = [
++  { id: "ebay", name: "eBay", mono: "eB", color: "#3b82f6", status: "live", listings: 342, lastSync: "2m ago" },
++  { id: "facebook", name: "Facebook Marketplace", mono: "FB", color: "#4f7cff", status: "live", listings: 288, lastSync: "4m ago" },
++  { id: "mercari", name: "Mercari", mono: "Mc", color: "#f97364", status: "syncing", listings: 201, lastSync: "Syncing…" },
++  { id: "etsy", name: "Etsy", mono: "Et", color: "#f1641e", status: "live", listings: 96, lastSync: "11m ago" },
++  { id: "poshmark", name: "Poshmark", mono: "Po", color: "#c2185b", status: "error", listings: 154, lastSync: "Failed 1h ago" },
++  { id: "depop", name: "Depop", mono: "De", color: "#ff2300", status: "live", listings: 118, lastSync: "6m ago" },
++];
++
++const ACTIVITY_FEED = [
++  { t: "2m ago", text: "Relisted 12 stale items on Poshmark to refresh search ranking", kind: "relist" },
++  { t: "9m ago", text: "Generated title + description for SKU-20291 (Vintage Denim Jacket)", kind: "gen" },
++  { t: "18m ago", text: "Dropped price 8% on 3 slow movers across eBay + Mercari", kind: "price" },
++  { t: "34m ago", text: "Published 6 new listings to Facebook Marketplace", kind: "publish" },
++  { t: "1h ago", text: "Flagged Poshmark sync error — auth token expired", kind: "error" },
++  { t: "2h ago", text: "Found 4 items matching your sourcing criteria at estate sale feed", kind: "find" },
++];
++
++const REVENUE_DATA = [32, 28, 41, 38, 52, 48, 61, 58, 70, 66, 78, 84];
++
++export default function Dashboard() {
++  const maxRevenue = Math.max(...REVENUE_DATA);
++  const colors = {
++    green: "#34d399",
++    accent: "#6366f1",
++    accentLight: "#818cf8",
++    gold: "#fbbf24",
++    red: "#fb7185",
++    textSecondary: "#a1a1aa",
++    textTertiary: "#71717a",
++  };
++
++  return (
++    <div className="space-y-6">
++      {/* Header */}
++      <div>
++        <h1 className="text-2xl font-bold text-[#f4f4f5]">Good morning, Josh</h1>
++        <p className="text-sm text-[#71717a] mt-1">Here's how the empire is performing today.</p>
++      </div>
++
++      {/* Stat Cards */}
++      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
++        {STAT_CARDS.map((stat, idx) => (
++          <div key={idx} className="flex flex-col gap-2 p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++            <span className="text-xs uppercase font-bold letter-spacing text-[#71717a]">{stat.label}</span>
++            <span className="text-2xl font-bold text-[#f4f4f5] font-mono letter-spacing">{stat.value}</span>
++            <span className={`text-sm font-semibold ${
++              stat.tone === "green" ? "text-[#34d399]" :
++              stat.tone === "gold" ? "text-[#fbbf24]" :
++              stat.tone === "accent" ? "text-[#818cf8]" :
++              "text-[#71717a]"
++            }`}>
++              {stat.sub}
++            </span>
++          </div>
++        ))}
++      </div>
++
++      {/* Revenue Chart + Marketplace Status */}
++      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
++        {/* Revenue Chart */}
++        <div className="lg:col-span-2 p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++          <div className="flex items-center justify-between mb-4">
++            <span className="text-sm font-bold text-[#f4f4f5]">Revenue — Last 12 Weeks</span>
++            <span className="text-xs font-bold font-mono text-[#34d399]">+18.2%</span>
++          </div>
++
++          <div className="flex items-end gap-1.5 h-32">
++            {REVENUE_DATA.map((value, idx) => {
++              const height = (value / maxRevenue) * 100;
++              const isLast = idx === REVENUE_DATA.length - 1;
++              return (
++                <div
++                  key={idx}
++                  className="flex-1 rounded-t"
++                  style={{
++                    height: `${height}%`,
++                    background: isLast ? "linear-gradient(180deg, #818cf8, #4f46e5)" : "rgba(99, 102, 241, 0.28)",
++                  }}
++                />
++              );
++            })}
++          </div>
++        </div>
++
++        {/* Marketplace Status */}
++        <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++          <div className="text-xs uppercase font-bold letter-spacing text-[#71717a] mb-3">Marketplace Status</div>
++          <div className="flex flex-col gap-2">
++            {MARKETPLACES.map((m) => (
++              <div key={m.id} className="flex items-center gap-2.5 p-2.5 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)]">
++                <div
++                  className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold text-[#0a0a10] flex-shrink-0"
++                  style={{ background: m.color }}
++                >
++                  {m.mono}
++                </div>
++                <div className="flex-1 min-w-0">
++                  <div className="text-xs font-semibold text-[#f4f4f5]">{m.name}</div>
++                  <div className="flex items-center gap-1.5 mt-0.5">
++                    <div
++                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
++                      style={{
++                        background: m.status === "live" ? "#34d399" :
++                                  m.status === "syncing" ? "#fbbf24" :
++                                  "#fb7185",
++                        animation: m.status === "syncing" ? "pulse 1.2s infinite" : "none",
++                      }}
++                    />
++                    <span className="text-xs text-[#71717a] font-mono">{m.lastSync}</span>
++                  </div>
++                </div>
++              </div>
++            ))}
++          </div>
++        </div>
++      </div>
++
++      {/* AI Activity Feed */}
++      <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++        <div className="flex items-center justify-between mb-4">
++          <span className="text-sm font-bold text-[#f4f4f5]">AI Activity Feed</span>
++          <div className="flex items-center gap-1.5">
++            <div className="w-1.5 h-1.5 rounded-full bg-[#34d399] animate-pulse" />
++            <span className="text-xs text-[#71717a] font-mono">LIVE</span>
++          </div>
++        </div>
++
++        <div className="space-y-0">
++          {ACTIVITY_FEED.map((activity, idx) => (
++            <div key={idx} className="flex gap-3 py-2.5 border-b border-[rgba(255,255,255,0.08)] last:border-b-0">
++              <div
++                className="w-5.5 h-5.5 rounded-full flex items-center justify-center flex-shrink-0"
++                style={{
++                  background: activity.kind === "error" ? "rgba(251, 113, 133, 0.15)" : "rgba(99, 102, 241, 0.15)",
++                }}
++              >
++                <div
++                  className="w-1.5 h-1.5 rounded-full"
++                  style={{
++                    background: activity.kind === "error" ? "#fb7185" : "#818cf8",
++                  }}
++                />
++              </div>
++              <div className="flex-1 min-w-0">
++                <div className="text-sm text-[#f4f4f5] leading-snug">{activity.text}</div>
++                <div className="text-xs text-[#71717a] font-mono mt-0.5">{activity.t}</div>
++              </div>
++            </div>
++          ))}
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/components/dashboard/pages/Inventory.tsx b/components/dashboard/pages/Inventory.tsx
+new file mode 100644
+index 0000000..c6e7003
+--- /dev/null
++++ b/components/dashboard/pages/Inventory.tsx
+@@ -0,0 +1,188 @@
++"use client";
++
++import { useState } from "react";
++
++const INVENTORY_ROWS = [
++  { sku: "SKU-20291", title: "Vintage Levi's 501 Denim Jacket — Medium", qty: 1, profit: 42.50, aiScore: 92, live: ["ebay", "poshmark", "depop"] },
++  { sku: "SKU-20288", title: "Nikon F3 35mm Film Camera Body", qty: 1, profit: 118.00, aiScore: 97, live: ["ebay", "mercari"] },
++  { sku: "SKU-20276", title: "Le Creuset Dutch Oven 5.5qt — Cerise", qty: 2, profit: 65.25, aiScore: 88, live: ["facebook", "mercari", "etsy"] },
++  { sku: "SKU-20261", title: "Coach Leather Crossbody — Black", qty: 1, profit: 31.00, aiScore: 74, live: ["poshmark", "depop"] },
++  { sku: "SKU-20254", title: "Herman Miller Aeron Chair — Size B", qty: 1, profit: 210.00, aiScore: 95, live: ["ebay", "facebook"] },
++  { sku: "SKU-20239", title: "Sony WH-1000XM4 Headphones", qty: 3, profit: 54.00, aiScore: 81, live: ["ebay", "mercari", "facebook"] },
++  { sku: "SKU-20218", title: "Kilim Wool Runner Rug 2x8", qty: 1, profit: 28.75, aiScore: 63, live: ["etsy"] },
++  { sku: "SKU-20202", title: "Polaroid SX-70 Land Camera", qty: 1, profit: 89.50, aiScore: 90, live: ["ebay", "depop", "etsy"] },
++];
++
++const MARKETPLACES = [
++  { id: "ebay", name: "eBay", mono: "eB", color: "#3b82f6" },
++  { id: "facebook", name: "Facebook", mono: "FB", color: "#4f7cff" },
++  { id: "mercari", name: "Mercari", mono: "Mc", color: "#f97364" },
++  { id: "etsy", name: "Etsy", mono: "Et", color: "#f1641e" },
++  { id: "poshmark", name: "Poshmark", mono: "Po", color: "#c2185b" },
++  { id: "depop", name: "Depop", mono: "De", color: "#ff2300" },
++];
++
++export default function Inventory() {
++  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
++
++  const toggleRow = (sku: string) => {
++    const newSet = new Set(selectedRows);
++    if (newSet.has(sku)) {
++      newSet.delete(sku);
++    } else {
++      newSet.add(sku);
++    }
++    setSelectedRows(newSet);
++  };
++
++  const toggleSelectAll = () => {
++    if (selectedRows.size === INVENTORY_ROWS.length) {
++      setSelectedRows(new Set());
++    } else {
++      setSelectedRows(new Set(INVENTORY_ROWS.map(r => r.sku)));
++    }
++  };
++
++  const getScoreColor = (score: number) => {
++    if (score >= 90) return { bg: "rgba(52, 211, 153, 0.12)", border: "rgba(52, 211, 153, 0.3)", text: "#34d399" };
++    if (score >= 70) return { bg: "rgba(129, 140, 248, 0.12)", border: "rgba(129, 140, 248, 0.3)", text: "#818cf8" };
++    return { bg: "rgba(251, 191, 36, 0.12)", border: "rgba(251, 191, 36, 0.3)", text: "#fbbf24" };
++  };
++
++  return (
++    <div className="space-y-4">
++      {/* Header */}
++      <div>
++        <h1 className="text-2xl font-bold text-[#f4f4f5]">Inventory</h1>
++        <p className="text-sm text-[#71717a] mt-1">1,299 items across 6 connected marketplaces</p>
++      </div>
++
++      {/* Bulk Actions Bar */}
++      {selectedRows.size > 0 && (
++        <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[rgba(99,102,241,0.1)] border border-[rgba(99,102,241,0.3)]">
++          <span className="text-sm font-semibold text-[#f4f4f5]">{selectedRows.size} selected</span>
++          <div className="flex gap-2 flex-wrap">
++            {["Relist", "Update Price", "Publish", "Archive", "Delete"].map(action => (
++              <button
++                key={action}
++                onClick={() => setSelectedRows(new Set())}
++                className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${
++                  action === "Delete"
++                    ? "text-[#fb7185] bg-[rgba(251,113,133,0.1)] border border-[rgba(251,113,133,0.3)]"
++                    : "text-[#f4f4f5] bg-[#27272a] border border-[rgba(255,255,255,0.08)]"
++                }`}
++              >
++                {action}
++              </button>
++            ))}
++          </div>
++        </div>
++      )}
++
++      {/* Desktop Table */}
++      <div className="hidden md:block rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b] overflow-hidden">
++        <div className="overflow-x-auto">
++          <table className="w-full">
++            <thead>
++              <tr className="border-b border-[rgba(255,255,255,0.08)] bg-[#1f1f23]">
++                <th className="w-7 p-2"><input type="checkbox" checked={selectedRows.size === INVENTORY_ROWS.length} onChange={toggleSelectAll} /></th>
++                <th className="w-12" />
++                <th className="px-4 py-2.5 text-left text-xs uppercase font-bold text-[#71717a]">Item</th>
++                <th className="px-4 py-2.5 text-left text-xs uppercase font-bold text-[#71717a]">Qty</th>
++                <th className="px-4 py-2.5 text-left text-xs uppercase font-bold text-[#71717a]">Profit</th>
++                <th className="px-4 py-2.5 text-left text-xs uppercase font-bold text-[#71717a]">Marketplaces</th>
++                <th className="px-4 py-2.5 text-left text-xs uppercase font-bold text-[#71717a]">AI Score</th>
++                <th className="w-8" />
++              </tr>
++            </thead>
++            <tbody>
++              {INVENTORY_ROWS.map((row) => {
++                const scoreColor = getScoreColor(row.aiScore);
++                return (
++                  <tr key={row.sku} className="border-b border-[rgba(255,255,255,0.08)] hover:bg-[#1f1f23]/50">
++                    <td className="p-2"><input type="checkbox" checked={selectedRows.has(row.sku)} onChange={() => toggleRow(row.sku)} /></td>
++                    <td className="px-3 py-2">
++                      <div className="w-10 h-10 rounded-lg bg-[repeating-linear-gradient(45deg,_#27272a,_#27272a_4px,_#1f1f23_4px,_#1f1f23_8px)] border border-[rgba(255,255,255,0.08)]" />
++                    </td>
++                    <td className="px-4 py-2.5 min-w-0">
++                      <div className="text-sm font-semibold text-[#f4f4f5] truncate">{row.title}</div>
++                      <div className="text-xs text-[#71717a] font-mono">{row.sku}</div>
++                    </td>
++                    <td className="px-4 py-2.5 text-sm text-[#a1a1aa] font-mono">{row.qty}</td>
++                    <td className="px-4 py-2.5 text-sm font-bold text-[#34d399] font-mono">${row.profit.toFixed(2)}</td>
++                    <td className="px-4 py-2.5">
++                      <div className="flex gap-1">
++                        {MARKETPLACES.map(m => (
++                          <div
++                            key={m.id}
++                            className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0 ${
++                              row.live.includes(m.id) ? "text-[#0a0a10]" : "text-[#71717a]"
++                            }`}
++                            style={{
++                              background: row.live.includes(m.id) ? m.color : "#27272a",
++                              opacity: row.live.includes(m.id) ? 1 : 0.5,
++                            }}
++                          >
++                            {m.mono}
++                          </div>
++                        ))}
++                      </div>
++                    </td>
++                    <td className="px-4 py-2.5 text-xs font-bold" style={{ color: scoreColor.text }}>
++                      <span style={{ background: scoreColor.bg, border: `1px solid ${scoreColor.border}` }} className="px-2 py-1 rounded-md">
++                        {row.aiScore}
++                      </span>
++                    </td>
++                    <td className="px-2 py-2.5 text-center text-[#71717a]">⋯</td>
++                  </tr>
++                );
++              })}
++            </tbody>
++          </table>
++        </div>
++      </div>
++
++      {/* Mobile Cards */}
++      <div className="md:hidden space-y-3">
++        {INVENTORY_ROWS.map((row) => {
++          const scoreColor = getScoreColor(row.aiScore);
++          return (
++            <div key={row.sku} className="p-3.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b] space-y-3">
++              <div className="flex gap-3 items-start">
++                <input type="checkbox" checked={selectedRows.has(row.sku)} onChange={() => toggleRow(row.sku)} className="mt-0.5" />
++                <div className="w-10 h-10 rounded-lg bg-[repeating-linear-gradient(45deg,_#27272a,_#27272a_4px,_#1f1f23_4px,_#1f1f23_8px)] border border-[rgba(255,255,255,0.08)] flex-shrink-0" />
++                <div className="flex-1 min-w-0">
++                  <div className="text-sm font-semibold text-[#f4f4f5]">{row.title}</div>
++                  <div className="text-xs text-[#71717a] font-mono">{row.sku}</div>
++                </div>
++                <span className="text-xs font-bold px-2 py-1 rounded-md flex-shrink-0" style={{ color: scoreColor.text, background: scoreColor.bg, border: `1px solid ${scoreColor.border}` }}>
++                  {row.aiScore}
++                </span>
++              </div>
++              <div className="flex items-center justify-between text-sm">
++                <span className="text-[#a1a1aa] font-mono">Qty {row.qty}</span>
++                <span className="font-bold text-[#34d399] font-mono">${row.profit.toFixed(2)} profit</span>
++              </div>
++              <div className="flex gap-1 flex-wrap">
++                {MARKETPLACES.map(m => (
++                  <div
++                    key={m.id}
++                    className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0 ${
++                      row.live.includes(m.id) ? "text-[#0a0a10]" : "text-[#71717a]"
++                    }`}
++                    style={{
++                      background: row.live.includes(m.id) ? m.color : "#27272a",
++                      opacity: row.live.includes(m.id) ? 1 : 0.5,
++                    }}
++                  >
++                    {m.mono}
++                  </div>
++                ))}
++              </div>
++            </div>
++          );
++        })}
++      </div>
++    </div>
++  );
++}
+diff --git a/components/dashboard/pages/ListingEditor.tsx b/components/dashboard/pages/ListingEditor.tsx
+new file mode 100644
+index 0000000..6cb3ee4
+--- /dev/null
++++ b/components/dashboard/pages/ListingEditor.tsx
+@@ -0,0 +1,222 @@
++"use client";
++
++import { useState } from "react";
++
++const MARKETPLACES = [
++  { id: "ebay", name: "eBay", mono: "eB", color: "#3b82f6" },
++  { id: "facebook", name: "Facebook Marketplace", mono: "FB", color: "#4f7cff" },
++  { id: "mercari", name: "Mercari", mono: "Mc", color: "#f97364" },
++  { id: "etsy", name: "Etsy", mono: "Et", color: "#f1641e" },
++  { id: "poshmark", name: "Poshmark", mono: "Po", color: "#c2185b" },
++  { id: "depop", name: "Depop", mono: "De", color: "#ff2300" },
++];
++
++export default function ListingEditor() {
++  const [title, setTitle] = useState("Vintage Levi's 501 Denim Jacket — Medium, Excellent Condition");
++  const [description, setDescription] = useState(
++    "Classic 501 straight-leg denim jacket in a rich indigo wash. Excellent pre-owned condition — no rips, stains, or fading. Button closures all intact. A true wardrobe staple that only gets better with age."
++  );
++  const [price, setPrice] = useState(128);
++  const [targets, setTargets] = useState<Record<string, boolean>>({
++    ebay: true,
++    facebook: true,
++    mercari: false,
++    etsy: false,
++    poshmark: true,
++    depop: true,
++  });
++
++  const targetCount = Object.values(targets).filter(Boolean).length;
++
++  const toggleTarget = (id: string) => {
++    setTargets(prev => ({ ...prev, [id]: !prev[id] }));
++  };
++
++  return (
++    <div className="space-y-6">
++      {/* Header */}
++      <div>
++        <h1 className="text-2xl font-bold text-[#f4f4f5]">Listing Editor</h1>
++        <p className="text-sm text-[#71717a] mt-1">SKU-20291 — Vintage Levi's 501 Denim Jacket</p>
++      </div>
++
++      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
++        {/* Left: Form */}
++        <div className="lg:col-span-2 space-y-4">
++          {/* Photos */}
++          <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++            <div className="text-xs uppercase font-bold letter-spacing text-[#71717a] mb-3">Photos</div>
++            <div className="grid grid-cols-3 gap-2.5">
++              {[0, 1, 2, 3, 4, 5].map(i => (
++                <div
++                  key={i}
++                  className={`aspect-square rounded-lg border-2 flex items-center justify-center cursor-pointer transition-all ${
++                    i === 0
++                      ? "border-[#6366f1] bg-[repeating-linear-gradient(45deg,_#27272a,_#27272a_5px,_#1f1f23_5px,_#1f1f23_10px)]"
++                      : "border-dashed border-[rgba(255,255,255,0.08)] bg-[#1f1f23] hover:bg-[#27272a]"
++                  }`}
++                >
++                  {i === 0 && (
++                    <span className="absolute top-1 left-1 text-xs font-bold text-[#0a0a10] bg-[#818cf8] px-1 py-0.5 rounded-md font-mono">
++                      PRIMARY
++                    </span>
++                  )}
++                  <span className="text-xs text-[#71717a] font-mono">+ photo</span>
++                </div>
++              ))}
++            </div>
++          </div>
++
++          {/* Title & Description */}
++          <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b] space-y-4">
++            <div>
++              <div className="flex items-center justify-between mb-2">
++                <label className="text-xs uppercase font-bold letter-spacing text-[#71717a]">Title</label>
++                <button className="flex items-center gap-1.5 text-xs font-bold text-[#818cf8] hover:text-[#a78bfa] transition-colors">
++                  ✦ Generate with AI
++                </button>
++              </div>
++              <input
++                type="text"
++                value={title}
++                onChange={e => setTitle(e.target.value)}
++                className="w-full px-3 py-2.5 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] text-[#f4f4f5] text-sm font-medium focus:outline-none focus:border-[#6366f1]"
++              />
++            </div>
++
++            <div>
++              <div className="flex items-center justify-between mb-2">
++                <label className="text-xs uppercase font-bold letter-spacing text-[#71717a]">Description</label>
++                <button className="flex items-center gap-1.5 text-xs font-bold text-[#818cf8] hover:text-[#a78bfa] transition-colors">
++                  ✦ Generate with AI
++                </button>
++              </div>
++              <textarea
++                value={description}
++                onChange={e => setDescription(e.target.value)}
++                rows={5}
++                className="w-full px-3 py-2.5 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] text-[#a1a1aa] text-sm font-medium focus:outline-none focus:border-[#6366f1]"
++              />
++            </div>
++
++            <div>
++              <label className="text-xs uppercase font-bold letter-spacing text-[#71717a] mb-2 block">SEO Keywords</label>
++              <div className="flex flex-wrap gap-2">
++                {["vintage denim", "levi's 501", "trucker jacket", "y2k fashion", "unisex outerwear"].map(k => (
++                  <span
++                    key={k}
++                    className="inline-flex px-3 py-1.5 rounded-full text-xs font-semibold text-[#818cf8] bg-[rgba(99,102,241,0.12)] border border-[rgba(99,102,241,0.28)]"
++                  >
++                    {k}
++                  </span>
++                ))}
++              </div>
++            </div>
++
++            <div>
++              <label className="text-xs uppercase font-bold letter-spacing text-[#71717a] mb-2 block">Category</label>
++              <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] text-sm text-[#a1a1aa]">
++                <span>Clothing</span>
++                <span className="text-[#71717a]">›</span>
++                <span>Men's</span>
++                <span className="text-[#71717a]">›</span>
++                <span className="text-[#f4f4f5] font-semibold">Jackets & Coats</span>
++              </div>
++            </div>
++          </div>
++        </div>
++
++        {/* Right: Price + Publish */}
++        <div className="space-y-4">
++          {/* AI Price Suggestion */}
++          <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++            <label className="text-xs uppercase font-bold letter-spacing text-[#71717a] mb-3 block">AI Price Suggestion</label>
++
++            <div className="flex items-baseline gap-2 mb-1">
++              <span className="text-xs text-[#71717a]">$</span>
++              <input
++                type="number"
++                value={price}
++                onChange={e => setPrice(Number(e.target.value))}
++                className="bg-transparent border-none outline-none text-[2.5rem] font-black text-[#f4f4f5] font-mono p-0 w-28"
++              />
++            </div>
++
++            <div className="text-xs font-semibold text-[#34d399] mb-3">Within suggested range — competitive</div>
++
++            <div className="relative h-1.5 rounded-full bg-[#27272a] mb-1.5">
++              <div
++                className="absolute rounded-full bg-gradient-to-r from-[#818cf8] to-[#6366f1]"
++                style={{ left: "22%", right: "30%", top: 0, bottom: 0 }}
++              />
++              <div
++                className="absolute w-0.5 h-[0.375rem] -top-0.75 rounded bg-[#f4f4f5]"
++                style={{ left: "48%" }}
++              />
++            </div>
++
++            <div className="flex justify-between text-xs text-[#71717a] font-mono">
++              <span>Low $98</span>
++              <span>Median $124</span>
++              <span>High $162</span>
++            </div>
++          </div>
++
++          {/* Publish Targets */}
++          <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
++            <div className="flex items-center justify-between mb-3">
++              <label className="text-xs uppercase font-bold letter-spacing text-[#71717a]">Publish Targets</label>
++              <span className="text-xs text-[#71717a] font-mono">{targetCount}/6</span>
++            </div>
++
++            <div className="space-y-1.5">
++              {MARKETPLACES.map(m => {
++                const active = targets[m.id];
++                return (
++                  <button
++                    key={m.id}
++                    onClick={() => toggleTarget(m.id)}
++                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
++                      active
++                        ? "bg-[rgba(99,102,241,0.08)] border border-[rgba(99,102,241,0.35)]"
++                        : "bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] hover:bg-[#27272a]"
++                    }`}
++                  >
++                    <div
++                      className="w-5.5 h-5.5 rounded-md flex items-center justify-center text-[0.6rem] font-black text-[#0a0a10] flex-shrink-0"
++                      style={{ background: m.color }}
++                    >
++                      {m.mono}
++                    </div>
++                    <span className={`text-sm font-semibold flex-1 text-left ${active ? "text-[#f4f4f5]" : "text-[#a1a1aa]"}`}>
++                      {m.name}
++                    </span>
++                    <div
++                      className={`w-4 h-4 rounded-md border-1.5 flex items-center justify-center flex-shrink-0 ${
++                        active
++                          ? "border-[#6366f1] bg-[#6366f1]"
++                          : "border-[#71717a]"
++                      }`}
++                    >
++                      {active && <div className="w-1.5 h-1.5 bg-[#0a0a10] rounded-sm" />}
++                    </div>
++                  </button>
++                );
++              })}
++            </div>
++          </div>
++
++          {/* Action Buttons */}
++          <div className="space-y-2">
++            <button className="w-full py-3 rounded-lg bg-gradient-to-br from-[#818cf8] to-[#4f46e5] text-white text-sm font-bold hover:from-[#a78bfa] hover:to-[#6366f1] transition-all">
++              Publish to {targetCount} Marketplaces
++            </button>
++            <button className="w-full py-3 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)] text-[#a1a1aa] text-sm font-semibold hover:bg-[#27272a] transition-colors">
++              Save Draft
++            </button>
++          </div>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/package-lock.json b/package-lock.json
+index 0deef98..1492ef9 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -786,9 +786,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -805,9 +802,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -824,9 +818,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -843,9 +834,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -1062,9 +1050,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "optional": true,
+       "os": [
+         "linux"
+@@ -1077,9 +1062,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "optional": true,
+       "os": [
+         "linux"
+@@ -1092,9 +1074,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "optional": true,
+       "os": [
+         "linux"
+@@ -1107,9 +1086,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "optional": true,
+       "os": [
+         "linux"
+@@ -1348,9 +1324,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -1364,9 +1337,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -1380,9 +1350,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -1396,9 +1363,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3835,6 +3799,7 @@
+       "version": "2.3.2",
+       "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.2.tgz",
+       "integrity": "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==",
++      "dev": true,
+       "hasInstallScript": true,
+       "license": "MIT",
+       "optional": true,
+-- 
+2.43.0
+
+
+From a45cd6ad59e2738819357276aaadad76ee86d87a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 30 Aug 2026 22:47:59 +0000
+Subject: [PATCH 4/5] =?UTF-8?q?Wire=20dashboard=20Inventory=20to=20real=20?=
+ =?UTF-8?q?API=20=E2=80=94=20fetch=20from=20Supabase=20products=20table?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Restore pages/api/inventory.js endpoint (GET/POST)
+- Update Inventory component to fetch real products on mount
+- Replace hardcoded demo data with useEffect API call
+- Add loading/error state handling
+- Transform Supabase schema to UI format
+
+Next: Focus on actual listing creation → eBay publication pipeline
+
+Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PN8Du7tJt3cr8HuKVFaGwD
+---
+ components/dashboard/pages/Inventory.tsx | 68 ++++++++++++++++++------
+ pages/api/inventory.js                   | 25 +++++++++
+ 2 files changed, 76 insertions(+), 17 deletions(-)
+ create mode 100644 pages/api/inventory.js
+
+diff --git a/components/dashboard/pages/Inventory.tsx b/components/dashboard/pages/Inventory.tsx
+index c6e7003..2a8eccd 100644
+--- a/components/dashboard/pages/Inventory.tsx
++++ b/components/dashboard/pages/Inventory.tsx
+@@ -1,17 +1,6 @@
+ "use client";
+ 
+-import { useState } from "react";
+-
+-const INVENTORY_ROWS = [
+-  { sku: "SKU-20291", title: "Vintage Levi's 501 Denim Jacket — Medium", qty: 1, profit: 42.50, aiScore: 92, live: ["ebay", "poshmark", "depop"] },
+-  { sku: "SKU-20288", title: "Nikon F3 35mm Film Camera Body", qty: 1, profit: 118.00, aiScore: 97, live: ["ebay", "mercari"] },
+-  { sku: "SKU-20276", title: "Le Creuset Dutch Oven 5.5qt — Cerise", qty: 2, profit: 65.25, aiScore: 88, live: ["facebook", "mercari", "etsy"] },
+-  { sku: "SKU-20261", title: "Coach Leather Crossbody — Black", qty: 1, profit: 31.00, aiScore: 74, live: ["poshmark", "depop"] },
+-  { sku: "SKU-20254", title: "Herman Miller Aeron Chair — Size B", qty: 1, profit: 210.00, aiScore: 95, live: ["ebay", "facebook"] },
+-  { sku: "SKU-20239", title: "Sony WH-1000XM4 Headphones", qty: 3, profit: 54.00, aiScore: 81, live: ["ebay", "mercari", "facebook"] },
+-  { sku: "SKU-20218", title: "Kilim Wool Runner Rug 2x8", qty: 1, profit: 28.75, aiScore: 63, live: ["etsy"] },
+-  { sku: "SKU-20202", title: "Polaroid SX-70 Land Camera", qty: 1, profit: 89.50, aiScore: 90, live: ["ebay", "depop", "etsy"] },
+-];
++import { useState, useEffect } from "react";
+ 
+ const MARKETPLACES = [
+   { id: "ebay", name: "eBay", mono: "eB", color: "#3b82f6" },
+@@ -22,9 +11,54 @@ const MARKETPLACES = [
+   { id: "depop", name: "Depop", mono: "De", color: "#ff2300" },
+ ];
+ 
++interface Product {
++  sku: string;
++  title: string;
++  quantity: number;
++  price: number;
++  status: string;
++  source: string;
++  ebay_listing_id?: string;
++}
++
+ export default function Inventory() {
++  const [inventoryRows, setInventoryRows] = useState<any[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
+   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+ 
++  useEffect(() => {
++    const fetchInventory = async () => {
++      try {
++        setLoading(true);
++        const res = await fetch("/api/inventory");
++        if (!res.ok) throw new Error("Failed to fetch inventory");
++        const data = await res.json();
++
++        if (data.ok && data.products) {
++          // Transform Supabase products into UI format
++          const rows = data.products.map((product: Product) => ({
++            sku: product.sku,
++            title: product.title,
++            qty: product.quantity || 0,
++            profit: (product.price || 0) * 0.3, // estimated profit (demo)
++            aiScore: 82, // would come from analysis engine
++            live: product.source === "ebay" ? ["ebay"] : [],
++          }));
++          setInventoryRows(rows);
++          setError(null);
++        }
++      } catch (err) {
++        setError(err instanceof Error ? err.message : "Unknown error");
++        setInventoryRows([]);
++      } finally {
++        setLoading(false);
++      }
++    };
++
++    fetchInventory();
++  }, []);
++
+   const toggleRow = (sku: string) => {
+     const newSet = new Set(selectedRows);
+     if (newSet.has(sku)) {
+@@ -36,10 +70,10 @@ export default function Inventory() {
+   };
+ 
+   const toggleSelectAll = () => {
+-    if (selectedRows.size === INVENTORY_ROWS.length) {
++    if (selectedRows.size === inventoryRows.length) {
+       setSelectedRows(new Set());
+     } else {
+-      setSelectedRows(new Set(INVENTORY_ROWS.map(r => r.sku)));
++      setSelectedRows(new Set(inventoryRows.map(r => r.sku)));
+     }
+   };
+ 
+@@ -85,7 +119,7 @@ export default function Inventory() {
+           <table className="w-full">
+             <thead>
+               <tr className="border-b border-[rgba(255,255,255,0.08)] bg-[#1f1f23]">
+-                <th className="w-7 p-2"><input type="checkbox" checked={selectedRows.size === INVENTORY_ROWS.length} onChange={toggleSelectAll} /></th>
++                <th className="w-7 p-2"><input type="checkbox" checked={selectedRows.size === inventoryRows.length} onChange={toggleSelectAll} /></th>
+                 <th className="w-12" />
+                 <th className="px-4 py-2.5 text-left text-xs uppercase font-bold text-[#71717a]">Item</th>
+                 <th className="px-4 py-2.5 text-left text-xs uppercase font-bold text-[#71717a]">Qty</th>
+@@ -96,7 +130,7 @@ export default function Inventory() {
+               </tr>
+             </thead>
+             <tbody>
+-              {INVENTORY_ROWS.map((row) => {
++              {inventoryRows.map((row) => {
+                 const scoreColor = getScoreColor(row.aiScore);
+                 return (
+                   <tr key={row.sku} className="border-b border-[rgba(255,255,255,0.08)] hover:bg-[#1f1f23]/50">
+@@ -144,7 +178,7 @@ export default function Inventory() {
+ 
+       {/* Mobile Cards */}
+       <div className="md:hidden space-y-3">
+-        {INVENTORY_ROWS.map((row) => {
++        {inventoryRows.map((row) => {
+           const scoreColor = getScoreColor(row.aiScore);
+           return (
+             <div key={row.sku} className="p-3.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b] space-y-3">
+diff --git a/pages/api/inventory.js b/pages/api/inventory.js
+new file mode 100644
+index 0000000..a62f832
+--- /dev/null
++++ b/pages/api/inventory.js
+@@ -0,0 +1,25 @@
++// pages/api/inventory.js
++// GET  → list shared Empire OS inventory (eBay-synced + manual products)
++// POST → publish a generated listing into the shared inventory
++//        body: { sku, title, description, price, quantity, imageUrl, condition }
++
++const { listInventory, publishToInventory } = require("../../lib/supabaseInventory");
++
++export default async function handler(req, res) {
++  try {
++    if (req.method === "GET") {
++      const products = await listInventory();
++      return res.status(200).json({ ok: true, products });
++    }
++    if (req.method === "POST") {
++      const rows = await publishToInventory(req.body || {});
++      return res.status(200).json({ ok: true, product: rows && rows[0] });
++    }
++    res.setHeader("Allow", "GET, POST");
++    return res.status(405).json({ ok: false, error: "Method not allowed" });
++  } catch (err) {
++    const status = err.statusCode || 500;
++    console.error("[api/inventory]", err.message);
++    return res.status(status).json({ ok: false, error: err.message });
++  }
++}
+-- 
+2.43.0
+
+
+From 76fd956b7996a69518e514c575cab2de52e5eb98 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 30 Aug 2026 22:49:03 +0000
+Subject: [PATCH 5/5] =?UTF-8?q?Add=20eBay=20publish=20button=20=E2=80=94?=
+ =?UTF-8?q?=20complete=20listing=20=E2=86=92=20publication=20workflow?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Add 'Publish to eBay' button to capture.js result screen
+- Implement handlePublish() that calls /api/channels/ebay/create-listing
+- Pass generated listing title/description/price to eBay API
+- Auto-confirm on live publish (dryRun: false)
+- Show success alert with listing ID
+- Add error handling and publishing state
+
+This fixes the missing step: Photo → Listing Generation → eBay Publishing
+
+Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PN8Du7tJt3cr8HuKVFaGwD
+---
+ pages/capture.js | 78 ++++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 75 insertions(+), 3 deletions(-)
+
+diff --git a/pages/capture.js b/pages/capture.js
+index 0576b9a..7160106 100644
+--- a/pages/capture.js
++++ b/pages/capture.js
+@@ -17,6 +17,7 @@ export default function Capture() {
+   const [photos, setPhotos] = useState([]); // { file, previewUrl }
+   const [busy, setBusy] = useState(false);
+   const [error, setError] = useState("");
++  const [publishing, setPublishing] = useState(false);
+   const [result, setResult] = useState(null);
+   const cameraInputRef = useRef(null);
+ 
+@@ -69,6 +70,64 @@ export default function Capture() {
+     }
+   }
+ 
++  async function handlePublish() {
++    if (!result?.outputs?.length) {
++      setError("No listing data to publish.");
++      return;
++    }
++
++    setPublishing(true);
++    setError("");
++
++    try {
++      const ebayListing = result.outputs.find((o) => o.platform === "eBay");
++      if (!ebayListing) {
++        setError("No eBay listing generated. Try regenerating.");
++        setPublishing(false);
++        return;
++      }
++
++      const payload = {
++        product: {
++          title: ebayListing.title,
++          description: ebayListing.description,
++          price: result.pricing?.recommendedPrice || 29.99,
++          quantity: 1,
++          condition: "UsedGood",
++        },
++        policies: {
++          shippingCost: 5.0,
++          returnDays: 14,
++          paymentMethods: ["credit_debit_card", "paypal"],
++        },
++        dryRun: false,
++        confirm: true,
++      };
++
++      const res = await authedFetch("/api/channels/ebay/create-listing", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify(payload),
++      });
++
++      const data = await res.json();
++
++      if (!res.ok || !data.ok) {
++        setError(data.error || "Failed to publish listing");
++        setPublishing(false);
++        return;
++      }
++
++      // Success
++      alert(`✓ Published to eBay! Listing ID: ${data.listingId || "pending"}`);
++      startOver();
++    } catch (err) {
++      setError(err.message || "Publish failed");
++    } finally {
++      setPublishing(false);
++    }
++  }
++
+   function startOver() {
+     photos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+     setPhotos([]);
+@@ -224,9 +283,22 @@ export default function Capture() {
+             </article>
+           ))}
+ 
+-          <button type="button" className="btn-secondary" style={{ width: "100%", marginTop: "1rem" }} onClick={startOver}>
+-            Add another item
+-          </button>
++          {error && <p style={{ color: "var(--danger)", marginTop: "1rem" }}>{error}</p>}
++
++          <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
++            <button
++              type="button"
++              className="btn-primary"
++              style={{ flex: 1, padding: "1rem" }}
++              disabled={publishing}
++              onClick={handlePublish}
++            >
++              {publishing ? "Publishing..." : "Publish to eBay →"}
++            </button>
++            <button type="button" className="btn-secondary" onClick={startOver}>
++              Add another
++            </button>
++          </div>
+         </div>
+       )}
+     </div>
+-- 
+2.43.0
+
