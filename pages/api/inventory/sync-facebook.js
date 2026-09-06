@@ -2,7 +2,36 @@
 // Syncs a product from inventory to Facebook Marketplace
 // body: { sku, dryRun?, confirm? }
 
-const { syncToFacebook, publishToInventory } = require("../../lib/supabaseInventory");
+const { syncToFacebook } = require("../../../lib/supabaseInventory");
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+async function rest(path, options = {}) {
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    const err = new Error(
+      "Supabase not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
+    );
+    err.statusCode = 503;
+    throw err;
+  }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    const err = new Error(`Supabase ${options.method || "GET"} ${path} failed (${res.status}): ${detail}`);
+    err.statusCode = 502;
+    throw err;
+  }
+  return res.status === 204 ? null : res.json();
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -21,11 +50,9 @@ export default async function handler(req, res) {
 
   try {
     // Fetch the product from inventory
-    const { rest } = require("../../lib/supabaseRest");
     const products = await rest(
-      res.req?.app?.locals?.env || process.env,
-      "GET",
-      `/products?select=*&sku=eq.${encodeURIComponent(sku)}&limit=1`
+      `/products?select=*&sku=eq.${encodeURIComponent(sku)}&limit=1`,
+      { method: "GET" }
     );
 
     if (!products || !products.length) {
