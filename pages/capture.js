@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { requireSession, authedFetch, clearSession } from "../lib/clientAuth";
+import { safeRandomUUID } from "../lib/safeUuid";
 
 function getSessionId() {
   if (typeof window === "undefined") return "anon";
   let id = localStorage.getItem("boss_session");
   if (!id) {
-    id = crypto.randomUUID();
+    id = safeRandomUUID();
     localStorage.setItem("boss_session", id);
   }
   return id;
@@ -70,6 +71,24 @@ export default function Capture() {
     }
   }
 
+  // eBay only accepts these exact condition values (lib/ebay_listing.py
+  // VALID_CONDITIONS). analyzeService's `condition` is free-text guessed
+  // from the photos, so it has to be mapped, not sent as-is — the old code
+  // sent the literal string "UsedGood", which isn't one of these and would
+  // have been rejected by eBay on every single real publish attempt.
+  function mapConditionToEbay(conditionText) {
+    const t = (conditionText || "").toLowerCase();
+    if (/new.*defect/.test(t)) return "NEW_WITH_DEFECTS";
+    if (/new.*other|open box/.test(t)) return "NEW_OTHER";
+    if (/^new\b|brand new/.test(t)) return "NEW";
+    if (/like new|mint/.test(t)) return "LIKE_NEW";
+    if (/excellent/.test(t)) return "USED_EXCELLENT";
+    if (/very good/.test(t)) return "USED_VERY_GOOD";
+    if (/acceptable|fair|worn/.test(t)) return "USED_ACCEPTABLE";
+    if (/parts|not working|broken|damaged/.test(t)) return "FOR_PARTS_OR_NOT_WORKING";
+    return "USED_GOOD";
+  }
+
   async function handlePublish() {
     if (!result?.outputs?.length) {
       setError("No listing data to publish.");
@@ -86,19 +105,65 @@ export default function Capture() {
         setPublishing(false);
         return;
       }
+      if (!result.inventorySku) {
+        setError("No SKU was generated for this item — try regenerating the listing.");
+        setPublishing(false);
+        return;
+      }
+      const imageUrls = (result.imageUrls || []).filter((u) => /^https?:\/\//.test(u));
+      if (!imageUrls.length) {
+        setError("No publicly-hosted photo available yet — try regenerating the listing.");
+        setPublishing(false);
+        return;
+      }
+
+      // Real eBay category — required, no default exists.
+      const categoryRes = await authedFetch(
+        "/api/channels/ebay/category-suggest?q=" + encodeURIComponent(ebayListing.title)
+      );
+      const categoryData = await categoryRes.json();
+      if (!categoryRes.ok || !categoryData.ok || !categoryData.best?.categoryId) {
+        setError("Couldn't determine an eBay category for this item: " + (categoryData.error || "unknown error"));
+        setPublishing(false);
+        return;
+      }
+
+      // Real business policy IDs — required, specific to your eBay
+      // account. There is no safe default; guessing produces a listing
+      // with the wrong shipping/returns/payment terms.
+      const policiesRes = await authedFetch("/api/channels/ebay/policies");
+      const policiesData = await policiesRes.json();
+      if (
+        !policiesRes.ok ||
+        !policiesData.ok ||
+        !policiesData.fulfillmentPolicies?.length ||
+        !policiesData.paymentPolicies?.length ||
+        !policiesData.returnPolicies?.length ||
+        !policiesData.merchantLocations?.length
+      ) {
+        setError(
+          "Your eBay business policies aren't readable yet — finish connecting eBay on the Channels page (needs the full-permission reconnect), then try again."
+        );
+        setPublishing(false);
+        return;
+      }
 
       const payload = {
         product: {
+          sku: result.inventorySku,
           title: ebayListing.title,
           description: ebayListing.description,
-          price: result.pricing?.recommendedPrice || 29.99,
+          price: result.pricing?.recommendedPrice || result.pricing?.selectedPrice || 29.99,
           quantity: 1,
-          condition: "UsedGood",
+          condition: mapConditionToEbay(result.analysis?.condition),
+          category_id: categoryData.best.categoryId,
+          image_urls: imageUrls,
         },
         policies: {
-          shippingCost: 5.0,
-          returnDays: 14,
-          paymentMethods: ["credit_debit_card", "paypal"],
+          fulfillment_policy_id: policiesData.fulfillmentPolicies[0].id,
+          payment_policy_id: policiesData.paymentPolicies[0].id,
+          return_policy_id: policiesData.returnPolicies[0].id,
+          merchant_location_key: policiesData.merchantLocations[0].key,
         },
         dryRun: false,
         confirm: true,

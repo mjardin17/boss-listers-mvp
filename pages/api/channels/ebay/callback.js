@@ -75,6 +75,13 @@ export default async function handler(req, res) {
 
   // 3. Store it — the RPC resolves the tenant from userAccessToken's
   // auth.uid(), not from anything in this request body.
+  //
+  // The DB has TWO overloaded versions of store_marketplace_connection
+  // (one with p_metadata, one without) — PostgREST can't pick between
+  // them when called with only the 4 shared params, and errors with
+  // PGRST203 "Could not choose the best candidate function". Always
+  // passing p_metadata pins the call to the 5-arg overload so it's no
+  // longer ambiguous.
   try {
     const rpcRes = await fetch(`${process.env.SUPABASE_URL}/rest/v1/rpc/store_marketplace_connection`, {
       method: "POST",
@@ -88,6 +95,7 @@ export default async function handler(req, res) {
         p_environment: "production",
         p_refresh_token: tokenBody.refresh_token,
         p_account_identifier: accountIdentifier,
+        p_metadata: {},
       }),
     });
     if (!rpcRes.ok) {

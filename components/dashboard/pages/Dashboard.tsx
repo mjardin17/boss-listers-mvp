@@ -2,52 +2,104 @@
 
 import { useState, useEffect } from "react";
 
-const STAT_CARDS = [
-  { label: "Revenue (30d)", value: "$24,680", sub: "+18.2% vs prior", tone: "green" },
-  { label: "Active Listings", value: "1,299", sub: "across 6 marketplaces", tone: "default" },
-  { label: "Open Orders", value: "47", sub: "12 need shipping", tone: "gold" },
-  { label: "Listings Pending", value: "23", sub: "queued to publish", tone: "accent" },
-];
+interface Product {
+  sku: string;
+  title: string;
+  price: number;
+  quantity: number;
+  status: string;
+  source: string;
+  ebay_listing_id?: string;
+  updated_at: string;
+}
 
-const MARKETPLACES = [
-  { id: "ebay", name: "eBay", mono: "eB", color: "#3b82f6", status: "live", listings: 342, lastSync: "2m ago" },
-  { id: "facebook", name: "Facebook Marketplace", mono: "FB", color: "#4f7cff", status: "live", listings: 288, lastSync: "4m ago" },
-  { id: "mercari", name: "Mercari", mono: "Mc", color: "#f97364", status: "syncing", listings: 201, lastSync: "Syncing…" },
-  { id: "etsy", name: "Etsy", mono: "Et", color: "#f1641e", status: "live", listings: 96, lastSync: "11m ago" },
-  { id: "poshmark", name: "Poshmark", mono: "Po", color: "#c2185b", status: "error", listings: 154, lastSync: "Failed 1h ago" },
-  { id: "depop", name: "Depop", mono: "De", color: "#ff2300", status: "live", listings: 118, lastSync: "6m ago" },
-];
+interface ChannelAccount {
+  marketplace: string;
+  account_label: string;
+  status: string;
+  last_sync_at: string | null;
+  last_error: string | null;
+}
 
-const ACTIVITY_FEED = [
-  { t: "2m ago", text: "Relisted 12 stale items on Poshmark to refresh search ranking", kind: "relist" },
-  { t: "9m ago", text: "Generated title + description for SKU-20291 (Vintage Denim Jacket)", kind: "gen" },
-  { t: "18m ago", text: "Dropped price 8% on 3 slow movers across eBay + Mercari", kind: "price" },
-  { t: "34m ago", text: "Published 6 new listings to Facebook Marketplace", kind: "publish" },
-  { t: "1h ago", text: "Flagged Poshmark sync error — auth token expired", kind: "error" },
-  { t: "2h ago", text: "Found 4 items matching your sourcing criteria at estate sale feed", kind: "find" },
-];
+const MARKETPLACE_STYLE: Record<string, { mono: string; color: string }> = {
+  ebay: { mono: "eB", color: "#3b82f6" },
+  facebook: { mono: "FB", color: "#4f7cff" },
+  mercari: { mono: "Mc", color: "#f97364" },
+  etsy: { mono: "Et", color: "#f1641e" },
+  poshmark: { mono: "Po", color: "#c2185b" },
+  depop: { mono: "De", color: "#ff2300" },
+};
 
-const REVENUE_DATA = [32, 28, 41, 38, 52, 48, 61, 58, 70, 66, 78, 84];
+function timeAgo(iso: string | null) {
+  if (!iso) return "Never synced";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 
 export default function Dashboard() {
-  const maxRevenue = Math.max(...REVENUE_DATA);
-  const colors = {
-    green: "#34d399",
-    accent: "#6366f1",
-    accentLight: "#818cf8",
-    gold: "#fbbf24",
-    red: "#fb7185",
-    textSecondary: "#a1a1aa",
-    textTertiary: "#71717a",
-  };
+  const [products, setProducts] = useState<Product[]>([]);
+  const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      try {
+        const [invRes, chanRes] = await Promise.all([
+          fetch("/api/inventory"),
+          fetch("/api/channels/status"),
+        ]);
+        const invData = await invRes.json();
+        const chanData = await chanRes.json();
+        if (invData.ok) setProducts(invData.products || []);
+        if (chanData.ok) setAccounts(chanData.accounts || []);
+        if (!invData.ok && !chanData.ok) setError("Could not load dashboard data.");
+        else setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const totalProducts = products.length;
+  const inventoryValue = products.reduce((sum, p) => sum + (p.price || 0) * (p.quantity || 0), 0);
+  const errorAccounts = accounts.filter((a) => a.status === "error" || a.last_error);
+  const connectedAccounts = accounts.filter((a) => a.status !== "error" && !a.last_error);
+  const recentProducts = [...products]
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 8);
+
+  const STAT_CARDS = [
+    { label: "Total Products", value: String(totalProducts), sub: "in shared inventory", tone: "default" },
+    { label: "Inventory Value", value: `$${inventoryValue.toFixed(2)}`, sub: "price × qty, all products", tone: "green" },
+    { label: "Connected Marketplaces", value: String(connectedAccounts.length), sub: `of ${accounts.length} configured`, tone: "accent" },
+    { label: "Needs Attention", value: String(errorAccounts.length), sub: errorAccounts.length ? "sync errors" : "all clear", tone: errorAccounts.length ? "gold" : "green" },
+  ];
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-[#f4f4f5]">Good morning, Josh</h1>
-        <p className="text-sm text-[#71717a] mt-1">Here's how the empire is performing today.</p>
+        <p className="text-sm text-[#71717a] mt-1">
+          {loading ? "Loading your real inventory data…" : "Here's what's actually in your inventory right now."}
+        </p>
       </div>
+
+      {error && (
+        <div className="p-3 rounded-xl border border-[rgba(251,113,133,0.3)] bg-[rgba(251,113,133,0.1)] text-sm text-[#fb7185]">
+          {error}
+        </div>
+      )}
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
@@ -67,98 +119,65 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Revenue Chart + Marketplace Status */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Revenue Chart */}
+        {/* Recently Updated Products */}
         <div className="lg:col-span-2 p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-bold text-[#f4f4f5]">Revenue — Last 12 Weeks</span>
-            <span className="text-xs font-bold font-mono text-[#34d399]">+18.2%</span>
+            <span className="text-sm font-bold text-[#f4f4f5]">Recently Updated Products</span>
           </div>
-
-          <div className="flex items-end gap-1.5 h-32">
-            {REVENUE_DATA.map((value, idx) => {
-              const height = (value / maxRevenue) * 100;
-              const isLast = idx === REVENUE_DATA.length - 1;
-              return (
-                <div
-                  key={idx}
-                  className="flex-1 rounded-t"
-                  style={{
-                    height: `${height}%`,
-                    background: isLast ? "linear-gradient(180deg, #818cf8, #4f46e5)" : "rgba(99, 102, 241, 0.28)",
-                  }}
-                />
-              );
-            })}
-          </div>
+          {recentProducts.length === 0 ? (
+            <div className="text-sm text-[#71717a] py-6 text-center">
+              {loading ? "Loading…" : "No products in inventory yet."}
+            </div>
+          ) : (
+            <div className="space-y-0">
+              {recentProducts.map((p) => (
+                <div key={p.sku} className="flex items-center justify-between py-2.5 border-b border-[rgba(255,255,255,0.08)] last:border-b-0">
+                  <div className="min-w-0">
+                    <div className="text-sm text-[#f4f4f5] truncate">{p.title}</div>
+                    <div className="text-xs text-[#71717a] font-mono">{p.sku} · {p.source}</div>
+                  </div>
+                  <div className="text-xs text-[#71717a] font-mono flex-shrink-0 ml-3">{timeAgo(p.updated_at)}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Marketplace Status */}
         <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
           <div className="text-xs uppercase font-bold letter-spacing text-[#71717a] mb-3">Marketplace Status</div>
           <div className="flex flex-col gap-2">
-            {MARKETPLACES.map((m) => (
-              <div key={m.id} className="flex items-center gap-2.5 p-2.5 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)]">
-                <div
-                  className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold text-[#0a0a10] flex-shrink-0"
-                  style={{ background: m.color }}
-                >
-                  {m.mono}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-[#f4f4f5]">{m.name}</div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <div
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{
-                        background: m.status === "live" ? "#34d399" :
-                                  m.status === "syncing" ? "#fbbf24" :
-                                  "#fb7185",
-                        animation: m.status === "syncing" ? "pulse 1.2s infinite" : "none",
-                      }}
-                    />
-                    <span className="text-xs text-[#71717a] font-mono">{m.lastSync}</span>
+            {accounts.length === 0 && !loading && (
+              <div className="text-sm text-[#71717a] py-4 text-center">No marketplace accounts connected yet.</div>
+            )}
+            {accounts.map((a) => {
+              const style = MARKETPLACE_STYLE[a.marketplace] || { mono: a.marketplace.slice(0, 2).toUpperCase(), color: "#71717a" };
+              const isError = a.status === "error" || a.last_error;
+              return (
+                <div key={`${a.marketplace}-${a.account_label}`} className="flex items-center gap-2.5 p-2.5 rounded-lg bg-[#1f1f23] border border-[rgba(255,255,255,0.08)]">
+                  <div
+                    className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold text-[#0a0a10] flex-shrink-0"
+                    style={{ background: style.color }}
+                  >
+                    {style.mono}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-[#f4f4f5] capitalize">{a.marketplace}</div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <div
+                        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                        style={{ background: isError ? "#fb7185" : "#34d399" }}
+                      />
+                      <span className="text-xs text-[#71717a] font-mono">
+                        {isError ? (a.last_error || "Error") : timeAgo(a.last_sync_at)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        </div>
-      </div>
-
-      {/* AI Activity Feed */}
-      <div className="p-4.5 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#18181b]">
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-sm font-bold text-[#f4f4f5]">AI Activity Feed</span>
-          <div className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-[#34d399] animate-pulse" />
-            <span className="text-xs text-[#71717a] font-mono">LIVE</span>
-          </div>
-        </div>
-
-        <div className="space-y-0">
-          {ACTIVITY_FEED.map((activity, idx) => (
-            <div key={idx} className="flex gap-3 py-2.5 border-b border-[rgba(255,255,255,0.08)] last:border-b-0">
-              <div
-                className="w-5.5 h-5.5 rounded-full flex items-center justify-center flex-shrink-0"
-                style={{
-                  background: activity.kind === "error" ? "rgba(251, 113, 133, 0.15)" : "rgba(99, 102, 241, 0.15)",
-                }}
-              >
-                <div
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{
-                    background: activity.kind === "error" ? "#fb7185" : "#818cf8",
-                  }}
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm text-[#f4f4f5] leading-snug">{activity.text}</div>
-                <div className="text-xs text-[#71717a] font-mono mt-0.5">{activity.t}</div>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
     </div>

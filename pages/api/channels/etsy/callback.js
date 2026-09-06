@@ -1,21 +1,39 @@
 // POST /api/channels/etsy/callback   body: { code, codeVerifier }
 //
-// Exchanges an Etsy OAuth authorization code for a refresh token, then
-// stores it encrypted for the CALLING USER'S tenant via the
-// store_marketplace_connection RPC (SECURITY DEFINER, resolves tenant from
-// the caller's own auth.uid() — see migrations 0013-0015). Same tenant-
-// resolution pattern as pages/api/channels/ebay/callback.js: the bearer
-// token IS the identity, never anything the client asserts in the body.
+// Exchanges an Etsy OAuth 2.0 + PKCE authorization code for a refresh
+// token, then stores it encrypted for the CALLING USER'S tenant via the
+// same store_marketplace_connection RPC the eBay callback uses (SECURITY
+// DEFINER, resolves tenant from the caller's own auth.uid()).
 //
-// Etsy differs from eBay here in one real way: it's OAuth 2.0 + PKCE
-// (public-client style) — the token exchange has no client_secret in the
-// request, so `codeVerifier` (generated client-side, stashed in
-// sessionStorage, see pages/channels.js's startEtsyConnect()) has to be
-// sent to this route instead. [Likely, not yet exercised against a live
-// token as of 2026-08-20 — Etsy app registration was pending review.
-// Re-verify the exact token/shops response shape the first time this runs.]
+// Mirrors pages/api/channels/ebay/callback.js's shape and safety model —
+// this route never receives or trusts a tenant_id from the client, and
+// never accepts anything as identity except the caller's own bearer token.
+//
+// One real difference from eBay's exchange: Etsy is a PKCE public client,
+// so there's no client_secret in the token request — instead the browser
+// that started the flow must supply back the same code_verifier it
+// generated before redirecting to Etsy (see startEtsyConnect() in
+// pages/channels.js, which stores it in sessionStorage under
+// "boss_etsy_code_verifier"). Without the matching verifier, Etsy's token
+// endpoint rejects the exchange outright — this route can't work around
+// that, and doesn't try to.
+//
+// Etsy access tokens are shaped "<numeric_user_id>.<opaque>" — the user id
+// prefix is used only to fetch a display name for accountIdentifier, never
+// as an authorization boundary.
+//
+// NOTE: this stores the refresh token + account identifier only. It does
+// NOT yet resolve/store a shop_id — EtsyConnector._getTenantConnection()
+// already handles a connection with no shop_id on record as a clear,
+// actionable "etsy_shop_id_missing" error (see lib/channels/apiConnectors.js)
+// rather than crashing, so this is a safe place to land first. Wiring up
+// shop_id storage is a fast-follow once the exact metadata RPC shape is
+// confirmed against the live schema (it isn't in any local migration file
+// — it was applied directly against Supabase — so [Guessing] its params
+// here would risk a silent mismatch rather than a loud, fixable error).
 
-const REDIRECT_URI = process.env.ETSY_REDIRECT_URI;
+const ETSY_TOKEN_URL = "https://api.etsy.com/v3/public/oauth/token";
+const REDIRECT_URI = process.env.ETSY_REDIRECT_URI; // must exactly match what was sent to /oauth/connect
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -30,16 +48,18 @@ export default async function handler(req, res) {
   }
 
   const { code, codeVerifier } = req.body || {};
-  if (!code || !codeVerifier) {
-    return res.status(400).json({ ok: false, error: "Missing authorization code or PKCE verifier" });
+  if (!code) {
+    return res.status(400).json({ ok: false, error: "Missing authorization code" });
+  }
+  if (!codeVerifier) {
+    return res.status(400).json({ ok: false, error: "Missing code_verifier — this exchange must be completed from the same browser session that started the Etsy connect flow." });
   }
 
-  // 1. Exchange the code for a refresh token using the app's shared Etsy
-  // Keystring (one app registration serves every tenant). No client_secret
-  // in this call — PKCE's code_verifier is the proof instead.
+  // 1. Exchange the code for a refresh token. Public-client PKCE exchange —
+  // no client_secret in this request, per Etsy's documented OAuth flow.
   let tokenBody;
   try {
-    const tokenRes = await fetch("https://api.etsy.com/v3/public/oauth/token", {
+    const tokenRes = await fetch(ETSY_TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -52,7 +72,7 @@ export default async function handler(req, res) {
       signal: AbortSignal.timeout(15_000),
     });
     tokenBody = await tokenRes.json();
-    if (!tokenRes.ok || !tokenBody.refresh_token || !tokenBody.access_token) {
+    if (!tokenRes.ok || !tokenBody.refresh_token) {
       return res.status(502).json({
         ok: false,
         error: tokenBody.error_description || tokenBody.error || `Etsy token exchange failed (HTTP ${tokenRes.status})`,
@@ -62,47 +82,32 @@ export default async function handler(req, res) {
     return res.status(504).json({ ok: false, error: `Etsy token exchange timed out: ${err.message}` });
   }
 
-  // 2. Etsy access tokens are formatted "{user_id}.{opaque_token}" — the
-  // user id is needed to look up which shop this seller owns. A failure
-  // here must not block storing the connection; it just means shop_id
-  // isn't on record yet and createListing() will refuse with a clear
-  // "reconnect" error rather than guessing a shop.
+  // 2. Best-effort: look up the connecting shop's login name for display —
+  // a failure here must not block storing the token. The access token is
+  // shaped "<user_id>.<opaque>"; the user_id prefix is only ever used here,
+  // to ask Etsy who this is, never as an identity/authorization check.
   let accountIdentifier = null;
-  let shopId = null;
   try {
-    const userId = tokenBody.access_token.split(".")[0];
-    // x-api-key must be colon-joined "<keystring>:<shared_secret>" — same
-    // format lib/etsy_listing.py's EtsyListingClient uses for every request,
-    // and the format apiConnectors.js's testConnection() verified live
-    // against openapi-ping (bare keystring -> 403 "Shared secret is required
-    // in x-api-key header."). A bare keystring here would silently fail this
-    // shop lookup on every real connect (caught by the empty catch below),
-    // meaning shopId would never populate and every listing attempt would
-    // then hit "etsy_shop_id_missing" — not obviously connected to this line.
-    const shopsRes = await fetch(`https://openapi.etsy.com/v3/application/users/${userId}/shops`, {
-      headers: {
-        Authorization: `Bearer ${tokenBody.access_token}`,
-        "x-api-key": `${process.env.ETSY_KEYSTRING}:${process.env.ETSY_SHARED_SECRET}`,
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (shopsRes.ok) {
-      const shop = await shopsRes.json();
-      if (shop && shop.shop_id) {
-        shopId = String(shop.shop_id);
-        accountIdentifier = shop.shop_name || null;
+    const userId = String(tokenBody.access_token || "").split(".")[0];
+    if (userId) {
+      const meRes = await fetch(`https://openapi.etsy.com/v3/application/users/${userId}`, {
+        headers: {
+          Authorization: `Bearer ${tokenBody.access_token}`,
+          "x-api-key": process.env.ETSY_KEYSTRING,
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (meRes.ok) {
+        const me = await meRes.json();
+        accountIdentifier = me.login_name || me.primary_email || null;
       }
     }
   } catch {
-    // Non-fatal — proceed without shop_id; connection still stores the
-    // refresh token, just flagged as needing a shop_id fix later.
+    // Non-fatal — proceed without a display name.
   }
 
-  // 3. Store it — the RPC resolves the tenant from userAccessToken's
-  // auth.uid(), never from anything in this request body. shop_id goes in
-  // `metadata` (added in migration 0015 specifically because Etsy, unlike
-  // eBay, needs a per-tenant value beyond the token itself for every
-  // listing call).
+  // 3. Store it — same RPC + shape as the eBay callback. The RPC resolves
+  // the tenant from userAccessToken's auth.uid(), not from this body.
   try {
     const rpcRes = await fetch(`${process.env.SUPABASE_URL}/rest/v1/rpc/store_marketplace_connection`, {
       method: "POST",
@@ -116,7 +121,6 @@ export default async function handler(req, res) {
         p_environment: "production",
         p_refresh_token: tokenBody.refresh_token,
         p_account_identifier: accountIdentifier,
-        p_metadata: shopId ? { shopId } : null,
       }),
     });
     if (!rpcRes.ok) {
@@ -127,9 +131,5 @@ export default async function handler(req, res) {
     return res.status(502).json({ ok: false, error: `Failed to save connection: ${err.message}` });
   }
 
-  return res.status(200).json({
-    ok: true,
-    accountIdentifier,
-    shopIdMissing: !shopId, // lets the callback page warn the user if the shop lookup failed
-  });
+  return res.status(200).json({ ok: true, accountIdentifier });
 }
