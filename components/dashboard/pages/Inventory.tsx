@@ -107,6 +107,35 @@ export default function Inventory() {
     }
   };
 
+  const syncToInstagram = async () => {
+    if (selectedRows.size === 0) return;
+    setSyncing(true);
+    setSyncStatus(null);
+
+    try {
+      const skus = Array.from(selectedRows);
+      const results = [];
+      for (const sku of skus) {
+        const res = await fetch("/api/inventory/sync-instagram", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sku, dryRun: false, confirm: true }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          throw new Error(`Failed to sync ${sku}: ${data.error}`);
+        }
+        results.push(data);
+      }
+      setSyncStatus(`✓ Synced ${skus.length} item(s) to Instagram`);
+      setSelectedRows(new Set());
+    } catch (err) {
+      setSyncStatus(`✗ Error: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -127,7 +156,14 @@ export default function Inventory() {
               disabled={syncing}
               className="text-xs font-semibold px-3 py-1.5 rounded-lg text-[#f4f4f5] bg-[#4f7cff] border border-[rgba(79,124,255,0.5)] hover:opacity-90 disabled:opacity-50"
             >
-              {syncing ? "Syncing..." : "Sync to Facebook"}
+              {syncing ? "Syncing..." : "Facebook"}
+            </button>
+            <button
+              onClick={syncToInstagram}
+              disabled={syncing}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg text-[#f4f4f5] bg-[#e1306c] border border-[rgba(225,48,108,0.5)] hover:opacity-90 disabled:opacity-50"
+            >
+              {syncing ? "Syncing..." : "Instagram"}
             </button>
             <button
               onClick={() => setSelectedRows(new Set())}
