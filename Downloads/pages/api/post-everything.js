@@ -1,16 +1,13 @@
 // POST /api/post-everything
-// Final orchestration: Post commercial to all socials + item to all marketplaces
-// body: { commercialVideoPath, productData, socialTokens }
+// Phase 1: List item to all selected marketplaces
+// body: { listingId, channels[] }
+// SECURITY FIX: No file reads, no client-supplied tokens
 
-const fs = require("fs");
-const { EbayConnector } = require("../../lib/channels/apiConnectors");
-const { EtsyConnector } = require("../../lib/channels/apiConnectors");
-const { buildManualPackage } = require("../../lib/channels/manualPackage");
-const { buildCaption } = require("../../lib/channels/socialMediaConnector");
-const { postToSocialMedia } = require("../../lib/socialMediaPosters");
+import { createClient } from "@supabase/supabase-js";
+import { buildManualPackage } from "../../lib/channels/manualPackage";
+import { CHANNELS, API_CONNECTORS } from "../../lib/channels/registry";
 
-const ebayConnector = new EbayConnector();
-const etsyConnector = new EtsyConnector();
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -19,121 +16,85 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { commercialVideoPath, productData, socialTokens } = req.body || {};
+    const { listingId, channels } = req.body || {};
 
-    if (!commercialVideoPath || !productData) {
+    if (!listingId || !channels || !Array.isArray(channels) || channels.length === 0) {
       return res.status(400).json({
         ok: false,
-        error: "commercialVideoPath and productData required",
+        error: "listingId and channels[] required",
       });
     }
 
-    // Load commercial video
-    const videoBuffer = fs.readFileSync(commercialVideoPath);
+    // Load listing from Supabase (server-side, verified)
+    const { data: listing, error: listingError } = await supabase
+      .from("listings")
+      .select("*")
+      .eq("id", listingId)
+      .single();
+
+    if (listingError || !listing) {
+      return res.status(404).json({ ok: false, error: "Listing not found" });
+    }
 
     const results = {
-      ok: true,
-      product: productData.sku,
-      marketplaces: [],
-      social: [],
-      errors: [],
+      success: true,
+      results: [],
+      timestamp: new Date().toISOString(),
     };
 
-    // Step 1: Post to all 27 marketplaces (as before)
-    const marketplaces = [
-      "facebook", "poshmark", "craigslist", "mercari", "pinterest",
-      "amazon", "woocommerce", "abeBooks", "alibris", "reverb",
-      "discogs", "depop", "vinted", "grailed", "vestiaire", "realreal",
-      "stockx", "goat", "shopify", "mercadoLibre", "fiveM", "tiktokShop",
-    ];
-
-    for (const platform of marketplaces) {
-      try {
-        const pkg = buildManualPackage(productData, platform);
-        results.marketplaces.push({
-          platform,
-          title: pkg.fields.title,
-          postUrl: pkg.postUrl,
-          status: "package_ready",
-        });
-      } catch (err) {
-        results.errors.push({ platform, type: "marketplace", error: err.message });
-      }
-    }
-
-    // API platforms (post directly)
-    try {
-      await ebayConnector.createListing(productData, {}, {
-        dryRun: false,
-        confirm: true,
+    // Validate requested channels exist in registry
+    const validChannelIds = new Set(CHANNELS.map(ch => ch.id));
+    const invalidChannels = channels.filter(ch => !validChannelIds.has(ch));
+    if (invalidChannels.length > 0) {
+      return res.status(400).json({
+        ok: false,
+        error: `Invalid channels: ${invalidChannels.join(", ")}`,
       });
-      results.marketplaces.push({ platform: "ebay", status: "posted" });
-    } catch (err) {
-      results.errors.push({ platform: "ebay", type: "api", error: err.message });
     }
 
-    try {
-      await etsyConnector.createListing(productData, { targetState: "draft" });
-      results.marketplaces.push({ platform: "etsy", status: "posted" });
-    } catch (err) {
-      results.errors.push({ platform: "etsy", type: "api", error: err.message });
-    }
-
-    // Step 2: Post commercial to all social platforms
-    const socialPlatforms = [
-      "instagram", "tiktok", "youtube", "facebook", "twitter",
-      "linkedin", "snapchat", "pinterest"
-    ];
-
-    for (const platform of socialPlatforms) {
-      if (!socialTokens || !socialTokens[platform]) {
-        results.errors.push({
-          platform,
-          type: "social",
-          error: `No access token for ${platform}`,
-        });
-        continue;
-      }
+    // Post to each requested channel
+    for (const channelId of channels) {
+      const channel = CHANNELS.find(ch => ch.id === channelId);
+      if (!channel) continue;
 
       try {
-        const caption = buildCaption(productData, platform);
-        const postResult = await postToSocialMedia(
-          platform,
-          videoBuffer,
-          caption,
-          socialTokens[platform]
-        );
+        if (channel.mode === "api") {
+          // API-backed platform
+          const connector = API_CONNECTORS[channelId];
+          if (!connector) {
+            results.results.push({
+              channel: channelId,
+              status: "error",
+              message: "Connector not available",
+            });
+            continue;
+          }
 
-        if (postResult.error) {
-          results.errors.push({
-            platform,
-            type: "social",
-            error: postResult.error,
+          const postResult = await connector.createListing(listing, { dryRun: false });
+          results.results.push({
+            channel: channelId,
+            status: "success",
+            data: postResult,
           });
         } else {
-          results.social.push({
-            platform,
-            url: postResult.url,
-            status: "posted",
+          // Manual platform
+          const pkg = buildManualPackage(listing, channelId);
+          results.results.push({
+            channel: channelId,
+            status: "ready",
+            package: pkg,
           });
         }
       } catch (err) {
-        results.errors.push({
-          platform,
-          type: "social",
-          error: err.message,
+        results.results.push({
+          channel: channelId,
+          status: "error",
+          message: err.message,
         });
       }
     }
 
-    return res.status(200).json({
-      ...results,
-      summary: {
-        marketplacesReady: results.marketplaces.filter(m => m.status === "posted" || m.status === "package_ready").length,
-        socialPosted: results.social.filter(s => s.status === "posted").length,
-        totalErrors: results.errors.length,
-      },
-    });
+    return res.status(200).json(results);
   } catch (err) {
     console.error("[api/post-everything]", err.message);
     return res.status(err.statusCode || 500).json({ ok: false, error: err.message });
