@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 
-const PLATFORMS = ['youtube', 'tiktok', 'twitter', 'instagram', 'facebook']
+const PLATFORMS = ['youtube', 'tiktok', 'twitter', 'instagram', 'facebook', 'amazon']
 
 export default function OAuthStatus() {
   const [statuses, setStatuses] = useState({})

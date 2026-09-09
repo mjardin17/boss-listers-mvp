@@ -74,6 +74,7 @@ export async function refreshOAuthToken(platform) {
     google: refreshGoogleToken,
     tiktok: refreshTikTokToken,
     twitter: refreshTwitterToken,
+    amazon: refreshAmazonToken,
   }
 
   const refreshFn = refreshFunctions[platform]
@@ -140,6 +141,28 @@ async function refreshTwitterToken(refreshToken) {
       client_secret: process.env.TWITTER_OAUTH_CLIENT_SECRET,
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
+    }),
+  })
+
+  const data = await response.json()
+  if (data.error) throw new Error(data.error)
+
+  return {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || refreshToken,
+    expires_in: data.expires_in,
+  }
+}
+
+async function refreshAmazonToken(refreshToken) {
+  const response = await fetch('https://api.amazon.com/auth/o2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: process.env.AMAZON_OAUTH_CLIENT_ID,
+      client_secret: process.env.AMAZON_OAUTH_CLIENT_SECRET,
     }),
   })
 
