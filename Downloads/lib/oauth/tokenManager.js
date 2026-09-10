@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
 
+console.log('Supabase Init:', {
+  url: process.env.SUPABASE_URL,
+  keyExists: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+  keyStart: process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0, 10)
+})
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
