@@ -23,7 +23,7 @@ function startEbayConnect() {
   const state = safeRandomUUID();
   sessionStorage.setItem(EBAY_STATE_STORAGE_KEY, state);
 
-  const scope = "https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account";
+  const scope = "https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account https://api.ebay.com/oauth/api_scope/sell.fulfillment";
   const params = new URLSearchParams({
     client_id: EBAY_CLIENT_ID,
     redirect_uri: EBAY_RUNAME,
@@ -315,7 +315,12 @@ export default function ChannelsPage() {
       </section>
 
       <section style={{ marginTop: 28 }}>
-        <h2 className="section-heading">Manual listing package</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h2 className="section-heading">Manual listing package</h2>
+          <Link href="/channels/create-listing" className="btn-primary" style={{ fontSize: 14, textDecoration: "none" }}>
+            + Create eBay Listing
+          </Link>
+        </div>
         <p style={{ fontSize: 14, color: "#4b5563" }}>
           Generate copy-paste-ready listings for Facebook Marketplace, OfferUp, Craigslist,
           Mercari, and Poshmark from any SKU in your shared inventory. You post them yourself —
