@@ -94,5 +94,11 @@ export async function middleware(request) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/health).*)'],
+  // api/channels/ebay/account-deletion is excluded deliberately: eBay's
+  // servers call it unauthenticated (no Basic Auth support on their end),
+  // and it verifies requests itself via a shared verification-token
+  // challenge-response scheme instead — see that route for details.
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|api/health|api/channels/ebay/account-deletion).*)',
+  ],
 };
