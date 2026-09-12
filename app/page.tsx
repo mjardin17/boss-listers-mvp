@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Menu, X, CheckCircle2 } from "lucide-react";
 
 export default function Home() {
@@ -17,9 +18,9 @@ export default function Home() {
             <a href="#features" className="hover:text-emerald-400">Features</a>
             <a href="#pricing" className="hover:text-emerald-400">Pricing</a>
           </div>
-          <button className="hidden md:block px-6 py-2 bg-emerald-500 hover:bg-emerald-600 rounded-lg">
+          <Link href="/dashboard" className="hidden md:block px-6 py-2 bg-emerald-500 hover:bg-emerald-600 rounded-lg text-center">
             Start Free
-          </button>
+          </Link>
         </div>
       </nav>
 
@@ -31,12 +32,12 @@ export default function Home() {
           Take a photo. AI extracts. Post to 27 marketplaces + 8 social platforms with one click.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <button className="px-8 py-3 bg-emerald-500 rounded-lg font-semibold">
+          <Link href="/dashboard" className="px-8 py-3 bg-emerald-500 hover:bg-emerald-600 rounded-lg font-semibold text-center text-white transition-colors">
             Start Free Trial
-          </button>
-          <button className="px-8 py-3 border border-slate-600 rounded-lg">
+          </Link>
+          <a href="#features" className="px-8 py-3 border border-slate-600 rounded-lg font-semibold text-center hover:bg-slate-800 transition-colors">
             Watch Demo
-          </button>
+          </a>
         </div>
       </section>
 
@@ -106,9 +107,9 @@ export default function Home() {
       <section className="py-20 px-4">
         <div className="max-w-4xl mx-auto bg-gradient-to-r from-emerald-600 to-cyan-600 rounded-2xl p-12 text-center">
           <h2 className="text-4xl font-bold mb-4">Ready to Automate?</h2>
-          <button className="px-8 py-4 bg-white text-emerald-600 font-bold rounded-lg">
+          <Link href="/dashboard" className="inline-block px-8 py-4 bg-white text-emerald-600 font-bold rounded-lg hover:bg-gray-100 transition-colors">
             Start Free Trial
-          </button>
+          </Link>
         </div>
       </section>
 

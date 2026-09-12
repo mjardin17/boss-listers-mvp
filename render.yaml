@@ -3,7 +3,7 @@ services:
     name: boss-listers-mvp
     runtime: node
     plan: starter
-    branch: main
+    branch: main    rootDir: .
     healthCheckPath: /api/health
     buildCommand: npm ci && npm run build
     startCommand: npm run start:render

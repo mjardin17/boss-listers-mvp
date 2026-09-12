@@ -31,7 +31,7 @@ export default async function handler(req, res) {
     ? await resolveSession(process.env, userAccessToken)
     : null;
 
-  const { product, policies, dryRun = true, confirm, sandbox = false } = req.body || {};
+  const { product, policies, dryRun = true, confirm, sandbox = false, listingServiceToken } = req.body || {};
 
   if (!product || !policies) {
     return res.status(400).json({
@@ -43,7 +43,7 @@ export default async function handler(req, res) {
 
   try {
     const result = await connector.createListing(product, policies, {
-      dryRun, confirm, sandbox, tenantId: session?.tenantId,
+      dryRun, confirm, sandbox, tenantId: session?.tenantId, serviceToken: listingServiceToken,
     });
     return res.status(200).json(result);
   } catch (err) {

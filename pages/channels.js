@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { requireSession, authedFetch } from "../lib/clientAuth";
+import { safeRandomUUID } from "../lib/safeUuid";
 
 // Client ID and RuName are not secrets — they're the public half of the
 // OAuth authorize URL, same as any "Sign in with Google" client_id. The
@@ -19,7 +20,7 @@ const EBAY_STATE_STORAGE_KEY = "boss_ebay_oauth_state";
 // would link the ATTACKER's eBay account to the VICTIM's tenant. The
 // callback page verifies the returned state matches before proceeding.
 function startEbayConnect() {
-  const state = crypto.randomUUID();
+  const state = safeRandomUUID();
   sessionStorage.setItem(EBAY_STATE_STORAGE_KEY, state);
 
   const scope = "https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account";
@@ -61,7 +62,7 @@ async function computeCodeChallenge(verifier) {
 }
 
 async function startEtsyConnect() {
-  const state = crypto.randomUUID();
+  const state = safeRandomUUID();
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await computeCodeChallenge(codeVerifier);
 
