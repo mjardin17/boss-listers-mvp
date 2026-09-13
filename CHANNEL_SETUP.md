@@ -144,9 +144,38 @@ HMAC-SHA256 request-signing scheme, separate work from connecting a shop.
    The redirect URI is registered directly in the app's Partner Center
    settings, same as Amazon — there's no separate env var for it.
 
-### Shopify (only if you open a Shopify store)
-Custom app in the store admin → Admin API token.
-Env vars: `SHOPIFY_STORE_DOMAIN` (e.g. `mystore.myshopify.com`), `SHOPIFY_ADMIN_ACCESS_TOKEN`.
+### Shopify (per-store OAuth)
+Same shared-app-registration, per-tenant-consent model as eBay/Etsy above.
+**Only the OAuth connection is built** — `createListing()` throws
+"not_implemented". Shopify's product management is intended to be done server-side
+via the admin dashboard or Admin API; this connector's role is inventory sync and
+order tracking.
+
+1. Register an app at https://shopify.dev/docs/admin-api/getting-started
+   (Shopify Partner account required). This gives a **Client ID** and **Client Secret**.
+2. Set server-side: `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `SHOPIFY_REDIRECT_URI`.
+   Set the public client-side value: `NEXT_PUBLIC_SHOPIFY_CLIENT_ID` (same value
+   as `SHOPIFY_CLIENT_ID` — not itself a secret).
+   Set the public redirect URI: `NEXT_PUBLIC_SHOPIFY_REDIRECT_URI` (same value as
+   `SHOPIFY_REDIRECT_URI` — used to build the authorize URL client-side, but the
+   redirect happens via user browser, not from your server, so visibility is not
+   a risk).
+3. Redirect URI to register in the app's settings AND set as
+   `SHOPIFY_REDIRECT_URI`/`NEXT_PUBLIC_SHOPIFY_REDIRECT_URI`:
+   `https://YOUR_DEPLOYED_APP/channels/shopify-callback`
+   — a real page (`pages/channels/shopify-callback.js`), same reasoning as
+   eBay/Etsy/Amazon's callback pages.
+4. Scopes requested: `write_products read_products write_inventory read_inventory`.
+5. Each Shopify merchant provides their own store domain (e.g., mystore.myshopify.com)
+   when connecting, prompted via a dialog on the Channels page. The OAuth flow then
+   constructs the authorize URL dynamically using that domain. Unlike eBay/Etsy/Amazon,
+   Shopify's OAuth app lives per-store, not globally registered at one endpoint.
+6. Shopify access tokens do not expire — the connector caches them with a 1-year
+   implicit refresh boundary for consistency with other connectors' expiry models.
+7. [Not yet exercised against a live token as of 2026-09-13 — no Shopify app was
+   registered during this build. Re-verify the token exchange response shape and
+   the subsequent Admin API calls the first time a real OAuth consent actually
+   completes.]
 
 ### WooCommerce (only if you run a WooCommerce site)
 WooCommerce → Settings → Advanced → REST API → Add key (Read/Write).
