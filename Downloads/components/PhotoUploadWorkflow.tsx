@@ -44,6 +44,7 @@ export function PhotoUploadWorkflow() {
   const [posting, setPosting] = useState(false);
   const [postProgress, setPostProgress] = useState<PostProgressItem[]>([]);
   const [postError, setPostError] = useState<string | null>(null);
+  const [currentListingId, setCurrentListingId] = useState<string>("");
   const postEventSourceRef = useRef<EventSource | null>(null);
 
   // Cleanup event sources on unmount
@@ -78,7 +79,7 @@ export function PhotoUploadWorkflow() {
       const formData = new FormData();
       formData.append("photo", file);
 
-      const response = await fetch("/api/extract-from-photo", {
+      const response = await fetch("/api/analyze", {
         method: "POST",
         body: formData,
       });
@@ -87,13 +88,13 @@ export function PhotoUploadWorkflow() {
         throw new Error("Failed to extract product information");
       }
 
-      const data = (await response.json()) as ExtractResponse;
+      const data = await response.json();
 
-      if (!data.success || !data.data) {
+      if (!data.ok || !data.productInfo) {
         throw new Error(data.error || "Extraction failed");
       }
 
-      setProductInfo(data.data);
+      setProductInfo(data.productInfo);
       setExtractionMessages((prev) => [
         ...prev,
         "Product information extracted successfully",
@@ -189,31 +190,62 @@ export function PhotoUploadWorkflow() {
     setPostProgress(initialProgress);
 
     try {
-      const requestBody = {
-        productInfo,
-        marketplaces: connectedMarketplaces.map((c) => c.marketplace),
-        photo: photoPreview,
-      };
-
-      const response = await fetch("/api/post-everything", {
+      // Step 1: Create listing from product info
+      const listingRes = await fetch("/api/listings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({ productInfo }),
       });
 
-      if (!response.ok) {
+      if (!listingRes.ok) {
+        throw new Error("Failed to create listing");
+      }
+
+      const listingData = await listingRes.json();
+      const listingId = listingData.listingId;
+      setCurrentListingId(listingId);
+
+      // Step 2: Post to all selected marketplaces
+      const channels = connectedMarketplaces.map((c) => c.marketplace);
+      const postRes = await fetch("/api/post-everything", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ listingId, channels }),
+      });
+
+      if (!postRes.ok) {
         throw new Error("Failed to post listings");
       }
 
-      const data = (await response.json()) as PostEverythingResponse;
+      const data = await postRes.json();
 
       // Update progress with results
       setPostProgress((prev) =>
         prev.map((item) => {
-          const result = data.results.find((r) => r.id === item.id);
-          return result || item;
+          const result = data.results.find(
+            (r: any) => r.channel === item.name.replace(" ", "_").toLowerCase()
+          );
+          if (result) {
+            return {
+              ...item,
+              status: result.status === "success" ? "success" : result.status === "ready" ? "pending" : "error",
+              error: result.message,
+            };
+          }
+          return item;
         })
       );
+
+      // Queue commercial generation in background
+      if (productInfo?.image_paths && productInfo.image_paths.length > 0) {
+        fetch("/api/commercials/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listingId: currentListingId }),
+        }).catch((err) => {
+          console.error("Commercial generation failed:", err);
+        });
+      }
     } catch (error) {
       const errorMsg =
         error instanceof Error ? error.message : "Failed to post listings";
@@ -246,17 +278,16 @@ export function PhotoUploadWorkflow() {
     setPosting(true);
 
     try {
-      const failedMarketplaces = failedItems
+      const failedChannels = failedItems
         .filter((p) => p.type === "marketplace")
-        .map((p) => p.name.replace(" ", "_"));
+        .map((p) => p.name.replace(" ", "_").toLowerCase());
 
       const response = await fetch("/api/post-everything", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          productInfo,
-          marketplaces: failedMarketplaces,
-          photo: photoPreview,
+          listingId: currentListingId,
+          channels: failedChannels,
         }),
       });
 
@@ -264,12 +295,21 @@ export function PhotoUploadWorkflow() {
         throw new Error("Retry failed");
       }
 
-      const data = (await response.json()) as PostEverythingResponse;
+      const data = await response.json();
 
       setPostProgress((prev) =>
         prev.map((item) => {
-          const result = data.results.find((r) => r.id === item.id);
-          return result || item;
+          const result = data.results.find(
+            (r: any) => r.channel === item.name.replace(" ", "_").toLowerCase()
+          );
+          if (result) {
+            return {
+              ...item,
+              status: result.status === "success" ? "success" : result.status === "ready" ? "pending" : "error",
+              error: result.message,
+            };
+          }
+          return item;
         })
       );
     } catch (error) {

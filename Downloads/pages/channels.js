@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { requireSession, authedFetch } from "../lib/clientAuth";
+import { getSession, authedFetch } from "../lib/clientAuth";
 
 // Client ID and RuName are not secrets — they're the public half of the
 // OAuth authorize URL, same as any "Sign in with Google" client_id. The
@@ -80,26 +80,57 @@ async function startEtsyConnect() {
   window.location.href = `https://www.etsy.com/oauth/connect?${params.toString()}`;
 }
 
-// Channels dashboard: honest per-channel status, live connection tests,
-// and the manual listing-package generator. No channel is ever shown as
-// "Connected" unless a real authenticated API test succeeded.
+// TikTok Shop OAuth
+const TIKTOK_STATE_STORAGE_KEY = "boss_tiktok_oauth_state";
 
-const STATUS_META = {
-  connected: { label: "Connected", color: "#16a34a" },
-  not_connected: { label: "Not connected", color: "#6b7280" },
-  awaiting_approval: { label: "Awaiting approval", color: "#d97706" },
-  manual_workflow: { label: "Manual workflow", color: "#2563eb" },
-  configuration_required: { label: "Configuration required", color: "#dc2626" },
+function startTikTokConnect() {
+  const state = crypto.randomUUID();
+  sessionStorage.setItem(TIKTOK_STATE_STORAGE_KEY, state);
+  window.location.href = `/api/channels/tiktok/auth-start?state=${state}`;
+}
+
+// Amazon OAuth
+const AMAZON_STATE_STORAGE_KEY = "boss_amazon_oauth_state";
+
+function startAmazonConnect() {
+  const state = crypto.randomUUID();
+  sessionStorage.setItem(AMAZON_STATE_STORAGE_KEY, state);
+  window.location.href = `/api/channels/amazon/auth-start?state=${state}`;
+}
+
+// Platform configuration with icons and display names
+const PLATFORM_CONFIG = {
+  ebay: { name: "eBay", icon: "🏪" },
+  etsy: { name: "Etsy", icon: "🧵" },
+  amazon: { name: "Amazon", icon: "🔶" },
+  facebook_shop: { name: "Facebook Shop", icon: "👥" },
+  tiktok_shop: { name: "TikTok Shop", icon: "🎵" },
+};
+
+const STATUS_COLORS = {
+  connected: "bg-green-100 border-green-300 text-green-900",
+  not_connected: "bg-gray-100 border-gray-300 text-gray-700",
+  awaiting_approval: "bg-amber-100 border-amber-300 text-amber-900",
+  manual_workflow: "bg-blue-100 border-blue-300 text-blue-900",
+  configuration_required: "bg-red-100 border-red-300 text-red-900",
 };
 
 function StatusPill({ status }) {
-  const meta = STATUS_META[status] || STATUS_META.not_connected;
+  const labels = {
+    connected: "Connected",
+    not_connected: "Not connected",
+    awaiting_approval: "Awaiting approval",
+    manual_workflow: "Manual workflow",
+    configuration_required: "Configuration required",
+  };
+
+  const label = labels[status] || "Unknown";
+  const colorClass = STATUS_COLORS[status] || STATUS_COLORS.not_connected;
+
   return (
-    <span style={{
-      background: meta.color, color: "#fff", borderRadius: 999,
-      padding: "2px 10px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
-    }}>
-      {meta.label}
+    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${colorClass}`}>
+      {status === "connected" && <span className="inline-block mr-1 text-base">✓</span>}
+      {label}
     </span>
   );
 }
@@ -114,7 +145,7 @@ function CopyButton({ text, label }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
       }}
-      style={{ marginLeft: 8, fontSize: 12, cursor: "pointer" }}
+      className="ml-2 px-2 py-1 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
     >
       {copied ? "Copied!" : `Copy ${label}`}
     </button>
@@ -124,36 +155,52 @@ function CopyButton({ text, label }) {
 function ManualPackageViewer({ pkg }) {
   const f = pkg.fields;
   return (
-    <div className="panel" style={{ marginTop: 12, padding: 14 }}>
-      <h4 style={{ margin: "0 0 8px" }}>
+    <div className="mt-4 p-4 border border-gray-200 rounded-lg bg-white">
+      <h4 className="text-base font-semibold text-gray-900 mb-3">
         {pkg.platformLabel}{" "}
-        <a href={pkg.postUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
+        <a href={pkg.postUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:text-blue-700">
           open posting page ↗
         </a>
       </h4>
-      <div><strong>Title</strong> ({f.title.length}/{pkg.limits.titleMax})<CopyButton text={f.title} label="title" /><div>{f.title}</div></div>
-      <div style={{ marginTop: 8 }}>
-        <strong>Description</strong><CopyButton text={f.description} label="description" />
-        <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", margin: "4px 0" }}>{f.description}</pre>
-      </div>
-      <div><strong>Price:</strong> ${f.price}<CopyButton text={f.price} label="price" /></div>
-      <div><strong>Condition:</strong> {f.condition || "—"}</div>
-      <div><strong>Category tip:</strong> {f.categorySuggestion}</div>
-      <div><strong>Shipping:</strong> {f.shippingText}</div>
-      <div><strong>Keywords:</strong> {f.keywords.join(", ")}<CopyButton text={f.keywords.join(", ")} label="keywords" /></div>
-      {pkg.images.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <strong>Images:</strong>{" "}
-          {pkg.images.map((src, i) => (
-            <a key={src} href={src} target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>image {i + 1} ↗</a>
-          ))}
+      <div className="space-y-3 text-sm">
+        <div>
+          <strong>Title</strong> ({f.title.length}/{pkg.limits.titleMax})
+          <CopyButton text={f.title} label="title" />
+          <div className="mt-1 p-2 bg-gray-50 rounded text-gray-700">{f.title}</div>
         </div>
-      )}
-      <details style={{ marginTop: 8 }}>
-        <summary>Photo checklist</summary>
-        <ul>{pkg.photoChecklist.map((item) => <li key={item}>{item}</li>)}</ul>
-      </details>
-      <p style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>Tone guide: {pkg.toneGuide}</p>
+        <div>
+          <strong>Description</strong>
+          <CopyButton text={f.description} label="description" />
+          <pre className="mt-1 p-2 bg-gray-50 rounded overflow-x-auto text-gray-700 font-mono text-xs">{f.description}</pre>
+        </div>
+        <div><strong>Price:</strong> ${f.price}<CopyButton text={f.price} label="price" /></div>
+        <div><strong>Condition:</strong> {f.condition || "—"}</div>
+        <div><strong>Category tip:</strong> {f.categorySuggestion}</div>
+        <div><strong>Shipping:</strong> {f.shippingText}</div>
+        <div>
+          <strong>Keywords:</strong> {f.keywords.join(", ")}
+          <CopyButton text={f.keywords.join(", ")} label="keywords" />
+        </div>
+        {pkg.images.length > 0 && (
+          <div>
+            <strong>Images:</strong>
+            <div className="mt-1 space-x-2">
+              {pkg.images.map((src, i) => (
+                <a key={src} href={src} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-700">
+                  image {i + 1} ↗
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+        <details className="mt-2">
+          <summary className="cursor-pointer font-medium text-gray-700 hover:text-gray-900">Photo checklist</summary>
+          <ul className="mt-2 ml-4 space-y-1 list-disc text-gray-600">
+            {pkg.photoChecklist.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </details>
+        <p className="text-xs text-gray-500 mt-2">Tone guide: {pkg.toneGuide}</p>
+      </div>
     </div>
   );
 }
@@ -202,9 +249,11 @@ export default function ChannelsPage() {
   }, []);
 
   useEffect(() => {
-    if (!requireSession()) return;
-    loadChannels();
-    loadTenantConnections();
+    const session = getSession();
+    if (session?.accessToken) {
+      loadChannels();
+      loadTenantConnections();
+    }
   }, [loadChannels, loadTenantConnections]);
 
   async function runTest(channelId) {
@@ -249,113 +298,195 @@ export default function ChannelsPage() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Boss Listers</p>
-          <h1>Channels</h1>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {/* Header */}
+      <header className="border-b border-gray-200 bg-white shadow-sm sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Marketplace Integrations</p>
+              <h1 className="text-3xl font-bold text-gray-900 mt-1">Channel Connections</h1>
+            </div>
+            <nav className="flex gap-4">
+              <Link href="/" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+                Stager
+              </Link>
+              <Link href="/inventory" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+                Inventory
+              </Link>
+              <Link href="/social" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+                Social
+              </Link>
+              <Link href="/history" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+                History
+              </Link>
+            </nav>
+          </div>
         </div>
-        <nav>
-          <Link className="nav-link" href="/">Stager</Link>
-          <Link className="nav-link" href="/history">History</Link>
-        </nav>
       </header>
 
-      {error && <p style={{ color: "#dc2626" }}>{error}</p>}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+            <p className="font-medium">{error}</p>
+          </div>
+        )}
 
-      <section>
-        <h2 className="section-heading">Marketplace connections</h2>
-        <div className="platform-grid">
-          {channels.map((ch) => (
-            <div key={ch.id} className="panel" style={{ padding: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <strong>{ch.label}</strong>
-                <StatusPill status={ch.status} />
-              </div>
-              <p style={{ fontSize: 13, color: "#4b5563", minHeight: 40 }}>{ch.detail}</p>
-              {ch.last_sync_at && <p style={{ fontSize: 12 }}>Last sync: {ch.last_sync_at}</p>}
+        {/* Marketplace Connections Section */}
+        <section className="mb-12">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Connected Marketplaces</h2>
+            <p className="text-gray-600">Authorize your marketplace accounts to start syncing inventory across channels.</p>
+          </div>
 
-              {(ch.id === "ebay" || ch.id === "etsy") && (() => {
-                const conn = tenantConnections[ch.id];
-                const connectFn = ch.id === "ebay" ? startEbayConnect : startEtsyConnect;
-                const label = ch.id === "ebay" ? "eBay" : "Etsy";
-                return (
-                  <div style={{ margin: "8px 0", padding: 10, borderRadius: 8, background: conn?.connected ? "#f0fdf4" : "#f9fafb" }}>
-                    {conn?.connected ? (
-                      <p style={{ fontSize: 13, margin: 0, color: "#166534" }}>
-                        ✓ Your {label} {ch.id === "etsy" ? "shop" : "account"} is connected{conn.account_identifier ? ` (${conn.account_identifier})` : ""}.
-                      </p>
-                    ) : (
-                      <>
-                        <p style={{ fontSize: 13, margin: "0 0 8px" }}>Connect your own {label} {ch.id === "etsy" ? "shop" : "account"} to start listing.</p>
-                        <button type="button" onClick={connectFn} className="btn-primary" style={{ fontSize: 13 }}>
-                          Connect {label}
-                        </button>
-                      </>
-                    )}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {channels.map((ch) => (
+              <div key={ch.id} className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow">
+                {/* Header with icon and status */}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-2xl">{PLATFORM_CONFIG[ch.id]?.icon || "📦"}</span>
+                      <h3 className="text-lg font-bold text-gray-900">{ch.label}</h3>
+                    </div>
+                    <StatusPill status={ch.status} />
                   </div>
-                );
-              })()}
+                </div>
 
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {ch.mode === "api" && (
-                  <button type="button" disabled={testing === ch.id} onClick={() => runTest(ch.id)}>
-                    {testing === ch.id ? "Testing…" : "Test connection"}
-                  </button>
+                {/* Platform Details */}
+                <p className="text-sm text-gray-600 mb-4 min-h-[60px]">{ch.detail}</p>
+                {ch.last_sync_at && <p className="text-xs text-gray-500 mb-4">Last sync: {ch.last_sync_at}</p>}
+
+                {/* OAuth Connection Section */}
+                {(ch.id === "ebay" || ch.id === "etsy" || ch.id === "amazon" || ch.id === "tiktok_shop") && (() => {
+                  const conn = tenantConnections[ch.id];
+                  let connectFn, label;
+                  if (ch.id === "ebay") {
+                    connectFn = startEbayConnect;
+                    label = "eBay";
+                  } else if (ch.id === "etsy") {
+                    connectFn = startEtsyConnect;
+                    label = "Etsy";
+                  } else if (ch.id === "amazon") {
+                    connectFn = startAmazonConnect;
+                    label = "Amazon";
+                  } else {
+                    connectFn = startTikTokConnect;
+                    label = "TikTok Shop";
+                  }
+                  return (
+                    <div className={`p-4 rounded-lg mb-4 ${conn?.connected ? "bg-green-50 border border-green-200" : "bg-gray-50 border border-gray-200"}`}>
+                      {conn?.connected ? (
+                        <p className="text-sm text-green-800 flex items-center gap-2">
+                          <span className="text-lg">✓</span>
+                          Your {label} {ch.id === "etsy" ? "shop" : "account"} is connected
+                          {conn.account_identifier && <span className="font-mono text-xs bg-white px-2 py-1 rounded">({conn.account_identifier})</span>}
+                        </p>
+                      ) : (
+                        <>
+                          <p className="text-sm text-gray-700 mb-3">Connect your {label} {ch.id === "etsy" ? "shop" : "account"} to start listing.</p>
+                          <button
+                            type="button"
+                            onClick={connectFn}
+                            className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                          >
+                            Connect {label}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Action Buttons */}
+                <div className="space-y-2">
+                  {ch.mode === "api" && (
+                    <button
+                      type="button"
+                      disabled={testing === ch.id}
+                      onClick={() => runTest(ch.id)}
+                      className="w-full px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg disabled:opacity-50 transition-colors"
+                    >
+                      {testing === ch.id ? "Testing…" : "Test Connection"}
+                    </button>
+                  )}
+                  <a
+                    href={`https://github.com/mjardin17/boss-listers-mvp/blob/main/${ch.setup}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block text-sm text-blue-600 hover:text-blue-700 text-center py-2"
+                  >
+                    Setup Instructions ↗
+                  </a>
+                </div>
+
+                {testResults[ch.id] && (
+                  <p className="text-xs text-gray-600 mt-3 p-2 bg-gray-50 rounded">{testResults[ch.id]}</p>
                 )}
-                <a href={`https://github.com/mjardin17/boss-listers-mvp/blob/main/${ch.setup}`} target="_blank" rel="noreferrer" style={{ fontSize: 13, alignSelf: "center" }}>
-                  Setup instructions ↗
-                </a>
               </div>
-              {testResults[ch.id] && <p style={{ fontSize: 12, marginTop: 6 }}>{testResults[ch.id]}</p>}
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
 
-      <section style={{ marginTop: 28 }}>
-        <h2 className="section-heading">Manual listing package</h2>
-        <p style={{ fontSize: 14, color: "#4b5563" }}>
-          Generate copy-paste-ready listings for Facebook Marketplace, OfferUp, Craigslist,
-          Mercari, and Poshmark from any SKU in your shared inventory. You post them yourself —
-          nothing is ever auto-submitted to a marketplace.
-        </p>
-        <form onSubmit={generatePackages} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input
-            value={sku}
-            onChange={(e) => setSku(e.target.value)}
-            placeholder="Enter a SKU from your inventory"
-            style={{ padding: 8, minWidth: 260 }}
-            required
-          />
-          <button type="submit" disabled={busy}>{busy ? "Generating…" : "Generate package"}</button>
-          {packages.length > 0 && (
-            <a
-              href={`/api/channels/manual-package?format=csv`}
-              onClick={(e) => {
-                // CSV needs a POST; do it via a temporary form-less fetch → blob.
-                e.preventDefault();
-                authedFetch("/api/channels/manual-package?format=csv", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ sku: sku.trim() }),
-                }).then(async (res) => {
-                  const blob = await res.blob();
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `listing-package-${sku.trim()}.csv`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                });
-              }}
+        {/* Manual Listing Package Section */}
+        <section className="bg-white rounded-lg border border-gray-200 p-8">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Manual Listing Package</h2>
+            <p className="text-gray-600">
+              Generate copy-paste-ready listings for Facebook Marketplace, OfferUp, Craigslist, Mercari, and Poshmark from any SKU in your inventory. You post them yourself — nothing is ever auto-submitted to a marketplace.
+            </p>
+          </div>
+
+          <form onSubmit={generatePackages} className="mb-6 flex flex-col sm:flex-row gap-3">
+            <input
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              placeholder="Enter a SKU from your inventory"
+              required
+              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={busy}
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50 transition-colors"
             >
-              Download CSV
-            </a>
+              {busy ? "Generating…" : "Generate"}
+            </button>
+            {packages.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  authedFetch("/api/channels/manual-package?format=csv", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ sku: sku.trim() }),
+                  }).then(async (res) => {
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `listing-package-${sku.trim()}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  });
+                }}
+                className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
+              >
+                Download CSV
+              </button>
+            )}
+          </form>
+
+          {packages.length > 0 && (
+            <div className="space-y-4">
+              {packages.map((pkg) => (
+                <ManualPackageViewer key={pkg.platform} pkg={pkg} />
+              ))}
+            </div>
           )}
-        </form>
-        {packages.map((pkg) => <ManualPackageViewer key={pkg.platform} pkg={pkg} />)}
-      </section>
+        </section>
+      </main>
     </div>
   );
 }

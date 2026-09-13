@@ -1157,4 +1157,298 @@ class WooCommerceListingError extends Error {
   }
 }
 
-module.exports = { EbayConnector, EbayListingError, EtsyConnector, EtsyListingError, FacebookConnector, FacebookListingError, BonanzaConnector, BonanzaListingError, ShopifyConnector, WooCommerceConnector, WooCommerceListingError };
+class AmazonConnector extends BaseConnector {
+  constructor() { super("amazon"); }
+
+  static ENV = ["AMAZON_CLIENT_ID", "AMAZON_CLIENT_SECRET", "AMAZON_REFRESH_TOKEN", "AMAZON_SELLER_ID"];
+
+  async getConnectionStatus() {
+    if (!this.hasRequiredEnv(AmazonConnector.ENV)) {
+      return {
+        status: CONNECTION_STATUS.NOT_CONNECTED,
+        detail: "Optional — not configured. Needs Amazon SP-API credentials (AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET, AMAZON_REFRESH_TOKEN, AMAZON_SELLER_ID).",
+      };
+    }
+    return this.testConnection();
+  }
+
+  async testConnection() {
+    try {
+      const tokenRes = await fetch("https://api.amazon.com/auth/o2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: process.env.AMAZON_CLIENT_ID,
+          client_secret: process.env.AMAZON_CLIENT_SECRET,
+          refresh_token: process.env.AMAZON_REFRESH_TOKEN,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!tokenRes.ok) {
+        return {
+          status: CONNECTION_STATUS.CONFIG_REQUIRED,
+          detail: `Amazon SP-API token refresh failed (HTTP ${tokenRes.status})`,
+        };
+      }
+
+      return { status: CONNECTION_STATUS.CONNECTED, detail: "Amazon SP-API OAuth verified" };
+    } catch (err) {
+      return {
+        status: CONNECTION_STATUS.CONFIG_REQUIRED,
+        detail: err.name === "TimeoutError"
+          ? "Amazon SP-API did not respond within 10s"
+          : `Amazon SP-API request failed: ${err.message}`,
+      };
+    }
+  }
+
+  async createListing(listing, options = {}) {
+    const envs = AmazonConnector.ENV;
+    if (!this.hasRequiredEnv(envs)) {
+      throw new AmazonListingError("credentials_missing", "Amazon credentials not configured");
+    }
+
+    try {
+      const accessToken = await this._refreshAccessToken();
+      const sellerId = process.env.AMAZON_SELLER_ID;
+
+      const payload = {
+        feed_type: "PRODUCT",
+        listings: [
+          {
+            sku: listing.sku,
+            product_type: listing.category || "STANDARD_PRODUCT",
+            attributes: {
+              title: listing.title,
+              description: listing.description || listing.title,
+              standard_price: {
+                currency: "USD",
+                value: listing.price || 0,
+              },
+              quantity: listing.quantity || 1,
+              fulfillment_channel: "MFN",
+              condition_type: listing.condition === "new" ? "New" : "Used",
+            },
+          },
+        ],
+      };
+
+      const feedRes = await fetch(
+        `https://sellingpartnerapi-na.amazon.com/feeds/2021-06-30/feeds`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            "x-amzn-amazon-seller-id": sellerId,
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(30_000),
+        }
+      );
+
+      if (!feedRes.ok) {
+        const err = await feedRes.json().catch(() => ({}));
+        throw new AmazonListingError(
+          err.errors?.[0]?.code || "creation_failed",
+          err.errors?.[0]?.message || `Amazon SP-API error (HTTP ${feedRes.status})`,
+          { statusCode: feedRes.status, amazonBody: err }
+        );
+      }
+
+      const body = await feedRes.json();
+      return {
+        feedId: body.payload?.feed_id,
+        url: `https://sellercentral.amazon.com/gp/mws/feed/id/${body.payload?.feed_id}`,
+        payload,
+      };
+    } catch (err) {
+      if (err instanceof AmazonListingError) throw err;
+      throw new AmazonListingError(
+        "creation_failed",
+        err.message,
+        { statusCode: 502 }
+      );
+    }
+  }
+
+  async _refreshAccessToken() {
+    try {
+      const res = await fetch("https://api.amazon.com/auth/o2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: process.env.AMAZON_CLIENT_ID,
+          client_secret: process.env.AMAZON_CLIENT_SECRET,
+          refresh_token: process.env.AMAZON_REFRESH_TOKEN,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Token refresh failed: HTTP ${res.status}`);
+      }
+
+      const { access_token } = await res.json();
+      return access_token;
+    } catch (err) {
+      throw new AmazonListingError("token_refresh_failed", err.message);
+    }
+  }
+}
+
+class AmazonListingError extends Error {
+  constructor(code, message, { statusCode, amazonBody } = {}) {
+    super(message);
+    this.name = "AmazonListingError";
+    this.code = code;
+    this.statusCode = statusCode || 502;
+    this.amazonBody = amazonBody;
+  }
+}
+
+class TikTokShopConnector extends BaseConnector {
+  constructor() { super("tiktok-shop"); }
+
+  static ENV = ["TIKTOK_SHOP_CLIENT_ID", "TIKTOK_SHOP_CLIENT_SECRET", "TIKTOK_SHOP_REFRESH_TOKEN", "TIKTOK_SHOP_MERCHANT_ID"];
+
+  async getConnectionStatus() {
+    if (!this.hasRequiredEnv(TikTokShopConnector.ENV)) {
+      return {
+        status: CONNECTION_STATUS.NOT_CONNECTED,
+        detail: "Optional — not configured. Needs TikTok Shop OAuth credentials (TIKTOK_SHOP_CLIENT_ID, TIKTOK_SHOP_CLIENT_SECRET, TIKTOK_SHOP_REFRESH_TOKEN, TIKTOK_SHOP_MERCHANT_ID).",
+      };
+    }
+    return this.testConnection();
+  }
+
+  async testConnection() {
+    try {
+      const tokenRes = await fetch("https://auth.tiktok-shops.com/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: process.env.TIKTOK_SHOP_CLIENT_ID,
+          client_secret: process.env.TIKTOK_SHOP_CLIENT_SECRET,
+          grant_type: "refresh_token",
+          refresh_token: process.env.TIKTOK_SHOP_REFRESH_TOKEN,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!tokenRes.ok) {
+        return {
+          status: CONNECTION_STATUS.CONFIG_REQUIRED,
+          detail: `TikTok Shop token refresh failed (HTTP ${tokenRes.status})`,
+        };
+      }
+
+      return { status: CONNECTION_STATUS.CONNECTED, detail: "TikTok Shop OAuth verified" };
+    } catch (err) {
+      return {
+        status: CONNECTION_STATUS.CONFIG_REQUIRED,
+        detail: err.name === "TimeoutError"
+          ? "TikTok Shop did not respond within 10s"
+          : `TikTok Shop request failed: ${err.message}`,
+      };
+    }
+  }
+
+  async createListing(listing, options = {}) {
+    const envs = TikTokShopConnector.ENV;
+    if (!this.hasRequiredEnv(envs)) {
+      throw new TikTokShopListingError("credentials_missing", "TikTok Shop credentials not configured");
+    }
+
+    try {
+      const accessToken = await this._refreshAccessToken();
+
+      const payload = {
+        product_name: listing.title,
+        description: listing.description || listing.title,
+        category: listing.category || "Unclassified",
+        price: Math.round((listing.price || 0) * 100),
+        quantity: listing.quantity || 1,
+        sku: listing.sku,
+      };
+
+      if (listing.image_paths && listing.image_paths.length > 0) {
+        payload.images = listing.image_paths.slice(0, 9);
+      }
+
+      const createRes = await fetch("https://open-api.tiktok-shops.com/v1/products", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "X-TikTok-Shop-Id": process.env.TIKTOK_SHOP_MERCHANT_ID,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (!createRes.ok) {
+        const err = await createRes.json().catch(() => ({}));
+        throw new TikTokShopListingError(
+          err.code || "creation_failed",
+          err.message || `TikTok Shop API error (HTTP ${createRes.status})`,
+          { statusCode: createRes.status, tiktokBody: err }
+        );
+      }
+
+      const body = await createRes.json();
+      return {
+        productId: body.data?.product_id,
+        url: `https://seller.tiktokshops.com/product/${body.data?.product_id}`,
+        payload,
+      };
+    } catch (err) {
+      if (err instanceof TikTokShopListingError) throw err;
+      throw new TikTokShopListingError(
+        "creation_failed",
+        err.message,
+        { statusCode: 502 }
+      );
+    }
+  }
+
+  async _refreshAccessToken() {
+    try {
+      const res = await fetch("https://auth.tiktok-shops.com/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: process.env.TIKTOK_SHOP_CLIENT_ID,
+          client_secret: process.env.TIKTOK_SHOP_CLIENT_SECRET,
+          grant_type: "refresh_token",
+          refresh_token: process.env.TIKTOK_SHOP_REFRESH_TOKEN,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Token refresh failed: HTTP ${res.status}`);
+      }
+
+      const { access_token } = await res.json();
+      return access_token;
+    } catch (err) {
+      throw new TikTokShopListingError("token_refresh_failed", err.message);
+    }
+  }
+}
+
+class TikTokShopListingError extends Error {
+  constructor(code, message, { statusCode, tiktokBody } = {}) {
+    super(message);
+    this.name = "TikTokShopListingError";
+    this.code = code;
+    this.statusCode = statusCode || 502;
+    this.tiktokBody = tiktokBody;
+  }
+}
+
+module.exports = { EbayConnector, EbayListingError, EtsyConnector, EtsyListingError, FacebookConnector, FacebookListingError, BonanzaConnector, BonanzaListingError, ShopifyConnector, WooCommerceConnector, WooCommerceListingError, AmazonConnector, AmazonListingError, TikTokShopConnector, TikTokShopListingError };
