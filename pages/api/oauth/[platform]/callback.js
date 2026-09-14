@@ -17,6 +17,7 @@ const PROFILE_FETCHERS = {
   linkedin: fetchLinkedInProfile,
   snapchat: fetchSnapchatProfile,
   pinterest: fetchPinterestProfile,
+  ebay: fetchEbayProfile,
 };
 
 export default async function handler(req, res) {
@@ -354,5 +355,22 @@ async function fetchPinterestProfile(accessToken) {
   return {
     identifier: data.username,
     data: { pinterestId: data.id, username: data.username },
+  };
+}
+
+async function fetchEbayProfile(accessToken) {
+  const res = await fetch('https://api.ebay.com/sell/account/v1/seller', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`eBay profile fetch failed: ${res.status}`);
+  }
+
+  const data = await res.json();
+  return {
+    identifier: data.seller_legal_name || data.username,
+    data: { sellerUsername: data.seller_legal_name, ebayUserId: data.user_id },
   };
 }

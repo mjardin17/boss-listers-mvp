@@ -36,17 +36,23 @@ export default async function handler(req, res) {
   let tokenBody;
   try {
     const auth = Buffer.from(`${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`).toString("base64");
+    const bodyParams = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+    });
+    console.log("[eBay OAuth] Token exchange request:");
+    console.log("  Client ID:", process.env.EBAY_CLIENT_ID);
+    console.log("  RuName:", RUNAME);
+    console.log("  Code:", code.substring(0, 50) + "...");
+    console.log("  Body params:", bodyParams.toString());
     const tokenRes = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${auth}` },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: RUNAME,
-      }),
+      body: bodyParams,
       signal: AbortSignal.timeout(15_000),
     });
     tokenBody = await tokenRes.json();
+    console.log("[eBay OAuth] eBay response:", tokenBody);
     if (!tokenRes.ok || !tokenBody.refresh_token) {
       return res.status(502).json({
         ok: false,
