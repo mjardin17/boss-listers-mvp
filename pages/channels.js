@@ -81,6 +81,92 @@ async function startEtsyConnect() {
   window.location.href = `https://www.etsy.com/oauth/connect?${params.toString()}`;
 }
 
+// Amazon — Login with Amazon (LWA) OAuth for SP-API, same shared-app /
+// per-tenant-consent shape as eBay/Etsy. NOTE: Amazon's consent URL takes
+// an "Application ID" (amzn1.sp.solution.… in Seller Central's own app
+// listing), which may or may not be the same value as the LWA Client ID
+// used server-side for the token exchange — verify against the app's own
+// "View instructions" page in Seller Central once it's registered, and set
+// NEXT_PUBLIC_AMAZON_APPLICATION_ID separately if it differs.
+const AMAZON_APPLICATION_ID = process.env.NEXT_PUBLIC_AMAZON_APPLICATION_ID || process.env.NEXT_PUBLIC_AMAZON_CLIENT_ID;
+const AMAZON_STATE_STORAGE_KEY = "boss_amazon_oauth_state";
+
+function startAmazonConnect() {
+  const state = safeRandomUUID();
+  sessionStorage.setItem(AMAZON_STATE_STORAGE_KEY, state);
+
+  // version=beta is required while the app is in Draft state in Seller
+  // Central — drop it once the app is published, or Amazon will reject
+  // the consent request for a live seller.
+  const params = new URLSearchParams({
+    application_id: AMAZON_APPLICATION_ID,
+    state,
+    version: "beta",
+  });
+  window.location.href = `https://sellercentral.amazon.com/apps/authorize/consent?${params.toString()}`;
+}
+
+// TikTok Shop — Partner Center OAuth, same shared-app / per-tenant-consent
+// shape as eBay/Etsy. NOTE: verify this authorize URL against the actual
+// link shown on the app's own page in partner.tiktokshop.com once
+// registered — TikTok Shop Partner Center typically hands you a ready-made
+// authorization link per app rather than documenting a single fixed URL
+// template, so treat this as a starting point, not a guarantee.
+const TIKTOK_SHOP_SERVICE_ID = process.env.NEXT_PUBLIC_TIKTOK_SHOP_SERVICE_ID;
+const TIKTOK_SHOP_STATE_STORAGE_KEY = "boss_tiktok_shop_oauth_state";
+
+function startTikTokShopConnect() {
+  const state = safeRandomUUID();
+  sessionStorage.setItem(TIKTOK_SHOP_STATE_STORAGE_KEY, state);
+
+  const params = new URLSearchParams({ service_id: TIKTOK_SHOP_SERVICE_ID, state });
+  window.location.href = `https://services.tiktokshop.com/open/authorize?${params.toString()}`;
+}
+
+// Shopify — OAuth for the Admin API. Per-store authorization: each Shopify
+// merchant creates a custom app in their own store admin, and connects that
+// store. Unlike eBay/Etsy/Amazon, the OAuth app lives per-store, not shared.
+// Each store gets its own Client ID/Secret and redirects to /channels/shopify-callback.
+const SHOPIFY_CLIENT_ID = process.env.NEXT_PUBLIC_SHOPIFY_CLIENT_ID;
+const SHOPIFY_REDIRECT_URI = process.env.NEXT_PUBLIC_SHOPIFY_REDIRECT_URI;
+const SHOPIFY_SCOPES = "write_products read_products write_inventory read_inventory";
+const SHOPIFY_STATE_STORAGE_KEY = "boss_shopify_oauth_state";
+const SHOPIFY_DOMAIN_RE = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i;
+
+function startShopifyConnect() {
+  const state = safeRandomUUID();
+  sessionStorage.setItem(SHOPIFY_STATE_STORAGE_KEY, state);
+
+  // Shopify requires a store domain (e.g. mystore.myshopify.com) to build
+  // the authorize URL. Prompt the user to enter it and validate format.
+  let storeDomain = prompt("Enter your Shopify store domain (e.g., mystore.myshopify.com):");
+  if (!storeDomain) return; // user cancelled
+
+  storeDomain = storeDomain.trim().toLowerCase();
+  if (!SHOPIFY_DOMAIN_RE.test(storeDomain)) {
+    alert("Invalid Shopify store domain. Please enter your store URL (e.g., mystore.myshopify.com).");
+    return;
+  }
+
+  const params = new URLSearchParams({
+    client_id: SHOPIFY_CLIENT_ID,
+    scope: SHOPIFY_SCOPES,
+    redirect_uri: SHOPIFY_REDIRECT_URI,
+    state,
+  });
+  window.location.href = `https://${storeDomain}/admin/oauth/authorize?${params.toString()}`;
+}
+
+// Marketplaces where each tenant connects their OWN account (vs. Facebook/
+// Bonanza/WooCommerce, which use one shared app-level token).
+const TENANT_OAUTH_CHANNELS = {
+  ebay: { connectFn: startEbayConnect, label: "eBay", noun: "account" },
+  etsy: { connectFn: startEtsyConnect, label: "Etsy", noun: "shop" },
+  amazon: { connectFn: startAmazonConnect, label: "Amazon", noun: "account" },
+  "tiktok-shop": { connectFn: startTikTokShopConnect, label: "TikTok Shop", noun: "shop" },
+  shopify: { connectFn: startShopifyConnect, label: "Shopify", noun: "store" },
+};
+
 // Channels dashboard: honest per-channel status, live connection tests,
 // and the manual listing-package generator. No channel is ever shown as
 // "Connected" unless a real authenticated API test succeeded.
@@ -189,7 +275,7 @@ export default function ChannelsPage() {
   const loadTenantConnections = useCallback(async () => {
     const results = {};
     await Promise.all(
-      ["ebay", "etsy"].map(async (marketplace) => {
+      ["ebay", "etsy", "amazon", "tiktok-shop", "shopify"].map(async (marketplace) => {
         try {
           const res = await authedFetch(`/api/channels/${marketplace}/status`);
           const data = await res.json();
@@ -276,19 +362,18 @@ export default function ChannelsPage() {
               <p style={{ fontSize: 13, color: "#4b5563", minHeight: 40 }}>{ch.detail}</p>
               {ch.last_sync_at && <p style={{ fontSize: 12 }}>Last sync: {ch.last_sync_at}</p>}
 
-              {(ch.id === "ebay" || ch.id === "etsy") && (() => {
+              {TENANT_OAUTH_CHANNELS[ch.id] && (() => {
                 const conn = tenantConnections[ch.id];
-                const connectFn = ch.id === "ebay" ? startEbayConnect : startEtsyConnect;
-                const label = ch.id === "ebay" ? "eBay" : "Etsy";
+                const { connectFn, label, noun } = TENANT_OAUTH_CHANNELS[ch.id];
                 return (
                   <div style={{ margin: "8px 0", padding: 10, borderRadius: 8, background: conn?.connected ? "#f0fdf4" : "#f9fafb" }}>
                     {conn?.connected ? (
                       <p style={{ fontSize: 13, margin: 0, color: "#166534" }}>
-                        ✓ Your {label} {ch.id === "etsy" ? "shop" : "account"} is connected{conn.account_identifier ? ` (${conn.account_identifier})` : ""}.
+                        ✓ Your {label} {noun} is connected{conn.account_identifier ? ` (${conn.account_identifier})` : ""}.
                       </p>
                     ) : (
                       <>
-                        <p style={{ fontSize: 13, margin: "0 0 8px" }}>Connect your own {label} {ch.id === "etsy" ? "shop" : "account"} to start listing.</p>
+                        <p style={{ fontSize: 13, margin: "0 0 8px" }}>Connect your own {label} {noun} to start listing.</p>
                         <button type="button" onClick={connectFn} className="btn-primary" style={{ fontSize: 13 }}>
                           Connect {label}
                         </button>

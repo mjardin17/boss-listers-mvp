@@ -94,5 +94,13 @@ export async function middleware(request) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/health).*)'],
+  // All of api/* is excluded: every API route already enforces its own
+  // real auth (per-tenant Bearer tokens via Supabase), which is the
+  // actual security boundary. Basic Auth exists only to keep the
+  // pre-launch site hidden from random visitors browsing the HTML pages —
+  // it was never meant to double as API security, and it can't coexist
+  // with Bearer auth anyway (one Authorization header can't carry both
+  // schemes, so a Bearer-authenticated fetch always got rejected here
+  // before reaching the route's own auth check).
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/).*)'],
 };
