@@ -9,6 +9,9 @@ const PLATFORMS = [
   { id: "facebook", label: "Facebook Marketplace", color: "#1877F2" },
   { id: "shopify", label: "Shopify", color: "#96BE28" },
   { id: "tiktok", label: "TikTok Shop", color: "#000000" },
+  { id: "bonanza", label: "Bonanza", color: "#FF6B35" },
+  { id: "woocommerce", label: "WooCommerce", color: "#96588A" },
+  { id: "instagram", label: "Instagram Shopping", color: "#E4405F" },
 ];
 
 export default function PostPage() {
