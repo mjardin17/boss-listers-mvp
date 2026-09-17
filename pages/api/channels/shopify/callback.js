@@ -18,11 +18,9 @@ export default async function handler(req, res) {
     return res.status(401).json({ ok: false, error: "No bearer token" });
   }
 
-  let tenantId;
   try {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data.user?.id) throw new Error("Invalid token");
-    tenantId = data.user.id;
   } catch {
     return res.status(401).json({ ok: false, error: "Invalid authentication" });
   }
@@ -68,21 +66,44 @@ export default async function handler(req, res) {
       throw new Error("Invalid response from Shopify");
     }
 
-    // Store the connection (access token is encrypted server-side).
-    // Shopify tokens don't expire, so we use a far-future expiry (1 year).
-    const { error: storeError } = await supabase.rpc(
-      "store_marketplace_connection",
-      {
-        p_tenant_id: tenantId,
+    // Store the connection (token is encrypted server-side).
+    //
+    // store_marketplace_connection's real signature is (p_marketplace,
+    // p_environment, p_refresh_token, p_account_identifier, p_metadata) —
+    // it resolves tenant_id from the CALLER'S OWN auth.uid(), not from a
+    // p_tenant_id argument (there isn't one, nor p_access_token/p_expires_in
+    // — no overload matches those names, so the old call guaranteed a
+    // PGRST202 "function not found" on every attempt). Shopify tokens don't
+    // expire, so the (non-expiring) access token is stored in the
+    // p_refresh_token slot — the only token field the schema has, same as
+    // every other connector here.
+    //
+    // This must be called with the USER's bearer token, not the service-role
+    // client above (that client is only for validating the token via
+    // auth.getUser) — a service-role call has no auth.uid() context, so the
+    // function would resolve the wrong tenant (or none). Same REST+fetch
+    // pattern as pages/api/channels/{etsy,amazon,tiktok-shop,ebay}/callback.js.
+    const rpcRes = await fetch(`${process.env.SUPABASE_URL}/rest/v1/rpc/store_marketplace_connection`, {
+      method: "POST",
+      headers: {
+        apikey: process.env.SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         p_marketplace: "shopify",
-        p_access_token: tokenBody.access_token,
-        p_refresh_token: null,
-        p_expires_in: 365 * 24 * 60 * 60, // 1 year in seconds
+        p_environment: "production",
+        p_refresh_token: tokenBody.access_token,
         p_account_identifier: shop,
-      }
-    );
+        p_metadata: {},
+      }),
+    });
 
-    if (storeError) throw storeError;
+    if (!rpcRes.ok) {
+      const errBody = await rpcRes.text();
+      console.error(`Shopify store_marketplace_connection failed: ${errBody}`);
+      throw new Error("Failed to save connection");
+    }
 
     return res.status(200).json({
       ok: true,

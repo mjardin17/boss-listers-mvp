@@ -9,6 +9,7 @@
     "test": "node --test scripts/test-core.js",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "check-connections": "node scripts/check-connections.js",
     "start": "next start -p 3001",
     "start:render": "next start -p $PORT"
   },
