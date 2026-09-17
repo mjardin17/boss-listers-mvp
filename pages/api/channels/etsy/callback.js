@@ -22,15 +22,12 @@
 // prefix is used only to fetch a display name for accountIdentifier, never
 // as an authorization boundary.
 //
-// NOTE: this stores the refresh token + account identifier only. It does
-// NOT yet resolve/store a shop_id — EtsyConnector._getTenantConnection()
-// already handles a connection with no shop_id on record as a clear,
-// actionable "etsy_shop_id_missing" error (see lib/channels/apiConnectors.js)
-// rather than crashing, so this is a safe place to land first. Wiring up
-// shop_id storage is a fast-follow once the exact metadata RPC shape is
-// confirmed against the live schema (it isn't in any local migration file
-// — it was applied directly against Supabase — so [Guessing] its params
-// here would risk a silent mismatch rather than a loud, fixable error).
+// Resolves and stores shop_id in p_metadata (read by
+// EtsyConnector._getTenantConnection() as metadata.shopId || metadata.shop_id
+// — see lib/channels/apiConnectors.js). If the connecting user has no shop,
+// this route refuses to store a connection that createListing() could never
+// use anyway (it would just fail later with etsy_shop_id_missing) — instead
+// it returns { shopIdMissing: true } so the frontend can say so up front.
 
 const ETSY_TOKEN_URL = "https://api.etsy.com/v3/public/oauth/token";
 const REDIRECT_URI = process.env.ETSY_REDIRECT_URI; // must exactly match what was sent to /oauth/connect
@@ -82,13 +79,15 @@ export default async function handler(req, res) {
     return res.status(504).json({ ok: false, error: `Etsy token exchange timed out: ${err.message}` });
   }
 
-  // 2. Best-effort: look up the connecting shop's login name for display —
-  // a failure here must not block storing the token. The access token is
-  // shaped "<user_id>.<opaque>"; the user_id prefix is only ever used here,
-  // to ask Etsy who this is, never as an identity/authorization check.
+  // The access token is shaped "<user_id>.<opaque>" — the user_id prefix is
+  // used below only to ask Etsy who this is and which shop they own, never
+  // as an identity/authorization check.
+  const userId = String(tokenBody.access_token || "").split(".")[0];
+
+  // 2. Best-effort: look up the connecting user's login name for display —
+  // a failure here must not block storing the token.
   let accountIdentifier = null;
   try {
-    const userId = String(tokenBody.access_token || "").split(".")[0];
     if (userId) {
       const meRes = await fetch(`https://openapi.etsy.com/v3/application/users/${userId}`, {
         headers: {
@@ -106,7 +105,37 @@ export default async function handler(req, res) {
     // Non-fatal — proceed without a display name.
   }
 
-  // 3. Store it — same RPC + shape as the eBay callback. The RPC resolves
+  // 3. Resolve shop_id — NOT best-effort. createListing() needs a shop_id to
+  // do anything, and a connection stored without one just fails later with
+  // etsy_shop_id_missing (see EtsyConnector._getTenantConnection() in
+  // lib/channels/apiConnectors.js). Better to refuse to store it now and
+  // tell the frontend why than to store a connection that can never work.
+  let shopId = null;
+  try {
+    const shopsRes = await fetch(`https://openapi.etsy.com/v3/application/users/${userId}/shops`, {
+      headers: {
+        Authorization: `Bearer ${tokenBody.access_token}`,
+        "x-api-key": process.env.ETSY_KEYSTRING,
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (shopsRes.ok) {
+      const shops = await shopsRes.json();
+      // Etsy's shape here isn't pinned down in any local doc — handle a bare
+      // shop object, a { results: [...] } list, or a bare array defensively
+      // rather than guessing one and breaking silently on another.
+      const first = Array.isArray(shops) ? shops[0] : Array.isArray(shops?.results) ? shops.results[0] : shops;
+      shopId = first?.shop_id ?? null;
+    }
+  } catch {
+    // Falls through to the shopIdMissing branch below.
+  }
+
+  if (!shopId) {
+    return res.status(200).json({ ok: false, shopIdMissing: true, accountIdentifier });
+  }
+
+  // 4. Store it — same RPC + shape as the eBay callback. The RPC resolves
   // the tenant from userAccessToken's auth.uid(), not from this body.
   //
   // The DB has TWO overloaded versions of store_marketplace_connection (one
@@ -128,7 +157,7 @@ export default async function handler(req, res) {
         p_environment: "production",
         p_refresh_token: tokenBody.refresh_token,
         p_account_identifier: accountIdentifier,
-        p_metadata: {},
+        p_metadata: { shop_id: shopId },
       }),
     });
     if (!rpcRes.ok) {
