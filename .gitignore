@@ -23,3 +23,5 @@ secrets.txt
 
 .video-studio-data/
 *.mp4
+pnpm-lock.yaml
+pnpm-workspace.yaml

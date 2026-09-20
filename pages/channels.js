@@ -368,9 +368,15 @@ export default function ChannelsPage() {
                 return (
                   <div style={{ margin: "8px 0", padding: 10, borderRadius: 8, background: conn?.connected ? "#f0fdf4" : "#f9fafb" }}>
                     {conn?.connected ? (
-                      <p style={{ fontSize: 13, margin: 0, color: "#166534" }}>
-                        ✓ Your {label} {noun} is connected{conn.account_identifier ? ` (${conn.account_identifier})` : ""}.
-                      </p>
+                      <>
+                        <p style={{ fontSize: 13, margin: "0 0 8px", color: "#166534" }}>
+                          ✓ Your {label} {noun} is connected{conn.account_identifier ? ` (${conn.account_identifier})` : ""}.
+                          {" "}If Test Connection shows an error, the token may have expired — reconnect below.
+                        </p>
+                        <button type="button" onClick={connectFn} className="btn-primary" style={{ fontSize: 13 }}>
+                          Reconnect {label}
+                        </button>
+                      </>
                     ) : (
                       <>
                         <p style={{ fontSize: 13, margin: "0 0 8px" }}>Connect your own {label} {noun} to start listing.</p>

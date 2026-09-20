@@ -14,15 +14,17 @@
     "start:render": "next start -p $PORT"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.24.3",
     "@ai-sdk/openai": "^3.0.73",
+    "@anthropic-ai/sdk": "^0.24.3",
     "@remotion/bundler": "^4.0.517",
     "@remotion/renderer": "^4.0.517",
     "@supabase/supabase-js": "^2.106.1",
     "ai": "^6.0.208",
     "browser-image-compression": "^2.0.2",
     "docx": "^9.7.1",
+    "dotenv": "^18.0.0",
     "exif-parser": "^0.1.12",
+    "fast-xml-parser": "^5.11.1",
     "formidable": "^3.5.0",
     "fs-extra": "^11.1.1",
     "jszip": "^3.10.1",

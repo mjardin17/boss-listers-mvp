@@ -4,7 +4,6 @@
 // Returns: SKU, title, price, sizes, materials, care instructions, UPC, etc.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { resolveSession } from "../../../lib/supabaseAuth";
 
 const client = new Anthropic();
 
@@ -23,10 +22,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const session = await resolveSession(req);
-    if (!session) {
-      return res.status(401).json({ ok: false, error: "Unauthorized" });
-    }
+    // No auth required - this is just image analysis, no database access
 
     const { imageBase64, imageMediaType } = req.body;
 
