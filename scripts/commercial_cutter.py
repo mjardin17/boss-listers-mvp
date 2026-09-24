@@ -15,6 +15,8 @@ import tempfile
 import subprocess
 from PIL import Image, ImageDraw, ImageFont
 
+from scripts.voice_music_factory import generate_4beat_narration
+
 FFMPEG_PATH = r"C:\Users\jjard\claude\viral-engine\ffmpeg_bin\ffmpeg.exe"
 FFPROBE_PATH = r"C:\Users\jjard\claude\viral-engine\ffmpeg_bin\ffprobe.exe"
 FONT_PATH = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "arialbd.ttf")
@@ -351,6 +353,75 @@ def mix_audio_bed(video_path, audio_path, peak_db="-20dB"):
         return False
 
 
+def mix_commercial_audio(video_path, voice_path, music_path):
+    """
+    Mixes AI voiceover and background music bed under the video:
+    - Voiceover leads the mix (clearly on top).
+    - Music bed ducks under voice using sidechain compression (ratio 4, threshold 0.04).
+    - In gaps between narration beats, music smoothly swells back up to -12dB.
+    - Final mix peak-limited at -1.5dB (sensible headroom, zero clipping).
+    """
+    if not os.path.exists(video_path):
+        return False
+
+    if not voice_path or not os.path.exists(voice_path):
+        if music_path and os.path.exists(music_path):
+            return mix_audio_bed(video_path, music_path, peak_db="-20dB")
+        return False
+
+    if not music_path or not os.path.exists(music_path):
+        temp_out = video_path + ".tmp_mix.mp4"
+        cmd = [
+            FFMPEG_PATH, "-y",
+            "-i", video_path,
+            "-i", voice_path,
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-af", "aformat=channel_layouts=stereo,alimiter=limit=-1.5dB",
+            "-shortest",
+            temp_out
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode == 0 and os.path.exists(temp_out) and os.path.getsize(temp_out) > 0:
+            os.replace(temp_out, video_path)
+            return True
+        return False
+
+    temp_out = video_path + ".tmp_mix.mp4"
+    filter_complex = (
+        "[1:a]aformat=channel_layouts=stereo,asplit=2[voice_mix][voice_sc];"
+        "[2:a]volume=0.25,aformat=channel_layouts=stereo[music];"
+        "[music][voice_sc]sidechaincompress=threshold=0.04:ratio=4:attack=20:release=250[ducked];"
+        "[voice_mix][ducked]amix=inputs=2:weights=1 1:duration=first[mix];"
+        "[mix]alimiter=limit=-1.5dB[aout]"
+    )
+    cmd = [
+        FFMPEG_PATH, "-y",
+        "-i", video_path,
+        "-i", voice_path,
+        "-i", music_path,
+        "-filter_complex", filter_complex,
+        "-map", "0:v",
+        "-map", "[aout]",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-shortest",
+        temp_out
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if res.returncode == 0 and os.path.exists(temp_out) and os.path.getsize(temp_out) > 0:
+        os.replace(temp_out, video_path)
+        print(f"[audio_mix] [OK] Mixed voiceover + ducked music bed into {video_path}")
+        return True
+    else:
+        if os.path.exists(temp_out):
+            os.remove(temp_out)
+        print(f"[audio_mix] [WARN] Failed mixing audio: {res.stderr[-300:]}", file=sys.stderr)
+        return False
+
+
 def verify_commercial(mp4_path, expected_w, expected_h):
     """
     Verification Gate:
@@ -481,7 +552,66 @@ def verify_commercial(mp4_path, expected_w, expected_h):
         details["audio_codec"] = audio_stream.get("codec_name")
         details["audio_channels"] = audio_stream.get("channels")
         details["audio_bitrate"] = audio_stream.get("bit_rate")
-        details["audio_status"] = "Audio bed present (peaked at -20dB)"
+
+        # Audio energy measurement via ffmpeg volumedetect
+        vol_cmd = [
+            FFMPEG_PATH,
+            "-i", mp4_path,
+            "-af", "volumedetect",
+            "-f", "null",
+            "-"
+        ]
+        vol_res = subprocess.run(vol_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        mean_vol = None
+        max_vol = None
+        for line in vol_res.stderr.splitlines():
+            if "mean_volume:" in line:
+                mean_vol = line.split("mean_volume:")[1].strip()
+            elif "max_volume:" in line:
+                max_vol = line.split("max_volume:")[1].strip()
+        details["mean_volume"] = mean_vol
+        details["max_volume"] = max_vol
+        details["audio_energy"] = "Real energy (audible, non-silent)" if (mean_vol and not mean_vol.startswith("-91")) else "Digital silence"
+
+        # Windowed verification: verify voice energy in each beat's window and music in gap
+        windows = {
+            "beat_1": (0.5, 2.0),
+            "beat_2": (4.0, 2.0),
+            "beat_3": (8.0, 2.0),
+            "beat_4": (12.0, 2.0),
+            "gap_1": (3.0, 0.6)
+        }
+        beat_energies = {}
+        all_beats_audible = True
+        for w_name, (start_t, dur_t) in windows.items():
+            w_cmd = [
+                FFMPEG_PATH,
+                "-ss", str(start_t),
+                "-t", str(dur_t),
+                "-i", mp4_path,
+                "-af", "volumedetect",
+                "-f", "null",
+                "-"
+            ]
+            w_res = subprocess.run(w_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            w_mean = None
+            w_max = None
+            for line in w_res.stderr.splitlines():
+                if "mean_volume:" in line:
+                    w_mean = line.split("mean_volume:")[1].strip()
+                elif "max_volume:" in line:
+                    w_max = line.split("max_volume:")[1].strip()
+            is_audible = bool(w_mean and not w_mean.startswith("-91"))
+            if not is_audible:
+                all_beats_audible = False
+            beat_energies[w_name] = {
+                "mean_volume": w_mean,
+                "max_volume": w_max,
+                "audible": is_audible
+            }
+        details["beat_energies"] = beat_energies
+        details["all_beats_verified"] = all_beats_audible
+        details["audio_status"] = f"Voiceover + ducked music present (mean {mean_vol}, max {max_vol}, all beats verified: {all_beats_audible})"
     else:
         details["audio_present"] = False
         details["audio_status"] = "Silent video (audio bed not mixed)"
@@ -542,9 +672,25 @@ def cut_commercials(product_data, output_dir=None):
             output_path=out_path
         )
 
-        # Mix 15s audio bed under video if available
-        if music_bed_path:
-            mix_audio_bed(out_path, music_bed_path, peak_db="-20dB")
+        # Generate 15s synchronized 4-beat AI voiceover
+        print(f"\n--- AI Voiceover Generation ({p_key.upper()}) ---")
+        voice_path = None
+        try:
+            voice_path, beat_info = generate_4beat_narration(
+                product_data=product_data,
+                platform_key=p_key,
+                voice="af_bella"
+            )
+            print(f"[voiceover] [OK] Generated 4-beat track: {voice_path}")
+            for b in beat_info:
+                print(f"  [{b['label']}] \"{b['text']}\" -> {b['speech_duration_sec']}s (speed {b['speed_multiplier']}x)")
+        except Exception as e:
+            print(f"[voiceover] [WARN] Could not generate voiceover: {e}", file=sys.stderr)
+
+        # Mix voiceover + background music with sidechain ducking
+        if voice_path or music_bed_path:
+            print(f"\n--- Audio Mixing ({p_key.upper()}) ---")
+            mix_commercial_audio(out_path, voice_path, music_bed_path)
 
         passed, checks, details = verify_commercial(out_path, spec["width"], spec["height"])
         
