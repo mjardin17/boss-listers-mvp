@@ -11,6 +11,7 @@
 
 const { EbayConnector } = require("../../../../lib/channels/apiConnectors");
 const { resolveSession } = require("../../../../lib/supabaseAuth");
+const { ensurePublicUrl } = require("../../../../lib/supabaseStorage");
 
 const connector = new EbayConnector();
 
@@ -39,6 +40,13 @@ export default async function handler(req, res) {
       code: "missing_fields",
       error: "Both `product` and `policies` are required in the request body.",
     });
+  }
+
+  // Resolve any localhost/relative image URLs to public Supabase HTTPS URLs
+  // before the connector builds the eBay payload. eBay's servers pull
+  // product images by URL — they can't see localhost.
+  if (Array.isArray(product.image_urls)) {
+    product.image_urls = await Promise.all(product.image_urls.map(ensurePublicUrl));
   }
 
   try {

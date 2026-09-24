@@ -2,6 +2,7 @@
 // Saves extracted Omni-Lister product directly to Supabase products table
 
 const { createClient } = require("@supabase/supabase-js");
+const { ensurePublicUrl } = require("../../../lib/supabaseStorage");
 
 const DEFAULT_TENANT_ID = "f6ec6132-2cd0-4352-81e9-3c76d955b60d"; // Joshua's tenant
 
@@ -12,7 +13,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { product, tenantId } = req.body || {};
+    const { product: rawProduct, item, tenantId, lane, source } = req.body || {};
+    const product = rawProduct || item;
 
     if (!product || !product.title) {
       return res.status(400).json({
@@ -40,14 +42,23 @@ export default async function handler(req, res) {
       descriptionText = `${descriptionText}\n\n<!-- STYLEFRAME_MEDIA: ${JSON.stringify(mediaMeta)} -->`;
     }
 
+    // If card metadata exists, append card metadata block
+    const cardMeta = product.metadata || product.card_metadata || req.body?.metadata;
+    if (cardMeta) {
+      descriptionText = `${descriptionText}\n\n<!-- CARD_METADATA: ${JSON.stringify(cardMeta)} -->`;
+    }
+
+    const rawImageUrl = product.image_url || (Array.isArray(product.keyframes) && (product.keyframes[0]?.url || product.keyframes[0]?.dataUrl)) || null;
+    const resolvedImageUrl = await ensurePublicUrl(rawImageUrl);
+
     const inventoryRow = {
       tenant_id: targetTenantId,
       sku: sku,
       title: product.title,
       description: descriptionText,
       price: typeof product.price === "number" ? product.price : parseFloat(product.price) || 0.0,
-      quantity: product.quantity_available ? parseInt(product.quantity_available, 10) : 1,
-      image_url: product.image_url || (Array.isArray(product.keyframes) && (product.keyframes[0]?.url || product.keyframes[0]?.dataUrl)) || null,
+      quantity: product.quantity_available ? parseInt(product.quantity_available, 10) : (product.quantity ? parseInt(product.quantity, 10) : 1),
+      image_url: resolvedImageUrl,
       condition: product.condition || "new",
       status: "active",
       source: "manual",
