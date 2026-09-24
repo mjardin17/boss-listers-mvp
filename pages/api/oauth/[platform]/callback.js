@@ -342,7 +342,8 @@ async function fetchSnapchatProfile(accessToken) {
 }
 
 async function fetchPinterestProfile(accessToken) {
-  const res = await fetch('https://api.pinterest.com/v1/user/account?access_token=' + accessToken, {
+  const res = await fetch('https://api.pinterest.com/v5/user_account', {
+    headers: { Authorization: `Bearer ${accessToken}` },
     signal: AbortSignal.timeout(10_000),
   });
 
@@ -353,6 +354,6 @@ async function fetchPinterestProfile(accessToken) {
   const data = await res.json();
   return {
     identifier: data.username,
-    data: { pinterestId: data.id, username: data.username },
+    data: { pinterestId: data.id || data.username, username: data.username },
   };
 }
