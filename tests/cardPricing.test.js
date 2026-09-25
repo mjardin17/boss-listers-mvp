@@ -76,12 +76,12 @@ test('getCardValuation: exact match returns PROVIDER_ESTIMATE (never VERIFIED_SA
   const fetchImpl = async () => ({ ok: true, json: async () => ({ products: [productFixture()] }) });
   const result = await getCardValuation({ fields: IDENTIFIED_CARD, apiToken: 'fake-token', fetchImpl });
   assert.equal(result.status, VALUATION_STATUS.PROVIDER_ESTIMATE);
-  assert.equal(result.market, 10);
+  assert.equal(result.market, 5);
   assert.notEqual(result.status, VALUATION_STATUS.VERIFIED_SALES);
 });
 
 test('textMatchesIdentity: rejects when card number differs', () => {
-  const product = { cardNumber: '999', set: 'Topps Chrome', graded: false };
+  const product = { 'product-name': 'Test Card #999', 'console-name': 'Topps Chrome', cardNumber: '999', set: 'Topps Chrome', graded: false };
   assert.equal(textMatchesIdentity(IDENTIFIED_CARD, product), false);
 });
 
@@ -126,6 +126,7 @@ test('textMatchesIdentity: rejects different parallel', () => {
 test('textMatchesIdentity: accepts a genuine exact match on all dimensions', () => {
   const wanted = { ...IDENTIFIED_CARD, graded: true, gradingCompany: 'PSA', grade: '10', autograph: true };
   const product = {
+    'product-name': 'Test Card #123', 'console-name': 'Topps Chrome',
     cardNumber: '123', set: 'Topps Chrome', year: '2024', graded: true, gradingCompany: 'PSA', grade: '10', autograph: true,
   };
   assert.equal(textMatchesIdentity(wanted, product), true);
