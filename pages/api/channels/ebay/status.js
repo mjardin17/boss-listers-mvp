@@ -1,7 +1,15 @@
-// GET /api/channels/ebay/status
+// GET /api/channels/ebay/status?live=true
 // Thin proxy to get_marketplace_connection_status — returns whether THIS
 // caller's tenant has connected their own eBay account. Distinct from
 // /api/channels/test, which only checks the shared app-level credentials.
+//
+// ?live=true additionally calls EbayConnector.testTenantConnection() — a
+// real authenticated API call against THIS tenant's own stored token, not
+// just "a row exists". Off by default so ordinary page loads stay cheap;
+// the Connected Accounts page opts in explicitly.
+
+const { EbayConnector } = require("../../../../lib/channels/apiConnectors");
+const { resolveSession } = require("../../../../lib/supabaseAuth");
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -30,7 +38,16 @@ export default async function handler(req, res) {
     }
     const rows = await rpcRes.json();
     const row = rows[0] || { connected: false, account_identifier: null, connected_at: null };
-    return res.status(200).json({ ok: true, ...row });
+
+    let live = null;
+    if (req.query.live === "true" && row.connected) {
+      const session = await resolveSession(process.env, userAccessToken);
+      live = session?.tenantId
+        ? await new EbayConnector().testTenantConnection(session.tenantId)
+        : { status: "configuration_required", detail: "Could not resolve your tenant." };
+    }
+
+    return res.status(200).json({ ok: true, ...row, live });
   } catch (err) {
     return res.status(502).json({ ok: false, error: err.message });
   }
