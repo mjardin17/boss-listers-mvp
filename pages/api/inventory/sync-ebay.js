@@ -5,10 +5,12 @@
  *
  * Query params:
  *   - tenantId: Override tenant (admin only)
+ *   - dryRun: "true"/"1" to simulate the sync without writing to Supabase
  *
  * Body (optional, for webhook):
  *   - trigger: "webhook" | "manual" | "scheduled"
  *   - webhookCode?: Webhook verification code
+ *   - dryRun?: boolean — same effect as the query param; body wins if both are set
  */
 
 const { EbayInventoryFetcher } = require("../../../lib/ebayInventoryFetcher");
@@ -23,14 +25,23 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Authenticate user and get tenant
-    const session = await resolveSession(req);
+    // Authenticate user and get tenant. resolveSession(env, accessToken)
+    // needs the Supabase config plus the caller's own bearer token — never
+    // the raw req object, which has neither.
+    const authHeader = req.headers.authorization || "";
+    const userAccessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const session = userAccessToken
+      ? await resolveSession(process.env, userAccessToken)
+      : null;
     if (!session) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
-    const { tenantId: overrideTenantId } = req.query;
-    const { trigger = "manual", webhookCode } = req.body || {};
+    const { tenantId: overrideTenantId, dryRun: dryRunQuery } = req.query;
+    const { trigger = "manual", webhookCode, dryRun: dryRunBody } = req.body || {};
+    const dryRun = dryRunBody !== undefined
+      ? Boolean(dryRunBody)
+      : dryRunQuery === "true" || dryRunQuery === "1";
 
     // Get user's tenant
     let tenantId = session.tenantId;
@@ -47,7 +58,7 @@ export default async function handler(req, res) {
     }
 
     console.log(
-      `[api/inventory/sync-ebay] Syncing tenant ${tenantId} (trigger: ${trigger})`
+      `[api/inventory/sync-ebay] Syncing tenant ${tenantId} (trigger: ${trigger}, dryRun: ${dryRun})`
     );
 
     // Start the sync
@@ -73,7 +84,7 @@ export default async function handler(req, res) {
     // Merge with local database
     let syncResult;
     try {
-      syncResult = await syncService.syncEbayProducts(tenantId, ebayProducts);
+      syncResult = await syncService.syncEbayProducts(tenantId, ebayProducts, { dryRun });
     } catch (err) {
       console.error(
         "[api/inventory/sync-ebay] Failed to sync products to database:",
@@ -87,27 +98,33 @@ export default async function handler(req, res) {
       });
     }
 
-    // Record sync in audit log
-    try {
-      await syncService.recordSyncLog(tenantId, syncResult, {
-        trigger,
-        authenticatedUser: session.userId,
-      });
-    } catch (err) {
-      console.error("[api/inventory/sync-ebay] Failed to record sync log:", err.message);
-      // Don't fail the entire request if logging fails
+    // Record sync in audit log — skipped for dry runs, which must not write
+    // anything to Supabase at all, including the audit trail.
+    if (!dryRun) {
+      try {
+        await syncService.recordSyncLog(tenantId, syncResult, {
+          trigger,
+          authenticatedUser: session.userId,
+        });
+      } catch (err) {
+        console.error("[api/inventory/sync-ebay] Failed to record sync log:", err.message);
+        // Don't fail the entire request if logging fails
+      }
     }
 
     return res.status(200).json({
       ok: true,
       trigger,
-      itemsSeen: (syncResult.created || 0) + (syncResult.updated || 0),
+      dryRun,
+      itemsSeen: ebayProducts.length,
       created: syncResult.created,
       updated: syncResult.updated,
       skipped: syncResult.skipped,
       errors: syncResult.errors,
       conflicts: syncResult.conflicts,
-      message: `Synced ${syncResult.created} new and updated ${syncResult.updated} existing products`,
+      message: dryRun
+        ? `Dry run: would create ${syncResult.created} and update ${syncResult.updated} products (nothing written)`
+        : `Synced ${syncResult.created} new and updated ${syncResult.updated} existing products`,
     });
   } catch (err) {
     console.error("[api/inventory/sync-ebay] Unhandled error:", err.message);

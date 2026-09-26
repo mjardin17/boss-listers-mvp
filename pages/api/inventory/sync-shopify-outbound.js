@@ -48,7 +48,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const session = await resolveSession(req);
+    // resolveSession(env, accessToken) needs the Supabase config plus the
+    // caller's own bearer token — never the raw req object, which has
+    // neither.
+    const authHeader = req.headers.authorization || "";
+    const userAccessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const session = userAccessToken
+      ? await resolveSession(process.env, userAccessToken)
+      : null;
     if (!session) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
