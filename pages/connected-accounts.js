@@ -23,10 +23,12 @@ import { TENANT_OAUTH_CHANNELS } from "../lib/clientOAuthConnect";
 //    encrypted in Supabase's social_media_credentials.
 //
 // Facebook Marketplace and Bonanza have no Connect button here on
-// purpose: Facebook is blocked by Meta's device-trust wall (do not retry
-// — reconnecting needs Joshua's own manual Meta re-auth), and Bonanza's
-// API has no OAuth at all, only static developer keys pasted into
-// .env.local.
+// purpose: Facebook has no formal OAuth redirect flow in this app — its
+// Page token is minted manually via Meta's Graph API Explorer and pasted
+// into .env.local (see docs/CHANNEL_SETUP.md#facebook), there's no URL to
+// send a click to. Its status below is a real live check, not a static
+// claim. Bonanza's API has no OAuth at all either, only static developer
+// keys pasted into .env.local.
 
 const MARKETPLACE_IDS = ["ebay", "etsy", "amazon", "tiktok-shop", "shopify"];
 
@@ -44,7 +46,6 @@ const LABELS = {
 const STATUS_META = {
   connected: { label: "Connected", color: "#16a34a" },
   needs_login: { label: "Needs login", color: "#d97706" },
-  blocked: { label: "Blocked", color: "#dc2626" },
   not_available: { label: "Not available", color: "#6b7280" },
   checking: { label: "Checking…", color: "#6b7280" },
   error: { label: "Error", color: "#dc2626" },
@@ -87,14 +88,18 @@ function toMarketplaceRow(id, data) {
 }
 
 function toFacebookRow(data) {
-  // Standing rule: Facebook is blocked by Meta's device-trust wall. Never
-  // retry the auth flow from here — show the real reason and stop.
+  // Real live status via testConnection() (?live=true) — never a static
+  // "blocked" claim. No Connect button regardless of status: there's no
+  // OAuth redirect flow to send a click to (see the file header comment)
+  // — reconnecting is a manual Graph API Explorer process, not something
+  // this page can trigger automatically or should retry on its own.
+  if (!data.ok) {
+    return { label: "Facebook Marketplace", status: "error", detail: data.error, canConnect: false, canDisconnect: false };
+  }
   return {
     label: "Facebook Marketplace",
-    status: "blocked",
-    detail: data.ok
-      ? `Blocked by Meta's device-trust wall: ${data.detail}. This needs Joshua's own manual re-authentication in Meta Business Suite — not retried automatically.`
-      : `Blocked: ${data.error}`,
+    status: data.status === "connected" ? "connected" : "error",
+    detail: data.detail,
     canConnect: false,
     canDisconnect: false,
   };
@@ -132,7 +137,7 @@ export default function ConnectedAccountsPage() {
         if (!data.ok) throw new Error(data.error);
         setRows((prev) => ({ ...prev, pinterest: toPinterestRow(data.platforms.find((p) => p.id === "pinterest")) }));
       } else if (id === "facebook") {
-        const res = await authedFetch("/api/channels/facebook/status");
+        const res = await authedFetch("/api/channels/facebook/status?live=true");
         const data = await res.json();
         setRows((prev) => ({ ...prev, facebook: toFacebookRow(data) }));
       } else if (id === "bonanza") {
