@@ -8,6 +8,7 @@ const { EtsyConnector } = require("../../lib/channels/apiConnectors");
 const { buildManualPackage } = require("../../lib/channels/manualPackage");
 const { buildCaption } = require("../../lib/channels/socialMediaConnector");
 const { postToSocialMedia } = require("../../lib/socialMediaPosters");
+const { resolveSession } = require("../../lib/supabaseAuth");
 
 const ebayConnector = new EbayConnector();
 const etsyConnector = new EtsyConnector();
@@ -18,8 +19,22 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  // This route is excluded from middleware.js's site-wide gate on the
+  // documented assumption that "every API route already enforces its own
+  // real auth" — it didn't. Unlike every other createListing() caller in
+  // this codebase (all default dryRun to true; see create-listing.js),
+  // this one hardcoded dryRun:false with no session check at all, so
+  // anyone who could reach this server could trigger a real eBay publish.
+  // Same resolveSession pattern as pages/api/channels/ebay/create-listing.js.
+  const authHeader = req.headers.authorization || "";
+  const userAccessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const session = userAccessToken ? await resolveSession(process.env, userAccessToken) : null;
+  if (!session) {
+    return res.status(401).json({ ok: false, error: "Unauthorized" });
+  }
+
   try {
-    const { commercialVideoPath, productData, socialTokens } = req.body || {};
+    const { commercialVideoPath, productData, socialTokens, dryRun = true, confirm } = req.body || {};
 
     if (!commercialVideoPath || !productData) {
       return res.status(400).json({
@@ -61,20 +76,29 @@ export default async function handler(req, res) {
       }
     }
 
-    // API platforms (post directly)
+    // API platforms (post directly). dryRun/confirm come from the caller's
+    // request body (default dryRun:true, matching every connector's own
+    // default) instead of being hardcoded live — a missing/omitted flag
+    // must never accidentally reach a live publish.
     try {
       await ebayConnector.createListing(productData, {}, {
-        dryRun: false,
-        confirm: true,
+        dryRun,
+        confirm,
+        tenantId: session.tenantId,
       });
-      results.marketplaces.push({ platform: "ebay", status: "posted" });
+      results.marketplaces.push({ platform: "ebay", status: dryRun ? "dry_run" : "posted" });
     } catch (err) {
       results.errors.push({ platform: "ebay", type: "api", error: err.message });
     }
 
     try {
-      await etsyConnector.createListing(productData, { targetState: "draft" });
-      results.marketplaces.push({ platform: "etsy", status: "posted" });
+      await etsyConnector.createListing(productData, {
+        targetState: "draft",
+        dryRun,
+        confirm,
+        tenantId: session.tenantId,
+      });
+      results.marketplaces.push({ platform: "etsy", status: dryRun ? "dry_run" : "posted" });
     } catch (err) {
       results.errors.push({ platform: "etsy", type: "api", error: err.message });
     }

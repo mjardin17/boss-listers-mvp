@@ -14,6 +14,7 @@ const {
   AmazonConnector,
   TikTokShopConnector,
 } = require("../../lib/channels/apiConnectors");
+const { resolveSession } = require("../../lib/supabaseAuth");
 
 const CONNECTORS = [
   { label: "ebay", Cls: EbayConnector },
@@ -84,10 +85,11 @@ async function supabaseRest(path) {
   return res;
 }
 
-async function getListingTotals() {
+async function getListingTotals(tenantId) {
   // exact count via Prefer: count=exact, HEAD-style (no body needed for the count itself)
   const countFor = async (filter) => {
-    const res = await supabaseRest(`products?select=id${filter ? `&${filter}` : ""}`);
+    const tenantFilter = `tenant_id=eq.${tenantId}`;
+    const res = await supabaseRest(`products?select=id&${tenantFilter}${filter ? `&${filter}` : ""}`);
     const range = res.headers.get("content-range"); // "0-9/123"
     const total = range ? parseInt(range.split("/")[1], 10) : null;
     return Number.isFinite(total) ? total : (await res.json()).length;
@@ -102,9 +104,9 @@ async function getListingTotals() {
   return { total, published, active };
 }
 
-async function getRecentListings(limit = 10) {
+async function getRecentListings(tenantId, limit = 10) {
   const res = await supabaseRest(
-    `products?select=id,sku,title,price,quantity,status,source,published,image_url,updated_at&order=updated_at.desc&limit=${limit}`
+    `products?select=id,sku,title,price,quantity,status,source,published,image_url,updated_at&tenant_id=eq.${tenantId}&order=updated_at.desc&limit=${limit}`
   );
   return res.json();
 }
@@ -115,10 +117,22 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  // This route used the Supabase SERVICE ROLE key (bypasses RLS) with no
+  // auth check and no tenant filter, so it returned real inventory
+  // (titles, prices, quantities) to anyone who could reach this server —
+  // same resolveSession pattern as pages/api/orders/index.js, now also
+  // used to scope every query below to the caller's own tenant.
+  const authHeader = req.headers.authorization || "";
+  const userAccessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const session = userAccessToken ? await resolveSession(process.env, userAccessToken) : null;
+  if (!session) {
+    return res.status(401).json({ ok: false, error: "Unauthorized" });
+  }
+
   try {
     const [totals, recentListings, platforms] = await Promise.all([
-      getListingTotals(),
-      getRecentListings(10),
+      getListingTotals(session.tenantId),
+      getRecentListings(session.tenantId, 10),
       getPlatformHealth(),
     ]);
 
