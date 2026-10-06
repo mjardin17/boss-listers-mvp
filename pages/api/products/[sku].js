@@ -4,6 +4,9 @@
 // lib/supabaseInventory.js deliberately omits for the list view). Uses
 // SUPABASE_SERVICE_ROLE_KEY, same as the rest of that module, so this must
 // stay a pages/api/* route and never be imported into a page/component.
+// Auth: Bearer session required; only the caller's tenant's products are visible.
+const { requireSession } = require("../../../lib/requireSession");
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -12,16 +15,19 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
+  const session = await requireSession(req, res);
+  if (!session) return;
+
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
     return res.status(503).json({ ok: false, error: "Supabase not configured" });
   }
   const { sku } = req.query;
-  if (!sku) {
+  if (!sku || typeof sku !== "string") {
     return res.status(400).json({ ok: false, error: "Missing sku" });
   }
   try {
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/products?sku=eq.${encodeURIComponent(sku)}&select=*&limit=1`,
+      `${SUPABASE_URL}/rest/v1/products?sku=eq.${encodeURIComponent(sku)}&tenant_id=eq.${encodeURIComponent(session.tenantId)}&select=*&limit=1`,
       {
         headers: {
           apikey: SERVICE_ROLE_KEY,
@@ -32,7 +38,8 @@ export default async function handler(req, res) {
     );
     if (!r.ok) {
       const detail = await r.text();
-      return res.status(502).json({ ok: false, error: `Supabase lookup failed (${r.status}): ${detail}` });
+      console.error(`[api/products/sku] Supabase lookup failed (${r.status}): ${detail}`);
+      return res.status(502).json({ ok: false, error: "Product lookup failed" });
     }
     const rows = await r.json();
     if (!rows.length) {
@@ -40,6 +47,7 @@ export default async function handler(req, res) {
     }
     return res.status(200).json({ ok: true, product: rows[0] });
   } catch (err) {
-    return res.status(502).json({ ok: false, error: err.message });
+    console.error("[api/products/sku]", err.message);
+    return res.status(502).json({ ok: false, error: "Product lookup failed" });
   }
 }

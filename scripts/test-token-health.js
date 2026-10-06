@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { classify, inspectMetaToken, refreshInstagramToken, checkAll } = require("../lib/metaTokenHealth");
+const { classify, inspectMetaToken, refreshInstagramToken, exchangeFacebookPageToken, checkAll } = require("../lib/metaTokenHealth");
 
 const DAY = 86400;
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -67,4 +67,37 @@ test("checkAll: reports facebook and instagram with status", async () => {
   const out = await checkAll(env, f);
   assert.deepStrictEqual(out.map((x) => x.platform), ["facebook", "instagram"]);
   assert.strictEqual(out[0].status, "expired");
+});
+
+test("exchangeFacebookPageToken: swaps a user token for the never-expiring Page token", async () => {
+  const f = async (url) => {
+    if (url.includes("fb_exchange_token")) return jsonRes({ access_token: "LONG_USER" });
+    assert.match(url, /me\/accounts/);
+    assert.match(url, /access_token=LONG_USER/);
+    return jsonRes({ data: [{ id: "111", access_token: "OTHER_PAGE" }, { id: "222", access_token: "PAGE_TOKEN" }] });
+  };
+  const r = await exchangeFacebookPageToken({ userToken: "SHORT", appId: "1", appSecret: "s", pageId: "222", fetchImpl: f });
+  assert.deepStrictEqual([r.ok, r.token], [true, "PAGE_TOKEN"]);
+});
+
+test("exchangeFacebookPageToken: configured Page not in the account list is an error", async () => {
+  const f = async (url) => url.includes("fb_exchange_token")
+    ? jsonRes({ access_token: "LONG_USER" })
+    : jsonRes({ data: [{ id: "111", access_token: "X" }] });
+  const r = await exchangeFacebookPageToken({ userToken: "SHORT", appId: "1", appSecret: "s", pageId: "222", fetchImpl: f });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /222/);
+});
+
+test("exchangeFacebookPageToken: Meta rejecting the exchange becomes ok:false", async () => {
+  const f = async () => jsonRes({ error: { message: "Session has expired" } });
+  const r = await exchangeFacebookPageToken({ userToken: "SHORT", appId: "1", appSecret: "s", pageId: "222", fetchImpl: f });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /Session has expired/);
+});
+
+test("exchangeFacebookPageToken: missing inputs fail without calling Meta", async () => {
+  const f = async () => { throw new Error("should not be called"); };
+  const r = await exchangeFacebookPageToken({ userToken: "", appId: "1", appSecret: "s", pageId: "222", fetchImpl: f });
+  assert.strictEqual(r.ok, false);
 });

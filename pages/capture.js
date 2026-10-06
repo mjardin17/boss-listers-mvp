@@ -148,12 +148,20 @@ export default function Capture() {
         return;
       }
 
+      // Never invent a price: the seller sets it.
+      const listingPrice = Number(result.pricing?.recommendedPrice || result.pricing?.selectedPrice);
+      if (!Number.isFinite(listingPrice) || listingPrice <= 0) {
+        setError("No price set for this item — set a price before publishing.");
+        setPublishing(false);
+        return;
+      }
+
       const payload = {
         product: {
           sku: result.inventorySku,
           title: ebayListing.title,
           description: ebayListing.description,
-          price: result.pricing?.recommendedPrice || result.pricing?.selectedPrice || 29.99,
+          price: listingPrice,
           quantity: 1,
           condition: mapConditionToEbay(result.analysis?.condition),
           category_id: categoryData.best.categoryId,
@@ -166,7 +174,7 @@ export default function Capture() {
           merchant_location_key: policiesData.merchantLocations[0].key,
         },
         dryRun: false,
-        confirm: true,
+        confirm: "PUBLISH_LIVE", // the seller pressing Publish is the explicit confirmation
       };
 
       const res = await authedFetch("/api/channels/ebay/create-listing", {
@@ -183,8 +191,13 @@ export default function Capture() {
         return;
       }
 
-      // Success
-      alert(`✓ Published to eBay! Listing ID: ${data.listingId || "pending"}`);
+      // Only claim success when eBay actually returned a live listing.
+      if (data.published !== true) {
+        setError(`eBay created the offer but did not publish it${data.note ? ": " + data.note : "."}`);
+        setPublishing(false);
+        return;
+      }
+      alert(`✓ Published to eBay! Listing ID: ${data.listingId}`);
       startOver();
     } catch (err) {
       setError(err.message || "Publish failed");

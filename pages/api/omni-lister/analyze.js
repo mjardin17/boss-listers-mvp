@@ -11,6 +11,9 @@ export const config = {
   },
 };
 
+const { requireSession } = require("../../../lib/requireSession");
+const { enforceTenantRateLimit } = require("../../../lib/rateLimit");
+
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
@@ -20,8 +23,19 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  const session = await requireSession(req, res);
+  if (!session) return;
+  if (!enforceTenantRateLimit(session, res, "ai-analyze", { max: 20 })) return;
+
   try {
-    const { type, query, imageBase64, imageMediaType } = req.body;
+    const { type, query, imageBase64, imageMediaType } = req.body || {};
+
+    if (
+      (imageBase64 !== undefined && typeof imageBase64 !== "string") ||
+      (query !== undefined && (typeof query !== "string" || query.length > 500))
+    ) {
+      return res.status(400).json({ ok: false, error: "Invalid payload." });
+    }
 
     if (!type || (type === "image" && !imageBase64) || (type === "text" && !query)) {
       return res.status(400).json({
@@ -32,73 +46,11 @@ export default async function handler(req, res) {
 
     const hasKey = Boolean(OPENROUTER_API_KEY && OPENROUTER_API_KEY.trim().length > 0);
 
-    // If key is missing, provide graceful offline fallback so tests & demo flow succeed immediately
+    // No key = no analysis. Never invent product data (titles, prices, UPCs):
+    // a fabricated listing is worse than an honest error.
     if (!hasKey) {
-      if (type === "text") {
-        const normalized = query.trim();
-        const isAsin = /^B0[A-Z0-9]{8}$/i.test(normalized);
-
-        return res.status(200).json({
-          ok: true,
-          product: {
-            title: isAsin ? `Amazon Product (${normalized})` : normalized,
-            brand: isAsin ? "Amazon Listed" : "Generic",
-            sku: isAsin ? normalized : `SKU-${Date.now().toString(36).toUpperCase()}`,
-            asin: isAsin ? normalized : null,
-            price: 19.99,
-            currency: "USD",
-            condition: "new",
-            category: "General Merchandise",
-            description: `Automated catalog record for ${normalized}.`,
-            materials: null,
-            sizes: null,
-            colors: [],
-            features: ["Multi-channel sync ready"],
-          },
-          source: "text_lookup_fallback",
-          model: "open-source-heuristic",
-          note: "Add OPENROUTER_API_KEY to .env.local to activate live Meta Llama-3.2-11B-Vision.",
-        });
-      }
-
-      // Image offline fallback: Extracts White Castle shorts or general image metadata
-      const isWhiteCastle = imageBase64.length > 50000; // wc-shorts.jpg signature size
-      return res.status(200).json({
-        ok: true,
-        product: {
-          title: isWhiteCastle ? "White Castle Women's Boy Shorts" : "Product Scan Item",
-          brand: isWhiteCastle ? "White Castle" : "Brand Verified",
-          sku: isWhiteCastle ? "WC-SHORTS-2024" : `SKU-${Date.now().toString(36).toUpperCase()}`,
-          upc: isWhiteCastle ? "840134512984" : null,
-          price: isWhiteCastle ? 14.99 : 24.99,
-          currency: "USD",
-          description: isWhiteCastle
-            ? "White Castle branded women's boy shorts. 95% Polyester 5% Spandex. Machine wash cold."
-            : "Scanned product ready for multi-channel listing.",
-          materials: isWhiteCastle ? "95% Polyester 5% Spandex" : "Standard Materials",
-          care_instructions: isWhiteCastle ? "Machine wash cold with like colors, tumble dry low" : "Standard Care",
-          sizes: {
-            XS: "24-25",
-            S: "26-27",
-            M: "28-29",
-            L: "30-32",
-            XL: "33-35",
-          },
-          colors: isWhiteCastle ? ["White", "Blue"] : ["Black"],
-          condition: "new",
-          origin: "Imported",
-          features: [
-            "Official licensed merchandise",
-            "Elastic waistband",
-            "Comfort stretch blend",
-          ],
-          category: "Apparel & Accessories",
-          quantity_available: isWhiteCastle ? 7 : 1,
-        },
-        source: "visual_scan_fallback",
-        model: "open-source-heuristic",
-        note: "Extracted via offline fallback. Add OPENROUTER_API_KEY to .env.local for live Meta Llama-3.2-11B-Vision cloud inference.",
-      });
+      console.error("[omni-lister/analyze] OPENROUTER_API_KEY is not configured");
+      return res.status(503).json({ ok: false, error: "AI analysis is not configured on this server." });
     }
 
     const prompt = `Analyze this product and extract ALL structured information.
@@ -178,11 +130,10 @@ IMPORTANT: Return ONLY valid JSON, no other text.`;
 
     if (!response.ok) {
       const errorData = await response.text();
-      console.error("[omni-lister]", response.status, errorData);
-      return res.status(response.status).json({
+      console.error("[omni-lister] upstream error", response.status, errorData);
+      return res.status(502).json({
         ok: false,
-        error: `OpenRouter error: ${response.status}`,
-        detail: errorData,
+        error: "Product analysis is temporarily unavailable. Please try again.",
       });
     }
 
@@ -190,9 +141,10 @@ IMPORTANT: Return ONLY valid JSON, no other text.`;
     const textContent = data.choices?.[0]?.message?.content;
 
     if (!textContent) {
-      return res.status(500).json({
+      console.error("[omni-lister] empty model response");
+      return res.status(502).json({
         ok: false,
-        error: "No response from model",
+        error: "Product analysis returned no result. Please try again.",
       });
     }
 
@@ -208,10 +160,9 @@ IMPORTANT: Return ONLY valid JSON, no other text.`;
       productData = JSON.parse(cleanJson);
     } catch (err) {
       console.error("[omni-lister] Parse error:", textContent);
-      return res.status(500).json({
+      return res.status(502).json({
         ok: false,
-        error: "Failed to parse model response into JSON",
-        rawResponse: textContent.slice(0, 500),
+        error: "Could not read the analysis result. Please try again.",
       });
     }
 
@@ -225,7 +176,7 @@ IMPORTANT: Return ONLY valid JSON, no other text.`;
     console.error("[omni-lister]", err.message);
     return res.status(500).json({
       ok: false,
-      error: err.message,
+      error: "Product analysis failed. Please try again.",
     });
   }
 }

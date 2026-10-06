@@ -13,7 +13,7 @@
 // (enforced inside the bridge service, per-platform armed).
 
 const { EtsyConnector } = require("../../../../lib/channels/apiConnectors");
-const { resolveSession } = require("../../../../lib/supabaseAuth");
+const { requireSession } = require("../../../../lib/requireSession");
 
 const connector = new EtsyConnector();
 
@@ -26,11 +26,8 @@ export default async function handler(req, res) {
   // Resolve the tenant from the caller's OWN session token — same safety
   // property as the eBay route: a customer can only ever create listings
   // under their own connected Etsy shop, never one asserted in the body.
-  const authHeader = req.headers.authorization || "";
-  const userAccessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  const session = userAccessToken
-    ? await resolveSession(process.env, userAccessToken)
-    : null;
+  const session = await requireSession(req, res);
+  if (!session) return;
 
   const { product, dryRun = true, targetState = "draft", confirm } = req.body || {};
 
@@ -44,7 +41,7 @@ export default async function handler(req, res) {
 
   try {
     const result = await connector.createListing(product, {
-      dryRun, targetState, confirm, tenantId: session?.tenantId,
+      dryRun, targetState, confirm, tenantId: session.tenantId,
     });
     return res.status(200).json(result);
   } catch (err) {

@@ -5,7 +5,7 @@
 // dryRun defaults to true.
 
 const { BonanzaConnector } = require("../../../../lib/channels/apiConnectors");
-const { resolveSession } = require("../../../../lib/supabaseAuth");
+const { requireOwnerSession } = require("../../../../lib/requireSession");
 const { ensurePublicUrl } = require("../../../../lib/supabaseStorage");
 
 const connector = new BonanzaConnector();
@@ -16,11 +16,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const authHeader = req.headers.authorization || "";
-  const userAccessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  const session = userAccessToken
-    ? await resolveSession(process.env, userAccessToken)
-    : null;
+  const session = await requireOwnerSession(req, res);
+  if (!session) return;
 
   const { product, listing, dryRun = true, confirm } = req.body || {};
   const listingData = product || listing;
@@ -39,7 +36,7 @@ export default async function handler(req, res) {
 
   try {
     const result = await connector.createListing(listingData, {
-      dryRun, confirm, tenantId: session?.tenantId,
+      dryRun, confirm, tenantId: session.tenantId,
     });
     return res.status(200).json(result);
   } catch (err) {

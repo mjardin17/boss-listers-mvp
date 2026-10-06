@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { authedFetch } from "../lib/clientAuth";
 
 const PRESETS = [
   {
@@ -535,7 +536,7 @@ export default function StyleFrameStudio({
   const handleServerGenerate = async () => {
     setServerGenerating(true);
     try {
-      const res = await fetch("/api/omni-lister/styleframe", {
+      const res = await authedFetch("/api/omni-lister/styleframe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

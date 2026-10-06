@@ -1,8 +1,28 @@
 import path from "path";
 import fs from "fs";
 import { execFile } from "child_process";
+import { resolveConfined, publicRoots } from "../../../lib/safePaths";
+
+const { requireSession } = require("../../../lib/requireSession");
+const { enforceTenantRateLimit } = require("../../../lib/rateLimit");
+
+// Must match PRESETS in scripts/styleframe_engine.py
+const VALID_PRESETS = [
+  "amazon_white",
+  "minimalist_dark",
+  "cyber_neon",
+  "luxury_warm",
+  "commercial_showcase",
+  "commercial_features",
+];
+const VALID_ACTIONS = ["render_keyframes", "render_gif"];
+const IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
+const CUTOUT_ROOTS = publicRoots("cutouts", "uploads", "styleframes");
 
 export default async function handler(req, res) {
+  const session = await requireSession(req, res);
+  if (!session) return;
+
   if (req.method === "GET") {
     return res.status(200).json({
       ok: true,
@@ -66,24 +86,26 @@ export default async function handler(req, res) {
     sku = "default",
   } = req.body || {};
 
+  if (typeof preset !== "string" || !VALID_PRESETS.includes(preset)) {
+    return res.status(400).json({ ok: false, error: "Unknown preset" });
+  }
+  if (typeof action !== "string" || !VALID_ACTIONS.includes(action)) {
+    return res.status(400).json({ ok: false, error: "Unknown action" });
+  }
+  if (!enforceTenantRateLimit(session, res, "styleframe", { max: 20 })) return;
+
   try {
     const rootDir = process.cwd();
-    // Resolve cutout path on disk
-    let relativeCutout = cutout_url.startsWith("/") ? cutout_url.slice(1) : cutout_url;
-    let inputDiskPath = path.join(rootDir, "public", relativeCutout.replace(/^cutouts\//, "cutouts/"));
+    // Resolve cutout path on disk, confined to the public image folders.
+    const inputDiskPath = resolveConfined(cutout_url, CUTOUT_ROOTS);
+    if (!inputDiskPath || !IMAGE_EXT.test(inputDiskPath)) {
+      return res.status(400).json({ ok: false, error: "cutout_url is not an allowed image location" });
+    }
     if (!fs.existsSync(inputDiskPath)) {
-      // Check if it was directly in public
-      inputDiskPath = path.join(rootDir, "public", relativeCutout);
+      return res.status(404).json({ ok: false, error: "Cutout file not found" });
     }
 
-    if (!fs.existsSync(inputDiskPath)) {
-      return res.status(404).json({
-        ok: false,
-        error: `Cutout file not found at ${inputDiskPath}`,
-      });
-    }
-
-    const safeSku = (sku || "item").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const safeSku = String(sku || "item").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "item";
     const outRelDir = path.join("public", "styleframes", safeSku);
     const outDiskDir = path.join(rootDir, outRelDir);
     fs.mkdirSync(outDiskDir, { recursive: true });
@@ -153,7 +175,7 @@ export default async function handler(req, res) {
     console.error("API /api/omni-lister/styleframe error:", err);
     return res.status(500).json({
       ok: false,
-      error: err.message || "Failed to render styleframes",
+      error: "Failed to render styleframes",
     });
   }
 }

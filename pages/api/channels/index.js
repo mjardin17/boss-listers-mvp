@@ -5,7 +5,12 @@
 // "Marketplace connections" section silently rendered empty.
 const { getChannelStatuses } = require("../../../lib/channels/registry");
 
+const { requireSession } = require("../../../lib/requireSession");
+
 export default async function handler(req, res) {
+  const session = await requireSession(req, res);
+  if (!session) return;
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Method not allowed" });

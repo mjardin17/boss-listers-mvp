@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { authedFetch } from "../lib/clientAuth";
 
 export default function CommercialStudio({
   product = {},
@@ -29,7 +30,7 @@ export default function CommercialStudio({
   useEffect(() => {
     if (!mission && product.title) {
       setLoading(true);
-      fetch("/api/omni-lister/copywrite", {
+      authedFetch("/api/omni-lister/copywrite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

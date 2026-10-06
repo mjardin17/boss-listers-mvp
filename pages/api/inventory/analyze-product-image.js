@@ -5,6 +5,11 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 
+const { requireSession } = require("../../../lib/requireSession");
+const { enforceTenantRateLimit } = require("../../../lib/rateLimit");
+
+const ALLOWED_MEDIA_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+
 const client = new Anthropic();
 
 export const config = {
@@ -21,21 +26,28 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  // Auth required: every call spends paid Anthropic credits.
+  const session = await requireSession(req, res);
+  if (!session) return;
+  if (!enforceTenantRateLimit(session, res, "ai-analyze", { max: 20 })) return;
+
   try {
-    // No auth required - this is just image analysis, no database access
+    const { imageBase64, imageMediaType } = req.body || {};
 
-    const { imageBase64, imageMediaType } = req.body;
-
-    if (!imageBase64 || !imageMediaType) {
+    if (
+      !imageBase64 ||
+      typeof imageBase64 !== "string" ||
+      !ALLOWED_MEDIA_TYPES.includes(imageMediaType)
+    ) {
       return res.status(400).json({
         ok: false,
-        error: "imageBase64 and imageMediaType required",
+        error: "A base64 image and a valid imageMediaType (jpeg, png, gif, webp) are required",
       });
     }
 
     // Call Claude with vision to analyze product image
     const response = await client.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: process.env.ANTHROPIC_VISION_MODEL || "claude-sonnet-5-5",
       max_tokens: 1024,
       messages: [
         {
@@ -84,9 +96,10 @@ IMPORTANT: Return ONLY the JSON object, no other text.`,
 
     const textContent = response.content.find((c) => c.type === "text");
     if (!textContent) {
-      return res.status(500).json({
+      console.error("[analyze-product-image] no text block in response");
+      return res.status(502).json({
         ok: false,
-        error: "No text response from Claude",
+        error: "Image analysis returned no result. Please try again.",
       });
     }
 
@@ -95,11 +108,10 @@ IMPORTANT: Return ONLY the JSON object, no other text.`,
     try {
       productData = JSON.parse(textContent.text);
     } catch (err) {
-      console.error("Failed to parse Claude response:", textContent.text);
-      return res.status(500).json({
+      console.error("Failed to parse Claude response:", textContent.text.slice(0, 500));
+      return res.status(502).json({
         ok: false,
-        error: "Failed to parse product data from image",
-        rawResponse: textContent.text,
+        error: "Could not read product data from the image. Please try again.",
       });
     }
 
@@ -112,7 +124,7 @@ IMPORTANT: Return ONLY the JSON object, no other text.`,
     console.error("[analyze-product-image]", err.message);
     return res.status(500).json({
       ok: false,
-      error: err.message,
+      error: "Image analysis failed. Please try again.",
     });
   }
 }

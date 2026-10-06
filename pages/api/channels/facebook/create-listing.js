@@ -9,7 +9,7 @@
 // reach a live publish.
 
 const { FacebookConnector } = require("../../../../lib/channels/apiConnectors");
-const { resolveSession } = require("../../../../lib/supabaseAuth");
+const { requireOwnerSession } = require("../../../../lib/requireSession");
 
 const connector = new FacebookConnector();
 
@@ -21,11 +21,8 @@ export default async function handler(req, res) {
 
   // Note: Facebook integration is currently single-tenant (shared Page token
   // from .env). Future: extend to per-tenant like eBay/Etsy.
-  const authHeader = req.headers.authorization || "";
-  const userAccessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  const session = userAccessToken
-    ? await resolveSession(process.env, userAccessToken)
-    : null;
+  const session = await requireOwnerSession(req, res);
+  if (!session) return;
 
   const { product, dryRun = true, confirm, listingServiceToken } = req.body || {};
 
@@ -39,7 +36,7 @@ export default async function handler(req, res) {
 
   try {
     const result = await connector.createListing(product, {
-      dryRun, confirm, tenantId: session?.tenantId, serviceToken: listingServiceToken,
+      dryRun, confirm, tenantId: session.tenantId, serviceToken: listingServiceToken,
     });
     return res.status(200).json(result);
   } catch (err) {

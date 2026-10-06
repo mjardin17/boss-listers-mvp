@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
+import { authedFetch } from "../../lib/clientAuth";
 
 export default function AddProduct() {
   const router = useRouter();
@@ -44,7 +45,7 @@ export default function AddProduct() {
         }
 
         // Send to API for analysis
-        const response = await fetch("/api/inventory/analyze-product-image", {
+        const response = await authedFetch("/api/inventory/analyze-product-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -89,14 +90,26 @@ export default function AddProduct() {
     setLoading(true);
 
     try {
-      const response = await fetch("/api/inventory/products", {
+      const price = Number(formData.price);
+      if (!formData.sku || !formData.title || !Number.isFinite(price) || price <= 0) {
+        throw new Error("SKU, title and a price greater than 0 are required");
+      }
+
+      const response = await authedFetch("/api/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          sku: formData.sku,
+          title: formData.title,
+          description: formData.description,
+          price,
+          quantity: Number.parseInt(formData.quantity, 10) || 1,
+        }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save product");
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to save product");
       }
 
       // Redirect to products list or confirm page

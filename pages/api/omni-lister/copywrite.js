@@ -1,11 +1,18 @@
 import { writeCopy } from "../../../lib/ads4now/copywriter";
 import { createCommercialMission } from "../../../lib/ads4now/commercialMission";
 
+const { requireSession } = require("../../../lib/requireSession");
+const { enforceTenantRateLimit } = require("../../../lib/rateLimit");
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
+
+  const session = await requireSession(req, res);
+  if (!session) return;
+  if (!enforceTenantRateLimit(session, res, "ai-copywrite", { max: 20 })) return;
 
   const {
     name = "Product",
@@ -56,7 +63,7 @@ export default async function handler(req, res) {
     console.error("[api/omni-lister/copywrite] Error:", err.message);
     return res.status(500).json({
       ok: false,
-      error: err.message || "Failed to generate ad copy and commercial mission",
+      error: "Failed to generate ad copy and commercial mission",
     });
   }
 }

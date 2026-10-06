@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Link from "next/link";
+import { authedFetch } from "../lib/clientAuth";
 import StyleFrameStudio from "../components/StyleFrameStudio";
 import CommercialStudio from "../components/CommercialStudio";
 
@@ -41,7 +42,7 @@ export default function OmniLister() {
     setCuttingCommercials(true);
     setCommercialError(null);
     try {
-      const res = await fetch("/api/omni-lister/cut-commercials", {
+      const res = await authedFetch("/api/omni-lister/cut-commercials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -119,7 +120,7 @@ export default function OmniLister() {
         reader.onload = async (event) => {
           try {
             const base64 = event.target.result.split(",")[1];
-            const response = await fetch("/api/omni-lister/analyze", {
+            const response = await authedFetch("/api/omni-lister/analyze", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -143,7 +144,7 @@ export default function OmniLister() {
         };
         reader.readAsDataURL(file);
       } else if (method === "text" && productName.trim()) {
-        const response = await fetch("/api/omni-lister/analyze", {
+        const response = await authedFetch("/api/omni-lister/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -194,7 +195,7 @@ export default function OmniLister() {
         };
       }
 
-      const res = await fetch("/api/omni-lister/remove-bg", {
+      const res = await authedFetch("/api/omni-lister/remove-bg", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(bodyData),
@@ -233,7 +234,7 @@ export default function OmniLister() {
         keyframes: styleframeMedia?.keyframes || null,
       };
 
-      const res = await fetch("/api/omni-lister/save", {
+      const res = await authedFetch("/api/omni-lister/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ product: payload }),

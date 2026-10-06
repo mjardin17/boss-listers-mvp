@@ -32,7 +32,11 @@
 //   2. Upsert into Supabase `products` (source="ebay", ebay_listing_id set
 //      to the real published listingId when the offer is PUBLISHED).
 //
-// Safe to call repeatedly — upserts on SKU, never duplicates rows.
+// Safe to call repeatedly — upserts on (tenant_id, sku), never duplicates rows.
+// Requires a Bearer session; rows are written with tenant_id from the session.
+
+const { requireSession } = require("../../../../lib/requireSession");
+const { upsertTenantProduct } = require("../../../../lib/supabaseInventory");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
@@ -50,11 +54,15 @@ async function getTenantRefreshToken(userAccessToken, environment) {
     signal: AbortSignal.timeout(10_000),
   });
   if (!rpcRes.ok) {
-    const detail = await rpcRes.text();
-    throw new Error(`Failed to look up eBay connection: ${detail}`);
+    console.error("[api/channels/ebay/sync] token lookup failed:", await rpcRes.text());
+    throw new Error("Failed to look up eBay connection");
   }
   const token = await rpcRes.json();
-  if (!token) throw new Error("No eBay connection found for your account. Connect eBay on the Channels page first.");
+  if (!token) {
+    const err = new Error("No eBay connection found for your account. Connect eBay on the Channels page first.");
+    err.userFacing = true;
+    throw err;
+  }
   return token;
 }
 
@@ -110,21 +118,6 @@ async function fetchOffersForSku(apiBase, headers, sku) {
   return body.offers || [];
 }
 
-async function upsertProduct(row) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/products?on_conflict=sku`, {
-    method: "POST",
-    headers: {
-      apikey: SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=representation",
-    },
-    body: JSON.stringify(row),
-  });
-  if (!res.ok) throw new Error(`Supabase upsert failed for sku ${row.sku}: ${await res.text()}`);
-  return res.json();
-}
-
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
     res.setHeader("Allow", "GET, POST");
@@ -134,11 +127,9 @@ export default async function handler(req, res) {
     return res.status(503).json({ ok: false, error: "Supabase not configured" });
   }
 
-  const authHeader = req.headers.authorization || "";
-  const userAccessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!userAccessToken) {
-    return res.status(401).json({ ok: false, error: "Missing session" });
-  }
+  const session = await requireSession(req, res);
+  if (!session) return;
+  const userAccessToken = session.accessToken;
 
   try {
     const { accessToken, apiBase } = await getAccessToken(userAccessToken);
@@ -171,10 +162,11 @@ export default async function handler(req, res) {
           ebay_listing_id: published?.listing?.listingId || null,
           published: published?.status === "PUBLISHED",
         };
-        await upsertProduct(row);
+        await upsertTenantProduct(session.tenantId, row);
         synced += 1;
       } catch (err) {
-        errors.push({ sku, error: err.message });
+        console.error(`[api/channels/ebay/sync] sku ${sku}:`, err.message);
+        errors.push({ sku, error: err.statusCode === 409 ? err.message : "Failed to sync this SKU" });
       }
     }
 
@@ -185,6 +177,7 @@ export default async function handler(req, res) {
       errors,
     });
   } catch (err) {
-    return res.status(502).json({ ok: false, error: err.message });
+    console.error("[api/channels/ebay/sync]", err.message);
+    return res.status(502).json({ ok: false, error: err.userFacing ? err.message : "eBay sync failed" });
   }
 }

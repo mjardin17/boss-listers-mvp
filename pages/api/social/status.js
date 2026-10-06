@@ -22,6 +22,7 @@
 //     not just that a row exists.
 const socialMediaAuth = require('../../../lib/socialMediaAuth');
 const supabaseAuth = require('../../../lib/supabaseAuth');
+const { requireSession } = require("../../../lib/requireSession");
 const supabaseCredentials = require('../../../lib/supabaseCredentials');
 
 export default async function handler(req, res) {
@@ -30,11 +31,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
 
-  const authHeader = req.headers.authorization || '';
-  const userAccessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  if (!userAccessToken) {
-    return res.status(401).json({ ok: false, error: 'Authentication required' });
-  }
+  const session = await requireSession(req, res);
+  if (!session) return;
+  const userAccessToken = session.accessToken;
 
   const env = {
     SUPABASE_URL: process.env.SUPABASE_URL,

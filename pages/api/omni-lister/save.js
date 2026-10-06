@@ -3,8 +3,7 @@
 
 const { createClient } = require("@supabase/supabase-js");
 const { ensurePublicUrl } = require("../../../lib/supabaseStorage");
-
-const DEFAULT_TENANT_ID = "f6ec6132-2cd0-4352-81e9-3c76d955b60d"; // Joshua's tenant
+const { requireSession } = require("../../../lib/requireSession");
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -12,8 +11,13 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  const session = await requireSession(req, res);
+  if (!session) return;
+
   try {
-    const { product: rawProduct, item, tenantId, lane, source } = req.body || {};
+    // Any client-supplied tenantId is deliberately ignored: the tenant always
+    // comes from the authenticated session.
+    const { product: rawProduct, item } = req.body || {};
     const product = rawProduct || item;
 
     if (!product || !product.title) {
@@ -23,7 +27,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const targetTenantId = tenantId || DEFAULT_TENANT_ID;
+    const targetTenantId = session.tenantId;
     const sku = product.sku || `OL-${Date.now().toString(36).toUpperCase()}`;
 
     const supabase = createClient(
@@ -73,7 +77,7 @@ export default async function handler(req, res) {
 
     if (error) {
       console.error("[omni-lister/save] Supabase error:", error);
-      return res.status(500).json({ ok: false, error: error.message });
+      return res.status(500).json({ ok: false, error: "Failed to save product" });
     }
 
     return res.status(200).json({
@@ -83,6 +87,6 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error("[omni-lister/save] Error:", err.message);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: "Failed to save product" });
   }
 }

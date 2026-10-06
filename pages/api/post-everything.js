@@ -3,6 +3,7 @@
 // body: { commercialVideoPath, productData, socialTokens }
 
 const fs = require("fs");
+const path = require("path");
 const { EbayConnector } = require("../../lib/channels/apiConnectors");
 const { EtsyConnector } = require("../../lib/channels/apiConnectors");
 const { buildManualPackage } = require("../../lib/channels/manualPackage");
@@ -43,8 +44,15 @@ export default async function handler(req, res) {
       });
     }
 
-    // Load commercial video
-    const videoBuffer = fs.readFileSync(commercialVideoPath);
+    // Confine to the project's public/ folder and to video files: this path
+    // comes from the client and is read from disk, then posted to social.
+    const publicRoot = path.resolve(process.cwd(), "public") + path.sep;
+    const videoFile = path.resolve(process.cwd(), String(commercialVideoPath));
+    const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
+    if (!videoFile.startsWith(publicRoot) || !VIDEO_EXTENSIONS.has(path.extname(videoFile).toLowerCase())) {
+      return res.status(400).json({ ok: false, error: "commercialVideoPath must be a video file inside public/" });
+    }
+    const videoBuffer = fs.readFileSync(videoFile);
 
     const results = {
       ok: true,
@@ -109,7 +117,9 @@ export default async function handler(req, res) {
       "linkedin", "snapchat", "pinterest"
     ];
 
-    for (const platform of socialPlatforms) {
+    // Social posts have no dry-run mode in postToSocialMedia, so a dry run
+    // must not reach them at all.
+    for (const platform of dryRun ? [] : socialPlatforms) {
       if (!socialTokens || !socialTokens[platform]) {
         results.errors.push({
           platform,

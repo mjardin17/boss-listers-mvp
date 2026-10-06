@@ -2,13 +2,14 @@
 // scripts/token-health.js — read-only Facebook/Instagram token health report.
 // Run: node scripts/token-health.js            (report only)
 //      node scripts/token-health.js --refresh  (renew the Instagram token and write it to .env.local)
+//      node scripts/token-health.js --exchange-fb  (put a fresh Graph Explorer token in FB_ACCESS_TOKEN first; swaps it for the never-expiring Page token)
 // Exit code is 1 if any token is expired/invalid/expiring, so a scheduler can alert on it.
 
 const fs = require("fs");
 const path = require("path");
 const { loadEnvConfig } = require("@next/env");
 loadEnvConfig(process.cwd());
-const { checkAll, refreshInstagramToken } = require("../lib/metaTokenHealth");
+const { checkAll, refreshInstagramToken, exchangeFacebookPageToken } = require("../lib/metaTokenHealth");
 
 function replaceEnvValue(file, key, value) {
   const text = fs.readFileSync(file, "utf8");
@@ -20,6 +21,20 @@ function replaceEnvValue(file, key, value) {
 }
 
 (async () => {
+  if (process.argv.includes("--exchange-fb")) {
+    const res = await exchangeFacebookPageToken({
+      userToken: process.env.FB_ACCESS_TOKEN, appId: process.env.FB_APP_ID,
+      appSecret: process.env.FB_APP_SECRET, pageId: process.env.FB_PAGE_ID,
+    });
+    if (!res.ok) {
+      console.log(`facebook   exchange failed: ${res.error}`);
+      process.exit(1);
+    }
+    replaceEnvValue(path.join(process.cwd(), ".env.local"), "FB_ACCESS_TOKEN", res.token);
+    process.env.FB_ACCESS_TOKEN = res.token;
+    console.log("facebook   exchanged for a Page token (written to .env.local)");
+  }
+
   const rows = await checkAll(process.env);
   for (const r of rows) console.log(`${r.platform.padEnd(10)} ${r.status.padEnd(9)} ${r.detail}`);
 
