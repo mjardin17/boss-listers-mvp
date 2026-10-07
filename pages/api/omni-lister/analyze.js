@@ -44,12 +44,14 @@ export default async function handler(req, res) {
       });
     }
 
-    const hasKey = Boolean(OPENROUTER_API_KEY && OPENROUTER_API_KEY.trim().length > 0);
+    const hasOpenRouter = Boolean(OPENROUTER_API_KEY && OPENROUTER_API_KEY.trim().length > 0);
+    const hasClaude = Boolean(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim().length > 0);
+    const hasKey = hasOpenRouter || hasClaude;
 
     // No key = no analysis. Never invent product data (titles, prices, UPCs):
     // a fabricated listing is worse than an honest error.
     if (!hasKey) {
-      console.error("[omni-lister/analyze] OPENROUTER_API_KEY is not configured");
+      console.error("[omni-lister/analyze] neither OPENROUTER_API_KEY nor ANTHROPIC_API_KEY is configured");
       return res.status(503).json({ ok: false, error: "AI analysis is not configured on this server." });
     }
 
@@ -106,39 +108,63 @@ IMPORTANT: Return ONLY valid JSON, no other text.`;
       ];
     }
 
-    // Call open-source Llama-3.2-11B-Vision via OpenRouter
-    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENROUTER_API_KEY.trim()}`,
-        "HTTP-Referer": "https://bosslisters.local",
-        "X-Title": "BossListers Omni-Lister",
-      },
-      body: JSON.stringify({
-        model: "meta-llama/llama-3.2-11b-vision-instruct:free",
-        messages: [
-          {
-            role: "user",
-            content: messageContent,
-          },
-        ],
-        temperature: 0.2,
-        max_tokens: 1024,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      console.error("[omni-lister] upstream error", response.status, errorData);
-      return res.status(502).json({
-        ok: false,
-        error: "Product analysis is temporarily unavailable. Please try again.",
+    // OpenRouter (Llama vision) when its key is set, otherwise Claude vision.
+    let textContent;
+    let modelName;
+    if (hasOpenRouter) {
+      modelName = "llama-3.2-11b-vision";
+      const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENROUTER_API_KEY.trim()}`,
+          "HTTP-Referer": "https://bosslisters.local",
+          "X-Title": "BossListers Omni-Lister",
+        },
+        body: JSON.stringify({
+          model: "meta-llama/llama-3.2-11b-vision-instruct:free",
+          messages: [{ role: "user", content: messageContent }],
+          temperature: 0.2,
+          max_tokens: 1024,
+        }),
       });
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error("[omni-lister] upstream error", response.status, errorData);
+        return res.status(502).json({
+          ok: false,
+          error: "Product analysis is temporarily unavailable. Please try again.",
+        });
+      }
+      const data = await response.json();
+      textContent = data.choices?.[0]?.message?.content;
+    } else {
+      modelName = process.env.ANTHROPIC_VISION_MODEL || "claude-sonnet-5-5";
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": process.env.ANTHROPIC_API_KEY.trim(),
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: modelName,
+          max_tokens: 1536,
+          messages: [{ role: "user", content: messageContent }],
+        }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error("[omni-lister] claude upstream error", response.status, errorData);
+        return res.status(502).json({
+          ok: false,
+          error: "Product analysis is temporarily unavailable. Please try again.",
+        });
+      }
+      const data = await response.json();
+      textContent = (data.content || []).map((block) => block.text || "").join("\n");
     }
-
-    const data = await response.json();
-    const textContent = data.choices?.[0]?.message?.content;
 
     if (!textContent) {
       console.error("[omni-lister] empty model response");
@@ -170,7 +196,7 @@ IMPORTANT: Return ONLY valid JSON, no other text.`;
       ok: true,
       product: productData,
       source: type === "image" ? "visual_scan" : "text_lookup",
-      model: "llama-3.2-11b-vision",
+      model: modelName,
     });
   } catch (err) {
     console.error("[omni-lister]", err.message);
