@@ -201,7 +201,7 @@ export default function PostPage() {
                     ✓ Posted{result.listingId && ` - ${result.listingId}`}
                   </span>
                 ) : (
-                  <span style={{ color: "#DC2626" }}>✗ {result.error}</span>
+                  <span style={{ color: "#DC2626" }}>✗ Not posted - {result.error || result.note || "no reason given"}</span>
                 )}
               </div>
             ))}
