@@ -20,6 +20,7 @@ export default function Capture() {
   const [error, setError] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [result, setResult] = useState(null);
+  const [sellerPrice, setSellerPrice] = useState("");
   const cameraInputRef = useRef(null);
 
   useEffect(() => {
@@ -64,6 +65,8 @@ export default function Capture() {
         return;
       }
       setResult(data);
+      const suggested = Number(data.pricing?.recommendedPrice || data.pricing?.selectedPrice);
+      setSellerPrice(Number.isFinite(suggested) && suggested > 0 ? String(suggested) : "");
     } catch (err) {
       setError(err.message || "Upload failed — check your connection and try again.");
     } finally {
@@ -149,9 +152,9 @@ export default function Capture() {
       }
 
       // Never invent a price: the seller sets it.
-      const listingPrice = Number(result.pricing?.recommendedPrice || result.pricing?.selectedPrice);
+      const listingPrice = Number(sellerPrice);
       if (!Number.isFinite(listingPrice) || listingPrice <= 0) {
-        setError("No price set for this item — set a price before publishing.");
+        setError("Enter the price you want for this item, then tap Publish.");
         setPublishing(false);
         return;
       }
@@ -343,12 +346,23 @@ export default function Capture() {
             ))}
           </div>
 
-          <p>
-            Suggested price: <strong>${result.pricing?.recommendedPrice}</strong>
-            {"  "}
-            <span className="muted">
-              (${result.pricing?.floorPrice}–${Math.ceil(result.pricing.recommendedPrice * 1.18)})
-            </span>
+          <label style={{ display: "block", margin: "0.75rem 0" }}>
+            <strong>Your price ($)</strong>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              placeholder="Enter your price"
+              value={sellerPrice}
+              onChange={(e) => setSellerPrice(e.target.value)}
+              style={{ display: "block", width: "100%", marginTop: "0.35rem", padding: "0.8rem", fontSize: "1.1rem" }}
+            />
+          </label>
+          <p className="muted">
+            {Number(result.pricing?.recommendedPrice) > 0
+              ? `Suggested from sold comps: $${result.pricing.recommendedPrice}`
+              : "No sold-comp price found for this item, so you set the price."}
           </p>
 
           {result.outputs?.map((item) => (
