@@ -61,3 +61,36 @@ test("allowlisted public routes still exist (remove stale entries)", () => {
   const missing = [...PUBLIC_ALLOWLIST, ...TOKEN_FORWARDING_ALLOWLIST].filter((rel) => !fs.existsSync(path.join(API_ROOT, rel)));
   assert.deepStrictEqual(missing, []);
 });
+
+// ---- App Router routes (app/api/**/route.{js,ts}) --------------------------
+const APP_API_ROOT = path.join(__dirname, "..", "app", "api");
+
+// Reviewed as intentionally public: called by external services and verified by
+// signature, never by a user login.
+const APP_PUBLIC_ALLOWLIST = new Set([
+  "listings/webhook/route.ts",
+]);
+
+const APP_AUTH_MARKERS = /withSession|withOwnerSession|resolveSession|getUserFromToken/;
+
+function listAppRoutes(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return listAppRoutes(full);
+    return /^route\.(js|ts)$/.test(e.name) ? [full] : [];
+  });
+}
+
+test("every app/api route enforces auth or is on the reviewed public allowlist", () => {
+  const unprotected = listAppRoutes(APP_API_ROOT)
+    .map((f) => path.relative(APP_API_ROOT, f).split(path.sep).join("/"))
+    .filter((rel) => !APP_PUBLIC_ALLOWLIST.has(rel))
+    .filter((rel) => !APP_AUTH_MARKERS.test(fs.readFileSync(path.join(APP_API_ROOT, rel), "utf8")));
+  assert.deepStrictEqual(unprotected, [], `App routes with no auth check and not allowlisted:\n  ${unprotected.join("\n  ")}`);
+});
+
+test("allowlisted public app routes still exist (remove stale entries)", () => {
+  const missing = [...APP_PUBLIC_ALLOWLIST].filter((rel) => !fs.existsSync(path.join(APP_API_ROOT, rel)));
+  assert.deepStrictEqual(missing, []);
+});

@@ -42,6 +42,18 @@ export async function saveVideoProject(
     updatedAt: new Date().toISOString()
   });
 
+  // The upsert below runs with the service role and the project id comes
+  // from the client, so refuse to overwrite a row that belongs to another
+  // tenant (otherwise on_conflict=id would reassign it to the caller).
+  const existing: Array<{ tenant_id: string }> = await rest(
+    process.env,
+    "GET",
+    `video_studio_projects?id=eq.${encodeURIComponent(parsed.id)}&select=tenant_id`
+  );
+  if (existing.length && existing[0].tenant_id !== tenantId) {
+    throw new Error("Project id is already in use");
+  }
+
   await rest(
     process.env,
     "POST",

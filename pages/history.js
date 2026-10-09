@@ -17,7 +17,8 @@ export default function HistoryPage() {
   const sessionIdRef = useRef("anon");
 
   useEffect(() => {
-    fetch(`/api/listings?sessionId=${encodeURIComponent(sessionIdRef.current)}`)
+    if (!requireSession()) return;
+    authedFetch(`/api/listings?sessionId=${encodeURIComponent(sessionIdRef.current)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.ok) setItems(data.items || []);

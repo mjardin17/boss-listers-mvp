@@ -103,3 +103,13 @@ services:
         sync: false
       - key: BARCODELOOKUP_API_KEY
         sync: false
+      - key: LISTINGS_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_API_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_AURAFIT_API_URL
+        sync: false
+      - key: ANTHROPIC_VISION_MODEL
+        sync: false
