@@ -50,3 +50,63 @@ test("an unknown platform is reported, not ignored", async () => {
   const out = await new MultiPlatformPoster().postToAllPlatforms("t1", {}, ["myspace"]);
   assert.strictEqual(out.myspace.success, false);
 });
+
+// ---- live posting is explicit, needs a real price, and never fakes a result ----
+
+test("live posting without a price fails every selected platform and calls nothing", async () => {
+  let calls = 0;
+  const poster = new MultiPlatformPoster();
+  poster.shopify = { createListing: async () => { calls++; return {}; } };
+  const out = await poster.postToAllPlatforms("t1", { sku: "S", title: "T", price: 0 }, ["shopify"], { live: true });
+  assert.strictEqual(out.shopify.success, false);
+  assert.match(out.shopify.error, /price/i);
+  assert.strictEqual(calls, 0);
+});
+
+test("live posting passes dryRun:false and confirm, and keeps the platform's own id/url", async () => {
+  let seen;
+  const poster = new MultiPlatformPoster();
+  poster.instagram = { createListing: async (p, o) => { seen = o; return { ok: true, published: true, listingId: "IG1", url: "https://instagram.test/p/IG1" }; } };
+  const out = await poster.postToAllPlatforms("t1", { sku: "S", title: "T", price: 12, image_url: "https://img.test/a.jpg" }, ["instagram"], { live: true });
+  assert.deepStrictEqual([seen.dryRun, seen.confirm], [false, "PUBLISH_LIVE"]);
+  assert.deepStrictEqual(out.instagram, { success: true, listingId: "IG1", url: "https://instagram.test/p/IG1" });
+});
+
+test("a live platform that returns no id is not reported as posted", async () => {
+  const poster = new MultiPlatformPoster();
+  poster.shopify = { createListing: async () => ({}) };
+  const out = await poster.postToAllPlatforms("t1", { sku: "S", title: "T", price: 5 }, ["shopify"], { live: true });
+  assert.strictEqual(out.shopify.success, false);
+});
+
+test("live eBay uses a resolved category + the seller's policies, with arguments in the right order", async () => {
+  let args;
+  const poster = new MultiPlatformPoster();
+  poster.ebay = {
+    _getAccessToken: async () => "TOKEN",
+    createListing: async (...a) => { args = a; return { ok: true, published: true, listingId: "E1", url: "https://www.ebay.com/itm/E1" }; },
+  };
+  poster.ebayInputs = {
+    suggestCategoryId: async () => ({ categoryId: "123" }),
+    resolvePolicies: async (t) => { assert.strictEqual(t, "TOKEN"); return { fulfillment_policy_id: "f", payment_policy_id: "p", return_policy_id: "r", merchant_location_key: "loc" }; },
+  };
+  const out = await poster.postToAllPlatforms("t1", { sku: "S", title: "T", price: 9, condition: "like_new", image_url: "https://img.test/a.jpg" }, ["ebay"], { live: true });
+  const [product, policies, options] = args;
+  assert.strictEqual(product.category_id, "123");
+  assert.deepStrictEqual(product.image_urls, ["https://img.test/a.jpg"]);
+  assert.strictEqual(product.condition, "LIKE_NEW");
+  assert.strictEqual(policies.merchant_location_key, "loc");
+  assert.deepStrictEqual([options.dryRun, options.confirm], [false, "PUBLISH_LIVE"]);
+  assert.strictEqual(out.ebay.success, true);
+});
+
+test("live eBay with no https photo or unreadable policies fails honestly and never calls createListing", async () => {
+  let created = 0;
+  const poster = new MultiPlatformPoster();
+  poster.ebay = { _getAccessToken: async () => "T", createListing: async () => { created++; return {}; } };
+  poster.ebayInputs = { suggestCategoryId: async () => ({ categoryId: "1" }), resolvePolicies: async () => { throw new Error("eBay account is missing: return_policy_id"); } };
+  const out = await poster.postToAllPlatforms("t1", { sku: "S", title: "T", price: 9, image_url: "https://img.test/a.jpg" }, ["ebay"], { live: true });
+  assert.strictEqual(out.ebay.success, false);
+  assert.match(out.ebay.error, /return_policy_id/);
+  assert.strictEqual(created, 0);
+});

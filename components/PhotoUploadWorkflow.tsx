@@ -196,10 +196,15 @@ export function PhotoUploadWorkflow() {
     setPostProgress(initialProgress);
 
     try {
+      const marketplaceNames = connectedMarketplaces.map((c) => c.marketplace.replace(/_/g, " ")).join(", ");
+      const goLive = window.confirm(
+        `Post "${productInfo.title}" at $${productInfo.price} LIVE to: ${marketplaceNames}?\n\nOK = post for real.\nCancel = test run only (nothing is posted).`
+      );
       const requestBody = {
         productInfo,
         marketplaces: connectedMarketplaces.map((c) => c.marketplace),
         photo: photoPreview,
+        confirmLive: goLive ? "PUBLISH_LIVE" : undefined,
       };
 
       const response = await authedFetch("/api/post-everything", {
@@ -264,6 +269,11 @@ export function PhotoUploadWorkflow() {
           productInfo,
           marketplaces: failedMarketplaces,
           photo: photoPreview,
+          confirmLive: window.confirm(
+            `Retry posting "${productInfo?.title}" LIVE to: ${failedMarketplaces.join(", ").replace(/_/g, " ")}?\n\nOK = post for real.\nCancel = test run only.`
+          )
+            ? "PUBLISH_LIVE"
+            : undefined,
         }),
       });
 

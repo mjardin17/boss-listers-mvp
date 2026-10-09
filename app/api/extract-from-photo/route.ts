@@ -37,7 +37,7 @@ async function POST_handler(request: NextRequest): Promise<NextResponse> {
 
     // Use Claude Vision to extract product information
     const response = await client.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: process.env.ANTHROPIC_VISION_MODEL || "claude-sonnet-5-5",
       max_tokens: 1500,
       messages: [
         {
