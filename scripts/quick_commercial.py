@@ -52,6 +52,31 @@ def load_image(url=None, path=None):
         return Image.open(io.BytesIO(r.read())).convert("RGB")
 
 
+_ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+         "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+_TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+
+
+def number_words(n):
+    """0..9999 in plain English, e.g. 51 -> 'fifty one', 1250 -> 'one thousand two hundred fifty'."""
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        return _TENS[n // 10] + (" " + _ONES[n % 10] if n % 10 else "")
+    if n < 1000:
+        return _ONES[n // 100] + " hundred" + (" " + number_words(n % 100) if n % 100 else "")
+    return number_words(n // 1000) + " thousand" + (" " + number_words(n % 1000) if n % 1000 else "")
+
+
+def spoken_price(price):
+    """10 -> 'ten dollars'; 10.51 -> 'ten dollars and fifty one cents'; 0.99 -> 'ninety nine cents'."""
+    total_cents = int(round(float(price) * 100))
+    dollars, cents = divmod(total_cents, 100)
+    d = f"{number_words(dollars)} dollar{'' if dollars == 1 else 's'}" if dollars else ""
+    c = f"{number_words(cents)} cent{'' if cents == 1 else 's'}" if cents else ""
+    return f"{d} and {c}" if d and c else (d or c or "free")
+
+
 def short_title(title, limit=48):
     title = re.sub(r"\s+", " ", re.sub(r"\b(brand new|new with tags|nwt|nib|nwot)\b[\s,-]*", "", title, flags=re.I)).strip(" -,")
     if len(title) <= limit:
@@ -132,7 +157,7 @@ def build_beats(im, product, platform):
     c = backdrop(im, w, h)
     y = draw_text(c, price_txt or "Great price", int(150 * s), int(120 * s), GOLD)
     place_product(c, im, int(max(y + 40 * s, 460 * s)), int(w * 0.9), pic_h)
-    beats.append((c, (f"Just {price_txt.replace('$', '').replace('.', ' ')} dollars." if price_txt else "A great price.")))
+    beats.append((c, f"Just {spoken_price(price)}." if price_txt else "A great price."))
 
     c = backdrop(im, w, h)
     end = place_product(c, im, int(300 * s), int(w * 0.85), int(h * 0.42))
