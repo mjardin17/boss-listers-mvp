@@ -96,6 +96,11 @@ async function main() {
     return;
   }
 
+  // marketplace_listings.account_id is NOT NULL, so look up the Shopify account before creating anything.
+  const accounts = await rest(`marketplace_accounts?select=id&marketplace=eq.shopify&tenant_id=eq.${tenantId}&limit=1`);
+  const accountId = accounts && accounts[0] ? accounts[0].id : null;
+  if (!accountId) throw new Error("No Shopify marketplace_accounts row for this tenant. Nothing was created.");
+
   let ok = 0, failed = 0, consecutive = 0;
   for (const p of batch) {
     try {
@@ -104,7 +109,7 @@ async function main() {
       await rest("marketplace_listings", {
         method: "POST",
         headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ tenant_id: tenantId, product_id: p.id, marketplace: "shopify", status: "posted", listing_id: result.listingId, listing_url: result.url || null, posted_at: new Date().toISOString(), notes: "Bulk push from BossListers" }),
+        body: JSON.stringify({ tenant_id: tenantId, account_id: accountId, product_id: p.id, marketplace: "shopify", status: "posted", listing_id: result.listingId, listing_url: result.url || null, posted_at: new Date().toISOString(), notes: "Bulk push from BossListers" }),
       }).catch((e) => console.error("   (could not record listing row: " + e.message + ")"));
       ok++; consecutive = 0;
       const ch = result.channels ? " channels=" + Object.entries(result.channels).map(([k, v]) => `${k}:${v.published ? "yes" : v.reason}`).join(",") : "";
