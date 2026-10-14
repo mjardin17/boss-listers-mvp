@@ -104,11 +104,12 @@ async function main() {
       await rest("marketplace_listings", {
         method: "POST",
         headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ product_id: p.id, marketplace: "shopify", status: "posted", listing_id: result.listingId, listing_url: result.url || null, posted_at: new Date().toISOString(), notes: "Bulk push from BossListers" }),
+        body: JSON.stringify({ tenant_id: tenantId, product_id: p.id, marketplace: "shopify", status: "posted", listing_id: result.listingId, listing_url: result.url || null, posted_at: new Date().toISOString(), notes: "Bulk push from BossListers" }),
       }).catch((e) => console.error("   (could not record listing row: " + e.message + ")"));
       ok++; consecutive = 0;
       const ch = result.channels ? " channels=" + Object.entries(result.channels).map(([k, v]) => `${k}:${v.published ? "yes" : v.reason}`).join(",") : "";
-      console.log(`  CREATED  ${p.sku.padEnd(22)} -> Shopify ${result.listingId}${ch}`);
+      const st = result.stock ? (result.stock.set ? ` stock=${result.stock.available}` : ` STOCK-NOT-SET(${result.stock.reason})`) : "";
+      console.log(`  CREATED  ${p.sku.padEnd(22)} -> Shopify ${result.listingId}${st}${ch}`);
     } catch (err) {
       failed++; consecutive++;
       console.log(`  FAILED   ${p.sku.padEnd(22)} ${err.message}`);

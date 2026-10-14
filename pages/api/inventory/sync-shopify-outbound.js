@@ -100,6 +100,7 @@ export default async function handler(req, res) {
     const listing_url = result.url;
 
     const listingRow = {
+      tenant_id: tenantId,
       product_id: product.id,
       marketplace: "shopify",
       status: "posted",
