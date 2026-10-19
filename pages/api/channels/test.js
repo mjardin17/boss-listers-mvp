@@ -4,7 +4,12 @@
 
 const { API_CONNECTORS } = require("../../../lib/channels/registry");
 
+const { requireSession } = require("../../../lib/requireSession");
+
 export default async function handler(req, res) {
+  const session = await requireSession(req, res);
+  if (!session) return;
+
   try {
     if (req.method !== "POST") {
       res.setHeader("Allow", "POST");

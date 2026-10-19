@@ -25,7 +25,12 @@ export default defineConfig({
   ],
   webServer: {
     command: "npm run dev",
-    url: "http://127.0.0.1:3001",
+    // No page exists at "/" (no pages/index.js), so it always 404s — the
+    // reuseExistingServer readiness check only treats 2xx/3xx as "ready",
+    // so it never detected the already-running dev server and tried to
+    // spawn a second one on the same port (EADDRINUSE). /omni-lister is a
+    // real page and returns 200.
+    url: "http://127.0.0.1:3001/omni-lister",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     env: {

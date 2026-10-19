@@ -2,12 +2,13 @@
   "name": "Boss Listers",
   "short_name": "Boss Listers",
   "description": "Multi-marketplace reseller listing dashboard",
-  "start_url": "/",
+  "id": "/capture",
+  "start_url": "/capture",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "theme_color": "#000000",
-  "background_color": "#ffffff",
+  "theme_color": "#111827",
+  "background_color": "#111827",
   "icons": [
     {
       "src": "/favicon.ico",
@@ -25,6 +26,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

@@ -226,7 +226,7 @@ export default function CreateListingPage() {
     }
     setCategorySearching(true);
     try {
-      const res = await fetch(
+      const res = await authedFetch(
         `/api/channels/ebay/category-suggest?q=${encodeURIComponent(formData.title.trim())}`
       );
       const data = await res.json();

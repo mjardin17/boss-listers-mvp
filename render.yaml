@@ -3,7 +3,8 @@ services:
     name: boss-listers-mvp
     runtime: node
     plan: starter
-    branch: main    rootDir: .
+    branch: main
+    rootDir: .
     healthCheckPath: /api/health
     buildCommand: npm ci && npm run build
     startCommand: npm run start:render
@@ -38,3 +39,77 @@ services:
         value: 60000
       - key: MAX_VISION_CALLS_PER_REQUEST
         value: 3
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: PLATFORM_OWNER_TENANT_ID
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: EBAY_CLIENT_ID
+        sync: false
+      - key: EBAY_CLIENT_SECRET
+        sync: false
+      - key: EBAY_RUNAME
+        sync: false
+      - key: EBAY_ENVIRONMENT
+        sync: false
+      - key: EBAY_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: EBAY_DELETION_VERIFICATION_TOKEN
+        sync: false
+      - key: ETSY_KEYSTRING
+        sync: false
+      - key: ETSY_SHARED_SECRET
+        sync: false
+      - key: ETSY_REDIRECT_URI
+        sync: false
+      - key: SHOPIFY_STORE_URL
+        sync: false
+      - key: SHOPIFY_CLIENT_ID
+        sync: false
+      - key: SHOPIFY_CLIENT_SECRET
+        sync: false
+      - key: SHOPIFY_ADMIN_TOKEN
+        sync: false
+      - key: TIKTOK_SHOP_APP_KEY
+        sync: false
+      - key: TIKTOK_SHOP_APP_SECRET
+        sync: false
+      - key: AMAZON_REDIRECT_URI
+        sync: false
+      - key: FB_APP_ID
+        sync: false
+      - key: FB_APP_SECRET
+        sync: false
+      - key: FB_ACCESS_TOKEN
+        sync: false
+      - key: FB_PAGE_ID
+        sync: false
+      - key: IG_ACCESS_TOKEN
+        sync: false
+      - key: UPCITEMDB_API_KEY
+        sync: false
+      - key: BARCODELOOKUP_API_KEY
+        sync: false
+      - key: LISTINGS_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_API_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_AURAFIT_API_URL
+        sync: false
+      - key: ANTHROPIC_VISION_MODEL
+        sync: false

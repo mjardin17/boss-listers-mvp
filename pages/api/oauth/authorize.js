@@ -4,6 +4,7 @@
 
 const tokenManager = require('../../../lib/tokenManager');
 const socialMediaAuth = require('../../../lib/socialMediaAuth');
+const { requireSession } = require("../../../lib/requireSession");
 const { rest } = require('../../../lib/supabaseRest');
 
 export default async function handler(req, res) {
@@ -34,15 +35,9 @@ export default async function handler(req, res) {
   }
 
   // Verify user is authenticated
-  const authHeader = req.headers.authorization || '';
-  const userAccessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-
-  if (!userAccessToken) {
-    return res.status(401).json({
-      ok: false,
-      error: 'Authentication required',
-    });
-  }
+  const session = await requireSession(req, res);
+  if (!session) return;
+  const userAccessToken = session.accessToken;
 
   // Generate CSRF state token
   const state = tokenManager.generateState();

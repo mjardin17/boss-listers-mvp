@@ -2,6 +2,7 @@
 // Syncs a product from inventory to Instagram Shop
 // body: { sku, dryRun?, confirm? }
 
+const { requireOwnerSession } = require("../../../lib/requireSession");
 const { syncToInstagram } = require("../../../lib/supabaseInventory");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -39,6 +40,11 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  // Publishes with the platform owner's SHARED Instagram token, so only the
+  // owner tenant may call this route.
+  const session = await requireOwnerSession(req, res);
+  if (!session) return;
+
   const { sku, dryRun = true, confirm } = req.body || {};
 
   if (!sku) {
@@ -51,7 +57,7 @@ export default async function handler(req, res) {
   try {
     // Fetch the product from inventory
     const products = await rest(
-      `/products?select=*&sku=eq.${encodeURIComponent(sku)}&limit=1`,
+      `products?select=*&sku=eq.${encodeURIComponent(sku)}&tenant_id=eq.${encodeURIComponent(session.tenantId)}&limit=1`,
       { method: "GET" }
     );
 
@@ -65,10 +71,11 @@ export default async function handler(req, res) {
     const product = products[0];
 
     // Sync to Instagram
-    const result = await syncToInstagram(product, {
-      dryRun,
-      confirm,
-    });
+    const result = await syncToInstagram(
+      product,
+      { dryRun, confirm },
+      session.tenantId
+    );
 
     return res.status(200).json({
       ok: true,

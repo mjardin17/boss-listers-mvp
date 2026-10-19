@@ -10,7 +10,8 @@
 // missing/omitted flag must never accidentally reach a live publish.
 
 const { EbayConnector } = require("../../../../lib/channels/apiConnectors");
-const { resolveSession } = require("../../../../lib/supabaseAuth");
+const { requireSession } = require("../../../../lib/requireSession");
+const { ensurePublicUrl } = require("../../../../lib/supabaseStorage");
 
 const connector = new EbayConnector();
 
@@ -25,13 +26,16 @@ export default async function handler(req, res) {
   // a customer can only ever create listings under their own connected
   // eBay account, because tenantId is derived server-side from who they
   // are, not asserted by the request.
-  const authHeader = req.headers.authorization || "";
-  const userAccessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  const session = userAccessToken
-    ? await resolveSession(process.env, userAccessToken)
-    : null;
-
   const { product, policies, dryRun = true, confirm, sandbox = false, listingServiceToken } = req.body || {};
+
+  // A dry run only builds a payload locally (no credentials, no tenant data,
+  // no network), so it stays open for tooling; anything that can go live
+  // needs a real session.
+  let session = null;
+  if (dryRun !== true) {
+    session = await requireSession(req, res);
+    if (!session) return;
+  }
 
   if (!product || !policies) {
     return res.status(400).json({
@@ -41,9 +45,16 @@ export default async function handler(req, res) {
     });
   }
 
+  // Resolve any localhost/relative image URLs to public Supabase HTTPS URLs
+  // before the connector builds the eBay payload. eBay's servers pull
+  // product images by URL — they can't see localhost.
+  if (session && Array.isArray(product.image_urls)) {
+    product.image_urls = await Promise.all(product.image_urls.map(ensurePublicUrl));
+  }
+
   try {
     const result = await connector.createListing(product, policies, {
-      dryRun, confirm, sandbox, tenantId: session?.tenantId, serviceToken: listingServiceToken,
+      dryRun, confirm, sandbox, tenantId: session && session.tenantId, serviceToken: listingServiceToken,
     });
     return res.status(200).json(result);
   } catch (err) {

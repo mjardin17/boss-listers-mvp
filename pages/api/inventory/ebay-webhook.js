@@ -277,9 +277,24 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Missing challenge_code" });
     }
 
-    // Respond with the challenge code to verify the endpoint
-    res.setHeader("X-EBAY-SIGNATURE", EBAY_WEBHOOK_VERIFY_TOKEN);
-    return res.status(200).send(challenge);
+    // eBay's challenge protocol: sha256(challengeCode + verificationToken +
+    // endpointUrl). The verification token itself must never be echoed back —
+    // it is also the HMAC key that authenticates every POST event below.
+    if (!EBAY_WEBHOOK_VERIFY_TOKEN) {
+      return res.status(503).json({ error: "Webhook verification token not configured" });
+    }
+    const configuredBase = process.env.NEXT_PUBLIC_APP_URL;
+    const base = configuredBase && !configuredBase.includes("localhost")
+      ? configuredBase.replace(/\/+$/, "")
+      : `https://${req.headers.host}`;
+    const challengeResponse = crypto
+      .createHash("sha256")
+      .update(String(challenge))
+      .update(EBAY_WEBHOOK_VERIFY_TOKEN)
+      .update(`${base}/api/inventory/ebay-webhook`)
+      .digest("hex");
+    res.setHeader("Content-Type", "application/json");
+    return res.status(200).json({ challengeResponse });
   }
 
   // Handle webhook events

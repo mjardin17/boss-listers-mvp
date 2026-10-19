@@ -17,8 +17,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Authenticate user
-    const session = await resolveSession(req);
+    // Authenticate user. resolveSession(env, accessToken) needs the
+    // Supabase config plus the caller's own bearer token — never the raw
+    // req object, which has neither.
+    const authHeader = req.headers.authorization || "";
+    const userAccessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const session = userAccessToken
+      ? await resolveSession(process.env, userAccessToken)
+      : null;
     if (!session) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
@@ -57,8 +63,14 @@ export default async function handler(req, res) {
             itemsCreated: lastSync.items_created,
             itemsUpdated: lastSync.items_updated,
             itemsSkipped: lastSync.items_skipped,
-            errors: lastSync.errors ? JSON.parse(lastSync.errors) : [],
-            conflicts: lastSync.conflicts ? JSON.parse(lastSync.conflicts) : [],
+            // sync_logs.errors/.conflicts are JSONB columns — PostgREST
+            // already returns them as parsed arrays/objects, not strings.
+            // JSON.parse([]) throws ("[].toString()" is "", and
+            // JSON.parse("") is "Unexpected end of JSON input"), which was
+            // hit on every real row since recordSyncLog() writes these as
+            // real arrays. Only parse if it actually came back as a string.
+            errors: typeof lastSync.errors === "string" ? JSON.parse(lastSync.errors) : (lastSync.errors || []),
+            conflicts: typeof lastSync.conflicts === "string" ? JSON.parse(lastSync.conflicts) : (lastSync.conflicts || []),
             minutesSinceSync: minutesSinceLastSync,
           }
         : null,

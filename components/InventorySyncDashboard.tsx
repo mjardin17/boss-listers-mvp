@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Clock, RefreshCw, AlertCircle, CheckCircle, TrendingUp } from "lucide-react";
+import { authedFetch } from "../lib/clientAuth";
 
 interface SyncStatus {
   lastSync: {
@@ -45,7 +46,7 @@ export const InventorySyncDashboard: React.FC = () => {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch("/api/inventory/ebay-sync-status");
+        const res = await authedFetch("/api/inventory/ebay-sync-status");
         if (!res.ok) throw new Error("Failed to fetch sync status");
         const data = await res.json();
         setStatus({ ...data, isLoading: false });
@@ -68,7 +69,7 @@ export const InventorySyncDashboard: React.FC = () => {
     setSyncMessage("");
 
     try {
-      const res = await fetch("/api/inventory/sync-ebay", {
+      const res = await authedFetch("/api/inventory/sync-ebay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ trigger: "manual" }),
@@ -82,7 +83,7 @@ export const InventorySyncDashboard: React.FC = () => {
       );
 
       // Refresh status
-      const statusRes = await fetch("/api/inventory/ebay-sync-status");
+      const statusRes = await authedFetch("/api/inventory/ebay-sync-status");
       if (statusRes.ok) {
         const statusData = await statusRes.json();
         setStatus({ ...statusData, isLoading: false });

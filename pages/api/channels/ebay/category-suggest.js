@@ -3,7 +3,12 @@
 // API — eBay has no default category, and createOffer() rejects without
 // one. Uses the same shared OAuth connection as everything else eBay in
 // this app (sell.inventory scope covers Taxonomy reads too).
+const { requireSession } = require("../../../../lib/requireSession");
+
 export default async function handler(req, res) {
+  const session = await requireSession(req, res);
+  if (!session) return;
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Method not allowed" });

@@ -16,8 +16,15 @@ import { SocialPreviews } from "./SocialPreviews";
 import { MarketplacePreview } from "./MarketplacePreview";
 import { PostProgress } from "./PostProgress";
 import { ExtractionProgress } from "./ExtractionProgress";
+import { authedFetch, requireSession } from "../lib/clientAuth";
 
 export function PhotoUploadWorkflow() {
+  // Login gate: send signed-out visitors to /login before showing the tool.
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (requireSession()) setReady(true);
+  }, []);
+
   // Photo upload state
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -78,7 +85,7 @@ export function PhotoUploadWorkflow() {
       const formData = new FormData();
       formData.append("photo", file);
 
-      const response = await fetch("/api/extract-from-photo", {
+      const response = await authedFetch("/api/extract-from-photo", {
         method: "POST",
         body: formData,
       });
@@ -103,7 +110,7 @@ export function PhotoUploadWorkflow() {
       setCaptionLoading(true);
       setExtractionMessages((prev) => [...prev, "Generating social captions..."]);
 
-      const captionResponse = await fetch("/api/generate-captions", {
+      const captionResponse = await authedFetch("/api/generate-captions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productInfo: data.data }),
@@ -189,13 +196,18 @@ export function PhotoUploadWorkflow() {
     setPostProgress(initialProgress);
 
     try {
+      const marketplaceNames = connectedMarketplaces.map((c) => c.marketplace.replace(/_/g, " ")).join(", ");
+      const goLive = window.confirm(
+        `Post "${productInfo.title}" at $${productInfo.price} LIVE to: ${marketplaceNames}?\n\nOK = post for real.\nCancel = test run only (nothing is posted).`
+      );
       const requestBody = {
         productInfo,
         marketplaces: connectedMarketplaces.map((c) => c.marketplace),
         photo: photoPreview,
+        confirmLive: goLive ? "PUBLISH_LIVE" : undefined,
       };
 
-      const response = await fetch("/api/post-everything", {
+      const response = await authedFetch("/api/post-everything", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -250,13 +262,18 @@ export function PhotoUploadWorkflow() {
         .filter((p) => p.type === "marketplace")
         .map((p) => p.name.replace(" ", "_"));
 
-      const response = await fetch("/api/post-everything", {
+      const response = await authedFetch("/api/post-everything", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productInfo,
           marketplaces: failedMarketplaces,
           photo: photoPreview,
+          confirmLive: window.confirm(
+            `Retry posting "${productInfo?.title}" LIVE to: ${failedMarketplaces.join(", ").replace(/_/g, " ")}?\n\nOK = post for real.\nCancel = test run only.`
+          )
+            ? "PUBLISH_LIVE"
+            : undefined,
         }),
       });
 
@@ -287,6 +304,8 @@ export function PhotoUploadWorkflow() {
     marketplaceConnections.some((c) => c.connected) &&
     !extracting &&
     !posting;
+
+  if (!ready) return null;
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-8 py-8">

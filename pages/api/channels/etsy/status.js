@@ -1,8 +1,15 @@
-// GET /api/channels/etsy/status
+// GET /api/channels/etsy/status?live=true
 // Thin proxy to get_marketplace_connection_status — returns whether THIS
 // caller's tenant has connected their own Etsy shop. Mirrors
 // pages/api/channels/ebay/status.js exactly; metadata (shop_id) is
 // included in the RPC response as of migration 0015.
+//
+// ?live=true additionally calls EtsyConnector.testTenantConnection() — a
+// real authenticated API call against THIS tenant's own stored token, not
+// just "a row exists".
+
+const { EtsyConnector } = require("../../../../lib/channels/apiConnectors");
+const { resolveSession } = require("../../../../lib/supabaseAuth");
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -31,7 +38,16 @@ export default async function handler(req, res) {
     }
     const rows = await rpcRes.json();
     const row = rows[0] || { connected: false, account_identifier: null, connected_at: null, metadata: null };
-    return res.status(200).json({ ok: true, ...row });
+
+    let live = null;
+    if (req.query.live === "true" && row.connected) {
+      const session = await resolveSession(process.env, userAccessToken);
+      live = session?.tenantId
+        ? await new EtsyConnector().testTenantConnection(session.tenantId)
+        : { status: "configuration_required", detail: "Could not resolve your tenant." };
+    }
+
+    return res.status(200).json({ ok: true, ...row, live });
   } catch (err) {
     return res.status(502).json({ ok: false, error: err.message });
   }

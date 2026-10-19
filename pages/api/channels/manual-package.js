@@ -5,14 +5,17 @@
 // `product` may be passed inline (unsaved drafts) or by `sku` (loaded
 // from the shared Supabase inventory).
 
+const { requireSession } = require("../../../lib/requireSession");
 const { buildManualPackage, packagesToCsv, MANUAL_PLATFORMS } = require("../../../lib/channels/manualPackage");
 
 export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+  const session = await requireSession(req, res);
+  if (!session) return;
   try {
-    if (req.method !== "POST") {
-      res.setHeader("Allow", "POST");
-      return res.status(405).json({ ok: false, error: "Method not allowed" });
-    }
     const { product: inlineProduct, sku, platforms } = req.body || {};
     const targets = Array.isArray(platforms) && platforms.length
       ? platforms
@@ -21,7 +24,7 @@ export default async function handler(req, res) {
     let product = inlineProduct;
     if (!product && sku) {
       const { listInventory } = require("../../../lib/supabaseInventory");
-      const rows = await listInventory();
+      const rows = await listInventory(session.tenantId);
       product = rows.find((r) => r.sku === sku);
       if (!product) return res.status(404).json({ ok: false, error: `SKU not found in inventory: ${sku}` });
     }
