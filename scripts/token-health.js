@@ -43,7 +43,7 @@ function replaceEnvValue(file, key, value) {
     if (ig.status !== "ok") {
       console.log("instagram  not refreshed: token must be valid to refresh it");
     } else {
-      const res = await refreshInstagramToken(process.env.IG_ACCESS_TOKEN);
+      const res = await refreshInstagramToken(process.env.IG_ACCESS_TOKEN || process.env.INSTAGRAM_ACCESS_TOKEN);
       if (!res.ok) {
         console.log(`instagram  refresh failed: ${res.error}`);
       } else {
