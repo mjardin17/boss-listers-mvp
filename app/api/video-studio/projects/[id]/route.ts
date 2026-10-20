@@ -47,11 +47,10 @@ export async function GET(
   {
     params
   }: {
-    params: {
-      id: string;
-    };
+    params: Promise<{ id: string }>;
   }
 ) {
+  const { id } = await params;
   const session =
     await requireSession(
       request
@@ -71,7 +70,7 @@ export async function GET(
 
   const project =
     await getVideoProject(
-      params.id,
+      id,
       session.tenantId
     );
 
@@ -97,11 +96,10 @@ export async function PUT(
   {
     params
   }: {
-    params: {
-      id: string;
-    };
+    params: Promise<{ id: string }>;
   }
 ) {
+  const { id } = await params;
   const session =
     await requireSession(
       request
@@ -127,7 +125,7 @@ export async function PUT(
       VideoProjectSchema.parse({
         ...body,
         id:
-          params.id
+          id
       });
 
     return NextResponse.json({

@@ -36,18 +36,17 @@ async function GET_handler(
   {
     params
   }: {
-    params: {
-      id: string;
-    };
+    params: Promise<{ id: string }>;
   },
 
   session: {
     tenantId: string;
   }
 ) {
+  const { id } = await params;
   if (
     !/^[a-zA-Z0-9_-]+$/.test(
-      params.id
+      id
     )
   ) {
     return NextResponse.json(
@@ -63,7 +62,7 @@ async function GET_handler(
 
   const project =
     await getVideoProject(
-      params.id,
+      id,
       session.tenantId
     ).catch(() => null);
 
@@ -91,7 +90,7 @@ async function GET_handler(
     path.join(
       root,
       "renders",
-      `${params.id}.mp4`
+      `${id}.mp4`
     );
 
   try {
@@ -118,7 +117,7 @@ async function GET_handler(
             ),
 
           "Content-Disposition":
-            `inline; filename="${params.id}.mp4"`
+            `inline; filename="${id}.mp4"`
         }
       }
     );
