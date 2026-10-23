@@ -65,7 +65,9 @@ async function main() {
   const rest = async (path, opts = {}) => {
     const res = await fetch(`${url}/rest/v1/${path}`, { ...opts, headers: { ...H, ...(opts.headers || {}) } });
     if (!res.ok) throw new Error(`Supabase ${opts.method || "GET"} ${path.split("?")[0]} failed (${res.status})`);
-    return res.status === 204 ? null : res.json();
+    // Prefer: return=minimal answers 201 with an empty body, which res.json() rejects.
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
   };
 
   const { ShopifyConnector } = require("../lib/channels/apiConnectors");
