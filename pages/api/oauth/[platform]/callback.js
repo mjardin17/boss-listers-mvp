@@ -12,13 +12,54 @@ const { rest } = require('../../../../lib/supabaseRest');
 // this used to duplicate all 8 of these locally.
 const { PROFILE_FETCHERS } = socialMediaAuth;
 
+// Bridge page: the provider's redirect is a plain browser GET, so it carries
+// no Authorization header. This page reads the saved BossListers session from
+// this browser's storage and re-submits the same code/state as a POST.
+// No query values are written into the HTML; the script reads them from the URL.
+const BRIDGE_HTML = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Connecting…</title></head>
+<body style="font-family:sans-serif;background:#111;color:#eee;padding:24px">
+<p id="msg">Connecting your account…</p>
+<script>
+(async function () {
+  var msg = document.getElementById('msg');
+  var session = null;
+  try { session = JSON.parse(localStorage.getItem('boss_auth_session') || 'null'); } catch (e) {}
+  if (!session || !session.accessToken) {
+    msg.innerHTML = 'Sign in to BossListers in this browser first, then reopen this link: <a style="color:#7ee" href="/login">Sign in</a>';
+    return;
+  }
+  try {
+    var res = await fetch(location.pathname + location.search, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + session.accessToken }
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (data.ok) {
+      msg.innerHTML = 'Connected: ' + (data.accountIdentifier || data.platform || 'account') + '. You can close this tab and return to <a style="color:#7ee" href="/social">Social</a>.';
+    } else {
+      msg.textContent = 'Connection failed: ' + (data.error || res.status);
+    }
+  } catch (e) {
+    msg.textContent = 'Connection failed: ' + e.message;
+  }
+})();
+</script></body></html>`;
+
 export default async function handler(req, res) {
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', 'GET');
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({
       ok: false,
       error: 'Method not allowed',
     });
+  }
+
+  // First browser visit from the provider (no session header yet): show the bridge.
+  const hasBearer = (req.headers.authorization || '').startsWith('Bearer ');
+  if (req.method === 'GET' && !hasBearer && req.query.code && req.query.state) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).send(BRIDGE_HTML);
   }
 
   const { platform } = req.query;

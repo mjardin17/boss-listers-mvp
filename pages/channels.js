@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { requireSession, authedFetch } from "../lib/clientAuth";
-import { TENANT_OAUTH_CHANNELS } from "../lib/clientOAuthConnect";
+import { TENANT_OAUTH_CHANNELS, startShopifyConnect } from "../lib/clientOAuthConnect";
 
 // Channels dashboard: honest per-channel status, live connection tests,
 // and the manual listing-package generator. No channel is ever shown as
@@ -91,6 +91,7 @@ export default function ChannelsPage() {
   const [busy, setBusy] = useState(false);
   // Keyed by marketplace id: { ebay: {connected, account_identifier}, etsy: {...} }
   const [tenantConnections, setTenantConnections] = useState({});
+  const [shopifyDomain, setShopifyDomain] = useState("");
 
   const loadChannels = useCallback(async () => {
     try {
@@ -216,7 +217,22 @@ export default function ChannelsPage() {
                     ) : (
                       <>
                         <p style={{ fontSize: 13, margin: "0 0 8px" }}>Connect your own {label} {noun} to start listing.</p>
-                        <button type="button" onClick={connectFn} className="btn-primary" style={{ fontSize: 13 }}>
+                        {ch.id === "shopify" && (
+                          <input
+                            type="text"
+                            value={shopifyDomain}
+                            onChange={(e) => setShopifyDomain(e.target.value)}
+                            placeholder="yourstore.myshopify.com"
+                            aria-label="Shopify store domain"
+                            style={{ fontSize: 13, padding: 6, marginBottom: 8, width: "100%", boxSizing: "border-box" }}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => (ch.id === "shopify" ? startShopifyConnect(shopifyDomain) : connectFn())}
+                          className="btn-primary"
+                          style={{ fontSize: 13 }}
+                        >
                           Connect {label}
                         </button>
                       </>

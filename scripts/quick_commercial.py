@@ -44,7 +44,9 @@ def upgrade_ebay_url(url):
     return url
 
 
-def load_image(url=None, path=None):
+def load_image(url=None, path=None, cutout_path=None):
+    if cutout_path:
+        return Image.open(cutout_path).convert("RGBA")
     if path:
         return Image.open(path).convert("RGB")
     req = urllib.request.Request(upgrade_ebay_url(url), headers={"User-Agent": "Mozilla/5.0"})
@@ -118,6 +120,20 @@ def backdrop(im, w, h):
     return Image.blend(bg, Image.new("RGB", (w, h), (8, 12, 24)), 0.62)
 
 
+def studio_background(w, h):
+    """Clean warm studio backdrop for cutouts: soft vertical gradient, no product bleed-through."""
+    top, bottom = (248, 240, 232), (222, 204, 190)
+    grad = np.linspace(0, 1, h, dtype=np.float32)[:, None]
+    rgb = np.array(top, np.float32) * (1 - grad) + np.array(bottom, np.float32) * grad
+    return Image.fromarray(np.repeat(rgb[:, None, :], w, axis=1).astype(np.uint8), "RGB")
+
+
+def make_backdrop(im, w, h, product):
+    if product.get("cutout_path"):
+        return studio_background(w, h)
+    return backdrop(im, w, h)
+
+
 def place_product(canvas, im, top, max_w, max_h):
     scale = min(max_w / im.width, max_h / im.height)
     pic = im.resize((int(im.width * scale), int(im.height * scale)))
@@ -126,6 +142,9 @@ def place_product(canvas, im, top, max_w, max_h):
     ImageDraw.Draw(shadow).rounded_rectangle((x + 8, y + 26, x + pic.width + 8, y + pic.height + 26), 36, fill=(0, 0, 0, 170))
     shadow = shadow.filter(ImageFilter.GaussianBlur(26))
     canvas.paste(shadow, (0, 0), shadow)
+    if pic.mode == "RGBA":
+        canvas.paste(pic.convert("RGB"), (x, y), pic.split()[3])
+        return y + pic.height
     mask = Image.new("L", pic.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, pic.width, pic.height), 32, fill=255)
     canvas.paste(pic, (x, y), mask)
@@ -143,23 +162,23 @@ def build_beats(im, product, platform):
     pic_h = int(h * 0.52)
     beats = []
 
-    c = backdrop(im, w, h)
+    c = make_backdrop(im, w, h, product)
     y = draw_text(c, title, int(150 * s), int(78 * s))
     place_product(c, im, int(max(y + 40 * s, 520 * s)), int(w * 0.9), pic_h)
     beats.append((c, f"{title}."))
 
-    c = backdrop(im, w, h)
+    c = make_backdrop(im, w, h, product)
     y = draw_text(c, "Condition: " + cond if cond else "In stock now", int(170 * s), int(70 * s), GOLD)
     end = place_product(c, im, int(max(y + 50 * s, 440 * s)), int(w * 0.9), pic_h)
     draw_text(c, "Real photos. Fast shipping.", end + int(70 * s), int(54 * s))
     beats.append((c, ("It's " + cond.lower() + ". " if cond else "") + "Ready to ship fast."))
 
-    c = backdrop(im, w, h)
+    c = make_backdrop(im, w, h, product)
     y = draw_text(c, price_txt or "Great price", int(150 * s), int(120 * s), GOLD)
     place_product(c, im, int(max(y + 40 * s, 460 * s)), int(w * 0.9), pic_h)
     beats.append((c, f"Just {spoken_price(price)}." if price_txt else "A great price."))
 
-    c = backdrop(im, w, h)
+    c = make_backdrop(im, w, h, product)
     end = place_product(c, im, int(300 * s), int(w * 0.85), int(h * 0.42))
     y = draw_text(c, "Grab it today", end + int(90 * s), int(96 * s))
     draw_text(c, cta, y + int(20 * s), int(58 * s), GOLD)
@@ -180,7 +199,7 @@ def make_voice(lines, pipeline_fn):
 
 def render(product, out_dir, platform="tiktok", speech=None, tag=None):
     w, h, _ = SIZES[platform]
-    im = load_image(product.get("image_url"), product.get("image_path"))
+    im = load_image(product.get("image_url"), product.get("image_path"), product.get("cutout_path"))
     beats = build_beats(im, product, platform)
     work = tempfile.mkdtemp(prefix="qc_")
     try:
@@ -221,6 +240,7 @@ def main():
     ap.add_argument("--condition")
     ap.add_argument("--image-url")
     ap.add_argument("--image-path")
+    ap.add_argument("--cutout-path", help="transparent PNG of the product (background already removed)")
     ap.add_argument("--platform", default="tiktok", choices=list(SIZES))
     ap.add_argument("--out-dir", default="out/commercials")
     ap.add_argument("--no-voice", action="store_true")
@@ -230,7 +250,8 @@ def main():
         from scripts.voice_music_factory import generate_speech_array
         speech = generate_speech_array
     print(render({"title": a.title, "price": a.price, "condition": a.condition,
-                  "image_url": a.image_url, "image_path": a.image_path}, a.out_dir, a.platform, speech))
+                  "image_url": a.image_url, "image_path": a.image_path, "cutout_path": a.cutout_path},
+                 a.out_dir, a.platform, speech))
 
 
 if __name__ == "__main__":

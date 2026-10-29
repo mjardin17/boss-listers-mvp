@@ -39,6 +39,7 @@ export default async function handler(req, res) {
     const bodyParams = new URLSearchParams({
       grant_type: "authorization_code",
       code,
+      redirect_uri: RUNAME,
     });
     const tokenRes = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
       method: "POST",

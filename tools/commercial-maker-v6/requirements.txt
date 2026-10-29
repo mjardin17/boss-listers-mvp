@@ -1,0 +1,12 @@
+# CPU-only torch — must come before the torch line so pip uses it
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+gradio>=4.0
+torch
+transformers>=4.44
+tokenizers>=0.19
+pillow
+numpy
+imageio-ffmpeg
+gtts
+requests
