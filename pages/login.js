@@ -46,7 +46,7 @@ async function hasTenant(accessToken) {
 
 export default function Login() {
   const [mode, setMode] = useState("signin"); // "signin" | "signup"
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(process.env.NEXT_PUBLIC_LOGIN_EMAIL || "");
   const [password, setPassword] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [busy, setBusy] = useState(false);
