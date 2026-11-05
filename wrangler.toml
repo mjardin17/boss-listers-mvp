@@ -19,7 +19,7 @@ ANALYZE_DAILY_BUDGET = "200"
 STRIPE_PRODUCT_ID = "prod_boss_listers_59"
 STRIPE_PRICE_ID = "price_boss_listers_monthly_59"
 VIDEO_PIPELINE_WEBHOOK_URL = "http://localhost:8002/webhook"
-VIDEO_PIPELINE_WEBHOOK_SECRET = "boss-listers-webhook-secret-2026"
+# VIDEO_PIPELINE_WEBHOOK_SECRET is set with: wrangler secret put VIDEO_PIPELINE_WEBHOOK_SECRET
 
 [env.preview.vars]
 SUPABASE_URL = "https://irslzufsqjveyibkfjtz.supabase.co"
