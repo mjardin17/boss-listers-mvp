@@ -20,7 +20,11 @@ export default async function handler(req, res) {
     if (!connector) {
       return res.status(400).json({ ok: false, error: `Unknown or non-API channel: ${channel}` });
     }
-    const result = await connector.getConnectionStatus();
+    // Signed-in customers: test THEIR connected account (the one the sign-in saved).
+    // The shared env credential is only used when there is no tenant to check.
+    const result = session.tenantId && typeof connector.testTenantConnection === "function"
+      ? await connector.testTenantConnection(session.tenantId)
+      : await connector.getConnectionStatus();
     return res.status(200).json({ ok: true, channel, ...result });
   } catch (err) {
     console.error("[api/channels/test]", err.message);
