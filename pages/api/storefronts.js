@@ -1,7 +1,8 @@
 // pages/api/storefronts.js
-// GET → one overview of every storefront the owner runs, grouped as active, draft and sold.
+// GET → one overview of every storefront the owner runs.
 //   eBay: active and draft offers from the eBay API; sold orders need the order-read permission.
-//   Facebook, Instagram: connection check. Shopify, site, Etsy, Amazon: status and links.
+//   Facebook Page and Instagram: connection check plus the most recent posts.
+//   Shopify, website, Etsy, Amazon: link or status only (not checked here).
 // Auth: owner session required. Read-only; nothing is published or changed here.
 
 const fs = require("fs");
@@ -62,17 +63,43 @@ async function ebaySold(base, h) {
 }
 
 async function facebookStatus() {
-  const page = process.env.FB_PAGE_ID, token = process.env.FB_ACCESS_TOKEN;
+  const page = process.env.FB_PAGE_ID;
+  const token = process.env.FB_ACCESS_TOKEN;
   if (!page || !token) return { connected: false };
-  const pg = await (await fetch(`https://graph.facebook.com/v25.0/${page}?fields=name,link&access_token=${token}`)).json();
-  return pg.error ? { connected: false, error: "Facebook Page check failed" } : { connected: true, name: pg.name, url: pg.link || null };
+  const pg = await (await fetch(`https://graph.facebook.com/v25.0/${page}?fields=name,link,access_token&access_token=${token}`)).json();
+  if (pg.error || !pg.access_token) return { connected: false, error: "Facebook Page check failed" };
+  const feed = await (await fetch(`https://graph.facebook.com/v25.0/${page}/posts?fields=message,created_time,permalink_url,full_picture&limit=12&access_token=${pg.access_token}`)).json();
+  return {
+    connected: true,
+    name: pg.name,
+    url: pg.link || null,
+    posts: (feed.data || []).map((p) => ({
+      id: p.id,
+      text: p.message || "",
+      time: p.created_time,
+      url: p.permalink_url || null,
+      image: p.full_picture || null,
+    })),
+  };
 }
 
 async function instagramStatus() {
   const token = process.env.IG_ACCESS_TOKEN || process.env.INSTAGRAM_ACCESS_TOKEN;
   if (!token) return { connected: false };
   const me = await (await fetch(`https://graph.instagram.com/v25.0/me?fields=username&access_token=${token}`)).json();
-  return me.error ? { connected: false, error: "Instagram check failed" } : { connected: true, username: me.username };
+  if (me.error) return { connected: false, error: "Instagram check failed" };
+  const media = await (await fetch(`https://graph.instagram.com/v25.0/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp&limit=12&access_token=${token}`)).json();
+  return {
+    connected: true,
+    username: me.username,
+    posts: (media.data || []).map((m) => ({
+      id: m.id,
+      text: m.caption || "",
+      time: m.timestamp,
+      url: m.permalink || null,
+      image: m.media_type === "VIDEO" ? (m.thumbnail_url || null) : (m.media_url || null),
+    })),
+  };
 }
 
 export default async function handler(req, res) {
@@ -96,7 +123,7 @@ export default async function handler(req, res) {
       ebay,
       facebook,
       instagram,
-      shopify: { connected: false, linkOnly: true, url: "https://jardinsoutpost.com", note: "Not checked by BossListers. Store closes Nov 15 2026 unless you change it", active: [], drafts: [] },
+      shopify: { connected: false, linkOnly: true, url: "https://jardinsoutpost.com", note: "Not checked by BossListers. Store closes Nov 15 2026 unless you change it" },
       site: { connected: false, linkOnly: true, url: "https://jardins-outpost.pages.dev", note: "Not checked by BossListers. Its shop section syncs from eBay" },
       etsy: { connected: false, note: "No shop yet" },
       amazon: { connected: false, note: "Account not connected (plan decision pending)" },

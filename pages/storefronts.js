@@ -45,6 +45,12 @@ const CSS = `
 .sf-note{color:#8e9db3;font-size:13px;padding:10px 12px;border:1px dashed #33425a;border-radius:8px;margin:0}
 .sf-ext{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px 4px;border-bottom:1px solid #161f2e}
 .sf-err{color:#e8917f;font-size:13px}
+.sf-posts{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+.sf-post{background:#151e2d;border:1px solid #1f2a3b;border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.sf-post img{width:100%;aspect-ratio:4/5;object-fit:cover;display:block;background:#0c121c}
+.sf-post-blank{aspect-ratio:4/5;display:grid;place-items:center;background:#0c121c;color:#4a5a72;font-size:13px}
+.sf-post-body{padding:10px 12px;display:grid;gap:4px}
+.sf-post-text{margin:0;font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 dialog.sf-dlg{background:#151e2d;color:#f1e9d6;border:1px solid #33425a;border-radius:12px;padding:22px;max-width:440px;width:calc(100% - 32px)}
 dialog.sf-dlg::backdrop{background:rgba(5,8,14,.7)}
 dialog.sf-dlg h3{margin:0 0 8px;font-size:16px}
@@ -127,7 +133,37 @@ function EbayPanel({ ebay, onAction }) {
   );
 }
 
+function PostGrid({ posts, empty }) {
+  if (!posts || posts.length === 0) return <p className="sf-empty">{empty}</p>;
+  return (
+    <ul className="sf-posts">
+      {posts.map((p) => (
+        <li key={p.id} className="sf-post">
+          {p.image
+            ? <img src={p.image} alt="" loading="lazy" />
+            : <div className="sf-post-blank">No image</div>}
+          <div className="sf-post-body">
+            <p className="sf-post-text">{p.text ? p.text.split("\n").filter(Boolean)[0] : "No caption"}</p>
+            <div className="sf-sub">{p.time ? new Date(p.time).toLocaleString() : ""}</div>
+            {p.url && <a className="sf-link" href={p.url} target="_blank" rel="noreferrer">Open post</a>}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ExternalPanel({ id, data }) {
+  if (id === "instagram" || id === "facebook") {
+    const channel = data[id];
+    if (!channel?.connected) return <p className="sf-err">{channel?.error || "Not connected."}</p>;
+    return (
+      <>
+        <div className="sf-sub">{id === "instagram" ? `@${channel.username}` : channel.name} · {channel.posts.length} recent posts</div>
+        <PostGrid posts={channel.posts} empty="No posts yet." />
+      </>
+    );
+  }
   const text = {
     instagram: data.instagram?.connected ? `Connected as @${data.instagram.username}` : "Not connected",
     facebook: data.facebook?.connected ? `Connected: ${data.facebook.name}` : "Not connected",
