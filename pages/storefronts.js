@@ -194,7 +194,7 @@ export default function StorefrontsPage() {
   }
 
   const shell = (children) => (
-    <main className="sf-root"><style>{CSS}</style>{children}</main>
+    <main className="sf-root"><style dangerouslySetInnerHTML={{ __html: CSS }} />{children}</main>
   );
 
   if (error) return shell(<p className="sf-err" style={{ padding: 28 }}>{error}</p>);
