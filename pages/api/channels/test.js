@@ -22,9 +22,16 @@ export default async function handler(req, res) {
     }
     // Signed-in customers: test THEIR connected account (the one the sign-in saved).
     // The shared env credential is only used when there is no tenant to check.
-    const result = session.tenantId && typeof connector.testTenantConnection === "function"
-      ? await connector.testTenantConnection(session.tenantId)
-      : await connector.getConnectionStatus();
+    // The button asks for a live test. Signed-in tenants test their own account;
+    // connectors with a live probe (e.g. Facebook page check) run it; the rest fall back to status.
+    let result;
+    if (session.tenantId && typeof connector.testTenantConnection === "function") {
+      result = await connector.testTenantConnection(session.tenantId);
+    } else if (typeof connector.testConnection === "function") {
+      result = await connector.testConnection();
+    } else {
+      result = await connector.getConnectionStatus();
+    }
     return res.status(200).json({ ok: true, channel, ...result });
   } catch (err) {
     console.error("[api/channels/test]", err.message);
