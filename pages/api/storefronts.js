@@ -31,6 +31,24 @@ function toListing(offer) {
   };
 }
 
+// eBay offers are per SKU. Ask in small parallel batches so the page is not kept waiting.
+const OFFER_BATCH_SIZE = 10;
+
+async function fetchOffersForSku(sku, base, h) {
+  const r = await (await fetch(base + "/sell/inventory/v1/offer?sku=" + encodeURIComponent(sku) + "&marketplace_id=EBAY_US", { headers: h })).json();
+  return (r.offers || []).map(toListing);
+}
+
+async function fetchOffersInBatches(skus, base, h) {
+  const offers = [];
+  for (let i = 0; i < skus.length; i += OFFER_BATCH_SIZE) {
+    const batch = skus.slice(i, i + OFFER_BATCH_SIZE);
+    const results = await Promise.all(batch.map((sku) => fetchOffersForSku(sku, base, h)));
+    for (const list of results) offers.push(...list);
+  }
+  return offers;
+}
+
 async function ebayStorefront(tenantId) {
   const c = new EbayConnector();
   const tok = await c._getAccessToken(tenantId);
@@ -38,11 +56,7 @@ async function ebayStorefront(tenantId) {
   const h = { Authorization: `Bearer ${tok}`, Accept: "application/json", "Accept-Language": "en-US", "Content-Language": "en-US" };
   const inv = await (await fetch(base + "/sell/inventory/v1/inventory_item?limit=100", { headers: h })).json();
   const skus = (inv.inventoryItems || []).map((i) => i.sku);
-  const offers = [];
-  for (const sku of skus) {
-    const r = await (await fetch(base + "/sell/inventory/v1/offer?sku=" + encodeURIComponent(sku) + "&marketplace_id=EBAY_US", { headers: h })).json();
-    for (const o of r.offers || []) offers.push(toListing(o));
-  }
+  const offers = await fetchOffersInBatches(skus, base, h);
   const active = offers.filter((o) => o.status === "PUBLISHED");
   const drafts = offers.filter((o) => o.status === "UNPUBLISHED");
   const sold = await ebaySold(base, h);
