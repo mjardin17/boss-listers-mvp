@@ -9,6 +9,7 @@ const fs = require("fs");
 const path = require("path");
 const { requireOwnerSession } = require("../../lib/requireSession");
 const { EbayConnector } = require("../../lib/channels/apiConnectors");
+const { readEbayStorefront, readFacebook, readInstagram } = require("../../lib/storefrontsRead");
 
 function loadEnvLocal() {
   const file = path.join(process.cwd(), ".env.local");
@@ -19,101 +20,16 @@ function loadEnvLocal() {
   }
 }
 
-function toListing(offer) {
-  return {
-    offerId: offer.offerId,
-    sku: offer.sku,
-    price: offer.pricingSummary?.price?.value ?? null,
-    quantity: offer.availableQuantity ?? null,
-    status: offer.status,
-    listingId: offer.listing?.listingId || null,
-    url: offer.listing?.listingId ? `https://www.ebay.com/itm/${offer.listing.listingId}` : null,
-  };
-}
-
-// eBay offers are per SKU. Ask in small parallel batches so the page is not kept waiting.
-const OFFER_BATCH_SIZE = 10;
-
-async function fetchOffersForSku(sku, base, h) {
-  const r = await (await fetch(base + "/sell/inventory/v1/offer?sku=" + encodeURIComponent(sku) + "&marketplace_id=EBAY_US", { headers: h })).json();
-  return (r.offers || []).map(toListing);
-}
-
-async function fetchOffersInBatches(skus, base, h) {
-  const offers = [];
-  for (let i = 0; i < skus.length; i += OFFER_BATCH_SIZE) {
-    const batch = skus.slice(i, i + OFFER_BATCH_SIZE);
-    const results = await Promise.all(batch.map((sku) => fetchOffersForSku(sku, base, h)));
-    for (const list of results) offers.push(...list);
-  }
-  return offers;
-}
-
+// Details go to the server log only. The browser gets a fixed message, so no eBay internals leak.
 async function ebayStorefront(tenantId) {
-  const c = new EbayConnector();
-  const tok = await c._getAccessToken(tenantId);
-  const base = EbayConnector.apiBase();
-  const h = { Authorization: `Bearer ${tok}`, Accept: "application/json", "Accept-Language": "en-US", "Content-Language": "en-US" };
-  const inv = await (await fetch(base + "/sell/inventory/v1/inventory_item?limit=100", { headers: h })).json();
-  const skus = (inv.inventoryItems || []).map((i) => i.sku);
-  const offers = await fetchOffersInBatches(skus, base, h);
-  const active = offers.filter((o) => o.status === "PUBLISHED");
-  const drafts = offers.filter((o) => o.status === "UNPUBLISHED");
-  const sold = await ebaySold(base, h);
-  return { connected: true, active, drafts, sold };
-}
-
-// Sold orders need the sell.fulfillment scope. Until the eBay login grants it, report the reason.
-async function ebaySold(base, h) {
-  const r = await (await fetch(base + "/sell/fulfillment/v1/order?limit=50", { headers: h })).json();
-  if (r.errors) return { available: false, note: "eBay login needs order-read permission before sold items can show here", orders: [] };
-  const orders = (r.orders || []).map((o) => ({
-    orderId: o.orderId,
-    total: o.pricingSummary?.total?.value ?? null,
-    status: o.orderFulfillmentStatus,
-    items: (o.lineItems || []).map((l) => l.title),
-  }));
-  return { available: true, orders };
-}
-
-async function facebookStatus() {
-  const page = process.env.FB_PAGE_ID;
-  const token = process.env.FB_ACCESS_TOKEN;
-  if (!page || !token) return { connected: false };
-  const pg = await (await fetch(`https://graph.facebook.com/v25.0/${page}?fields=name,link,access_token&access_token=${token}`)).json();
-  if (pg.error || !pg.access_token) return { connected: false, error: "Facebook Page check failed" };
-  const feed = await (await fetch(`https://graph.facebook.com/v25.0/${page}/posts?fields=message,created_time,permalink_url,full_picture&limit=12&access_token=${pg.access_token}`)).json();
-  return {
-    connected: true,
-    name: pg.name,
-    url: pg.link || null,
-    posts: (feed.data || []).map((p) => ({
-      id: p.id,
-      text: p.message || "",
-      time: p.created_time,
-      url: p.permalink_url || null,
-      image: p.full_picture || null,
-    })),
-  };
-}
-
-async function instagramStatus() {
-  const token = process.env.IG_ACCESS_TOKEN || process.env.INSTAGRAM_ACCESS_TOKEN;
-  if (!token) return { connected: false };
-  const me = await (await fetch(`https://graph.instagram.com/v25.0/me?fields=username&access_token=${token}`)).json();
-  if (me.error) return { connected: false, error: "Instagram check failed" };
-  const media = await (await fetch(`https://graph.instagram.com/v25.0/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp&limit=12&access_token=${token}`)).json();
-  return {
-    connected: true,
-    username: me.username,
-    posts: (media.data || []).map((m) => ({
-      id: m.id,
-      text: m.caption || "",
-      time: m.timestamp,
-      url: m.permalink || null,
-      image: m.media_type === "VIDEO" ? (m.thumbnail_url || null) : (m.media_url || null),
-    })),
-  };
+  try {
+    const c = new EbayConnector();
+    const accessToken = await c._getAccessToken(tenantId);
+    return await readEbayStorefront({ accessToken, base: EbayConnector.apiBase(), fetchImpl: fetch });
+  } catch (err) {
+    console.error("[api/storefronts] eBay read failed:", err.message);
+    return { connected: false, error: "eBay could not be read right now" };
+  }
 }
 
 export default async function handler(req, res) {
@@ -126,9 +42,11 @@ export default async function handler(req, res) {
   loadEnvLocal();
 
   const [ebay, facebook, instagram] = await Promise.all([
-    ebayStorefront(process.env.PLATFORM_OWNER_TENANT_ID).catch((e) => ({ connected: false, error: e.message })),
-    facebookStatus().catch(() => ({ connected: false })),
-    instagramStatus().catch(() => ({ connected: false })),
+    ebayStorefront(process.env.PLATFORM_OWNER_TENANT_ID),
+    readFacebook({ pageId: process.env.FB_PAGE_ID, token: process.env.FB_ACCESS_TOKEN, fetchImpl: fetch })
+      .catch((err) => { console.error("[api/storefronts] Facebook:", err.message); return { connected: false, error: "Facebook Page check failed" }; }),
+    readInstagram({ token: process.env.IG_ACCESS_TOKEN || process.env.INSTAGRAM_ACCESS_TOKEN, fetchImpl: fetch })
+      .catch((err) => { console.error("[api/storefronts] Instagram:", err.message); return { connected: false, error: "Instagram check failed" }; }),
   ]);
 
   return res.status(200).json({
