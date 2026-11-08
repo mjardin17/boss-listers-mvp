@@ -2,7 +2,7 @@
 // - Pages: network first (never serve a stale app after an update), cached copy only when offline.
 // - /_next/static and icons: cache first (hashed / immutable).
 // - /api/* and anything that is not a GET: always straight to the network.
-const CACHE_NAME = "boss-listers-v2";
+const CACHE_NAME = "boss-listers-v3";
 const URLS_TO_CACHE = ["/login", "/manifest.json", "/icon-192.png"];
 
 self.addEventListener("install", (event) => {
@@ -25,9 +25,9 @@ self.addEventListener("activate", (event) => {
 });
 
 function putInCache(request, response) {
-  if (!response || response.status !== 200 || response.type !== "basic") return;
+  if (!response || response.status !== 200 || response.type !== "basic" || /no-store/i.test(response.headers.get("cache-control") || "")) return;
   const copy = response.clone();
-  caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+  caches.open(CACHE_NAME).then((cache) => cache.put(request.url, copy));
 }
 
 self.addEventListener("fetch", (event) => {

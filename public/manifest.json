@@ -3,7 +3,7 @@
   "short_name": "Boss Listers",
   "description": "Multi-marketplace reseller listing dashboard",
   "id": "/capture",
-  "start_url": "/capture",
+  "start_url": "/card-scan",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
@@ -32,6 +32,18 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Scan trading cards",
+      "short_name": "Card scanner",
+      "url": "/card-scan"
+    },
+    {
+      "name": "Capture any item",
+      "short_name": "Capture",
+      "url": "/capture"
     }
   ]
 }

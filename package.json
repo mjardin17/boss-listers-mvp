@@ -12,7 +12,11 @@
     "test:e2e:ui": "playwright test --ui",
     "check-connections": "node scripts/check-connections.js",
     "start": "next start -p 3001",
-    "start:render": "next start -p $PORT"
+    "start:render": "next start -p $PORT",
+    "test:card-factory": "node --test tests/cardIdentification.test.js tests/cardPricing.test.js tests/cardPricingEbay.test.js tests/cardFactoryAdapters.test.js && python -m unittest discover -s tests/card_factory -p \"test_*.py\"",
+    "lint": "eslint lib/cardScanner components/cards app/api/card-factory pages/card-scan.js tests/cardScanner*.js",
+    "test:card-scanner": "node --test tests/cardScanner.test.js tests/cardScannerWorkflow.test.js",
+    "test:e2e:card-scanner": "playwright test --config=playwright.card-scanner.config.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.73",
@@ -43,6 +47,7 @@
     "@types/node": "25.9.5",
     "@types/react": "19.2.18",
     "autoprefixer": "^10.5.0",
+    "eslint": "^9.39.5",
     "postcss": "^8.5.14",
     "tailwindcss": "^3.4.19",
     "typescript": "6.0.3"

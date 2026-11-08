@@ -27,3 +27,13 @@ pnpm-lock.yaml
 pnpm-workspace.yaml
 __pycache__/
 *.pyc
+
+# Local card factory databases / SQLite sidecars (never commit personal inventory)
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite3-journal
+*.sqlite-wal
+*.sqlite3-wal
+*.sqlite-shm
+*.sqlite3-shm
