@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Head from "next/head";
 import { authedFetch } from "../lib/clientAuth";
 
 const STATE_COLOR = { "waiting on you": "#e0a84a", "needs check": "#e8917f", building: "#6fbf8e" };
@@ -20,6 +21,13 @@ export default function HomePage() {
   const background = "linear-gradient(rgba(12,18,28,0.82), rgba(12,18,28,0.9)), url(/home-bg.jpg) center top / cover fixed no-repeat, #0c121c";
 
   return (
+    <>
+    <Head>
+      <title>Joshua's Outpost</title>
+      <link rel="manifest" href="/manifest-home.json" />
+      <meta name="theme-color" content="#0c121c" />
+      <meta name="apple-mobile-web-app-capable" content="yes" />
+    </Head>
     <main style={{ minHeight: "100vh", background, color: "#f1e9d6", padding: "28px 18px", fontFamily: "system-ui, sans-serif" }}>
       <div style={{ maxWidth: 1000, margin: "0 auto" }}>
         <h1 style={{ fontSize: 26, margin: "0 0 4px" }}>Joshua's Outpost</h1>
@@ -46,5 +54,6 @@ export default function HomePage() {
         <p style={{ color: "#4a5a72", fontSize: 12, marginTop: 26 }}>Private. Visible only to the owner account.</p>
       </div>
     </main>
+    </>
   );
 }
