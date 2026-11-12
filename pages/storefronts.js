@@ -59,6 +59,20 @@ dialog.sf-dlg label{display:block;margin-bottom:6px}
 dialog.sf-dlg input{width:100%;padding:9px 11px;border-radius:8px;border:1px solid #33425a;background:#0c121c;color:#f1e9d6;font:inherit;margin-bottom:14px}
 dialog.sf-dlg input:focus-visible{outline:2px solid #e0a84a;outline-offset:1px}
 .sf-actions{display:flex;justify-content:flex-end;gap:8px}
+.sf-video{display:grid;gap:18px;max-width:620px}
+.sf-field{display:grid;gap:6px;border:0;padding:0;margin:0}
+.sf-field>label,.sf-field>legend{font-size:13px;color:#c9d2e0;font-weight:600;padding:0}
+.sf-field select,.sf-field textarea,.sf-video-live input{width:100%;padding:9px 11px;border-radius:8px;border:1px solid #33425a;background:#0c121c;color:#f1e9d6;font:inherit}
+.sf-field select:focus-visible,.sf-field textarea:focus-visible,.sf-video-live input:focus-visible,.sf-check input:focus-visible{outline:2px solid #e0a84a;outline-offset:1px}
+.sf-video-make{padding-bottom:18px;border-bottom:1px solid #1f2a3b;justify-items:start}
+.sf-video-make select{justify-self:stretch}
+.sf-video-player{width:100%;max-height:340px;border-radius:10px;background:#05080e;border:1px solid #1f2a3b}
+.sf-check{display:flex;flex-direction:row;align-items:center;font-size:14px;color:#f1e9d6;gap:8px;padding:4px 0;cursor:pointer}
+.sf-check input{accent-color:#e0a84a;width:16px;height:16px;padding:0;margin:0;flex:none}
+.sf-video-actions{display:grid;gap:14px;padding-top:14px;border-top:1px solid #1f2a3b;justify-items:start}
+.sf-video-live{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;width:100%}
+.sf-video-live label{grid-column:1/-1}
+.sf-video-result{list-style:none;margin:0;padding:12px 14px;display:grid;gap:8px;background:#151e2d;border:1px solid #1f2a3b;border-radius:10px;font-size:14px}
 @media (max-width:760px){.sf-grid{grid-template-columns:1fr}.sf-nav{position:static;border-right:0;border-bottom:1px solid #1f2a3b;display:flex;overflow-x:auto;gap:4px}.sf-nav button{width:auto;white-space:nowrap}.sf-main{padding:18px 16px}.sf-row{grid-template-columns:1fr auto}.sf-row .sf-pill{display:none}.sf-top{padding:16px}}
 `;
 
@@ -66,6 +80,7 @@ const CHANNELS = [
   { key: "ebay", label: "eBay" },
   { key: "instagram", label: "Instagram" },
   { key: "facebook", label: "Facebook Page" },
+  { key: "video", label: "Send a video" },
   { key: "site", label: "Website" },
   { key: "shopify", label: "Shopify" },
   { key: "etsy", label: "Etsy" },
@@ -181,6 +196,184 @@ function ExternalPanel({ id, data }) {
   );
 }
 
+const VIDEO_PLATFORM_LABEL = { instagram: "Instagram Reel", facebook: "Facebook Page video" };
+
+function megabytes(bytes) {
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+/** Make a commercial for one live item. It saves a file on this computer and posts nothing. */
+function MakeCommercial({ onMade }) {
+  const [items, setItems] = useState(null);
+  const [sku, setSku] = useState("");
+  const [making, setMaking] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  useEffect(() => {
+    authedFetch("/api/social/make-commercial")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j.ok) return setMessage({ bad: true, text: j.error || "Could not load items" });
+        setItems(j.items);
+        setSku(j.items[0]?.sku || "");
+      })
+      .catch(() => setMessage({ bad: true, text: "Could not load items" }));
+  }, []);
+
+  async function make() {
+    setMaking(true);
+    setMessage(null);
+    try {
+      const r = await authedFetch("/api/social/make-commercial", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku }),
+      });
+      const j = await r.json();
+      if (!j.ok) return setMessage({ bad: true, text: j.error || "The commercial could not be made" });
+      setMessage({ bad: false, text: `Made ${j.commercial.name}. Nothing was posted.` });
+      await onMade(j.commercial.name);
+    } catch {
+      setMessage({ bad: true, text: "The request did not reach the server." });
+    } finally {
+      setMaking(false);
+    }
+  }
+
+  return (
+    <div className="sf-field sf-video-make">
+      <label htmlFor="sf-make-item">Make a commercial for</label>
+      <select id="sf-make-item" value={sku} onChange={(e) => setSku(e.target.value)} disabled={!items || making}>
+        {(items || []).map((i) => <option key={i.sku} value={i.sku}>{i.title} (${i.price.toFixed(2)})</option>)}
+      </select>
+      <button className="sf-btn quiet" disabled={!sku || making} onClick={make}>
+        {making ? "Making… about two minutes" : "Make commercial (posts nothing)"}
+      </button>
+      <span role="status" aria-live="polite" className={message?.bad ? "sf-err" : "sf-sub"}>{message?.text || ""}</span>
+    </div>
+  );
+}
+
+/** Send one finished commercial to Instagram and the Facebook Page. Preview first, then a typed confirm. */
+function VideoPanel() {
+  const [info, setInfo] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [commercial, setCommercial] = useState("");
+  const [chosen, setChosen] = useState(["instagram", "facebook"]);
+  const [caption, setCaption] = useState("");
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [reply, setReply] = useState(null);
+
+  const [version, setVersion] = useState(0);
+
+  const loadCommercials = (select) =>
+    authedFetch("/api/social/post-video")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j.ok) return setLoadError(j.error || "Could not load commercials");
+        setInfo(j);
+        setCommercial(select || j.commercials[0]?.name || "");
+        setVersion((v) => v + 1);
+        setReply(null);
+      })
+      .catch(() => setLoadError("Could not load commercials"));
+
+  useEffect(() => { loadCommercials(); }, []);
+
+  if (loadError) return <p className="sf-err">{loadError}</p>;
+  if (!info) return <p className="sf-sub">Loading commercials…</p>;
+  if (!info.commercials.length) {
+    return (
+      <div className="sf-video">
+        <MakeCommercial onMade={loadCommercials} />
+        <p className="sf-empty">No finished commercials yet. Make one above.</p>
+      </div>
+    );
+  }
+
+  const toggle = (platform) => setChosen((cur) => (cur.includes(platform) ? cur.filter((p) => p !== platform) : [...cur, platform]));
+  const ready = Boolean(commercial) && chosen.length > 0 && !busy;
+
+  async function send(confirm) {
+    setBusy(true);
+    setReply(null);
+    try {
+      const r = await authedFetch("/api/social/post-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platforms: chosen, commercial, caption, confirm }),
+      });
+      setReply(await r.json());
+    } catch {
+      setReply({ ok: false, error: "The request did not reach the server." });
+    } finally {
+      setBusy(false);
+      setTyped("");
+    }
+  }
+
+  return (
+    <div className="sf-video">
+      <MakeCommercial onMade={loadCommercials} />
+      <div className="sf-field">
+        <label htmlFor="sf-video-file">Commercial</label>
+        <select id="sf-video-file" value={commercial} onChange={(e) => { setCommercial(e.target.value); setReply(null); }}>
+          {info.commercials.map((c) => <option key={c.name} value={c.name}>{c.name} ({megabytes(c.bytes)})</option>)}
+        </select>
+        {commercial ? <video className="sf-video-player" key={`${commercial}-${version}`} src={`/commercials/${commercial}?v=${version}`} controls preload="metadata" /> : null}
+      </div>
+
+      <fieldset className="sf-field">
+        <legend>Send to</legend>
+        {info.platforms.map((p) => (
+          <label key={p} className="sf-check">
+            <input type="checkbox" checked={chosen.includes(p)} onChange={() => toggle(p)} /> {VIDEO_PLATFORM_LABEL[p] || p}
+          </label>
+        ))}
+      </fieldset>
+
+      <div className="sf-field">
+        <label htmlFor="sf-video-caption">Caption</label>
+        <textarea id="sf-video-caption" rows={4} value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={2200} />
+        <span className="sf-sub">{caption.length} of 2200</span>
+      </div>
+
+      <div className="sf-video-actions">
+        <button className="sf-btn quiet" disabled={!ready} onClick={() => send(undefined)}>{busy ? "Working…" : "Preview (sends nothing)"}</button>
+        <span className="sf-video-live">
+          <label htmlFor="sf-video-confirm" className="sf-sub">Type {info.confirmPhrase} to post for real</label>
+          <input id="sf-video-confirm" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+          <button className="sf-btn primary" disabled={!ready || typed !== info.confirmPhrase} onClick={() => send(info.confirmPhrase)}>Post live</button>
+        </span>
+      </div>
+
+      <div role="status" aria-live="polite">
+        {reply && !reply.ok ? <p className="sf-err">{reply.error}</p> : null}
+        {reply && reply.ok ? (
+          <ul className="sf-video-result">
+            <li className="sf-sub">
+              {reply.live
+                ? (reply.video.uploaded ? "The commercial was copied to public storage." : "")
+                : `Preview only. Nothing was uploaded or posted.${reply.video.wouldUpload ? " A live post first copies this file to public storage." : ""}`}
+            </li>
+            {Object.entries(reply.results).map(([platform, r]) => (
+              <li key={platform}>
+                <strong>{VIDEO_PLATFORM_LABEL[platform] || platform}:</strong>{" "}
+                {r.success
+                  ? <>posted. {r.url ? <a className="sf-link" href={r.url} target="_blank" rel="noreferrer">Open</a> : null}</>
+                  : r.dryRun
+                    ? `ready. A live post would: ${r.steps.map((s) => s.what).join(", then ")}.`
+                    : <span className="sf-err">not posted. {r.error}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export default function StorefrontsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -251,7 +444,7 @@ export default function StorefrontsPage() {
         <nav className="sf-nav" aria-label="Storefronts">
           {CHANNELS.map((c) => {
             const s = data[c.key];
-            const connected = Boolean(s?.connected);
+            const connected = c.key === "video" ? Boolean(data.instagram?.connected || data.facebook?.connected) : Boolean(s?.connected);
             const count = c.key === "ebay" && data.ebay.connected ? data.ebay.active.length : null;
             return (
               <button key={c.key} aria-current={active === c.key ? "true" : undefined} onClick={() => setActive(c.key)}>
@@ -270,7 +463,7 @@ export default function StorefrontsPage() {
           </div>
           {active === "ebay"
             ? <EbayPanel ebay={data.ebay} onAction={(action, item) => { setNotice(""); setPending({ action, item }); }} />
-            : <ExternalPanel id={active} data={data} />}
+            : active === "video" ? <VideoPanel /> : <ExternalPanel id={active} data={data} />}
         </section>
       </div>
 

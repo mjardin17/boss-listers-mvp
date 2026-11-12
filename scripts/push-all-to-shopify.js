@@ -20,15 +20,17 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 const MIN_PLAUSIBLE_PRICE = 1; // a price under $1 is almost always a test value, never push it
 
 /** Splits products into what can be pushed and what is skipped, with the reason for each skip. */
-function planPush(products, shopifySkus, postedSkus = new Set(), onlySkus = null) {
+function planPush(products, shopifySkus, postedSkus = new Set(), onlySkus = null, skipSkus = new Set()) {
   const eligible = [];
   const skipped = [];
   const have = new Set([...shopifySkus].map((s) => String(s).toLowerCase()));
+  const never = new Set([...skipSkus].map((s) => String(s).toLowerCase()));
   for (const p of products) {
     const sku = String(p.sku || "");
     const why = [];
     if (onlySkus && !onlySkus.has(sku)) continue;
     if (!sku) why.push("no SKU");
+    else if (never.has(sku.toLowerCase())) why.push("on the skip list");
     else if (have.has(sku.toLowerCase())) why.push("already in Shopify");
     else if (postedSkus.has(sku)) why.push("already recorded as posted");
     if (!p.title || !String(p.title).trim()) why.push("no title");
@@ -79,7 +81,8 @@ async function main() {
   const idToSku = new Map(products.map((p) => [p.id, p.sku]));
   const postedSkus = new Set(posted.map((r) => idToSku.get(r.product_id)).filter(Boolean));
 
-  const { eligible, skipped } = planPush(products, shopifyProducts.map((p) => p.sku).filter(Boolean), postedSkus, args.only);
+  const skipSkus = new Set(require("../config/inventory-sync.json").shopifyPushSkip || []);
+  const { eligible, skipped } = planPush(products, shopifyProducts.map((p) => p.sku).filter(Boolean), postedSkus, args.only, skipSkus);
   const batch = eligible.slice(0, args.limit);
 
   console.log(`BossListers products: ${products.length} | already in Shopify: ${shopifyProducts.length} | can push: ${eligible.length} | skipped: ${skipped.length}`);
