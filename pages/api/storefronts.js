@@ -9,7 +9,8 @@ const fs = require("fs");
 const path = require("path");
 const { requireOwnerSession } = require("../../lib/requireSession");
 const { EbayConnector } = require("../../lib/channels/apiConnectors");
-const { readEbayStorefront, readFacebook, readInstagram } = require("../../lib/storefrontsRead");
+const { readEbayStorefront, readFacebook, readInstagram, mergeActiveListings } = require("../../lib/storefrontsRead");
+const { EbayInventoryFetcher } = require("../../lib/ebayInventoryFetcher");
 
 function loadEnvLocal() {
   const file = path.join(process.cwd(), ".env.local");
@@ -25,7 +26,15 @@ async function ebayStorefront(tenantId) {
   try {
     const c = new EbayConnector();
     const accessToken = await c._getAccessToken(tenantId);
-    return await readEbayStorefront({ accessToken, base: EbayConnector.apiBase(), fetchImpl: fetch });
+    const store = await readEbayStorefront({ accessToken, base: EbayConnector.apiBase(), fetchImpl: fetch });
+    // The offers only cover listings BossListers made. Add the ones listed on eBay itself.
+    try {
+      const all = await new EbayInventoryFetcher().fetchAllListings(tenantId, {});
+      return { ...store, active: mergeActiveListings(store.active, all), fullList: true };
+    } catch (err) {
+      console.error("[api/storefronts] eBay full list failed:", err.message);
+      return { ...store, fullList: false, listNote: "Only listings made in BossListers are shown. The full eBay list could not be read right now." };
+    }
   } catch (err) {
     console.error("[api/storefronts] eBay read failed:", err.message);
     return { connected: false, error: "eBay could not be read right now" };

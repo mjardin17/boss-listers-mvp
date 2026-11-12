@@ -143,3 +143,27 @@ test("readInstagram: token goes in headers and a missing token is not connected"
   }
   assert.deepStrictEqual(await readInstagram({ token: "", fetchImpl }), { connected: false });
 });
+
+const { mergeActiveListings } = require("../lib/storefrontsRead");
+
+test("mergeActiveListings: adds live eBay listings that have no BossListers offer, without duplicates", () => {
+  const offers = [{ offerId: "o1", sku: "BOOK-1", price: "4.99", quantity: 1, status: "PUBLISHED", listingId: "111", url: "https://www.ebay.com/itm/111" }];
+  const all = [
+    { sku: "BOOK-1", title: "Book one", price: 4.99, quantity: 1, ebayListingId: "111" },
+    { sku: "ebay-222", title: "Orion Pax", price: 25.99, quantity: 2, ebayListingId: "222" },
+    { sku: "x", title: "No listing id", price: 1, quantity: 1, ebayListingId: null },
+  ];
+  const merged = mergeActiveListings(offers, all);
+  assert.strictEqual(merged.length, 2);
+  assert.deepStrictEqual(merged[0], offers[0]);
+  assert.deepStrictEqual(merged[1], {
+    offerId: null, sku: "ebay-222", title: "Orion Pax", price: 25.99, quantity: 2,
+    status: "PUBLISHED", listingId: "222", url: "https://www.ebay.com/itm/222", listedOnEbay: true,
+  });
+});
+
+test("mergeActiveListings: an empty or missing second list changes nothing", () => {
+  const offers = [{ offerId: "o1", listingId: "111" }];
+  assert.deepStrictEqual(mergeActiveListings(offers, []), offers);
+  assert.deepStrictEqual(mergeActiveListings(offers, null), offers);
+});

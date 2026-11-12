@@ -139,6 +139,127 @@ test("classifyEbayItem: a missing or unreadable item is 'unknown', never 'sold'"
 });
 
 test("parseArgs: preview without Shopify is the default; --with-shopify and --live are opt-in", () => {
-  assert.deepStrictEqual(parseArgs([]), { live: false, confirm: undefined, sku: null, shopify: false });
-  assert.deepStrictEqual(parseArgs(["--with-shopify", "--live", "--sku", "A", "--confirm", "X"]), { live: true, confirm: "X", sku: "A", shopify: true });
+  assert.deepStrictEqual(parseArgs([]), { live: false, auto: false, confirm: undefined, sku: null, shopify: false });
+  assert.deepStrictEqual(parseArgs(["--with-shopify", "--live", "--sku", "A", "--confirm", "X"]), { live: true, auto: false, confirm: "X", sku: "A", shopify: true });
+});
+
+// ---- automatic mode -------------------------------------------------------
+const { autoSteps } = require("../lib/inventoryCountPlan");
+const { parseArgs: parseSyncArgs, AUTO_CONFIRM_WORD } = require("./inventory-count-sync");
+
+const planItem = (over) => ({ sku: "a", ebayListingId: "1", dbQty: 1, newQty: 1, ebayGone: false, oversoldBy: 0, actions: [], notes: [], ...over });
+
+test("autoSteps: a blocked plan applies nothing", () => {
+  const out = autoSteps({ blocked: "eBay returned no listings", items: [planItem({ newQty: 0, actions: [{ channel: "db", set: 0 }] })] });
+  assert.strictEqual(out.blocked, "eBay returned no listings");
+  assert.deepStrictEqual(out.apply, []);
+});
+
+test("autoSteps: database-only changes are applied; a gone listing needs eBay's word first", () => {
+  const out = autoSteps({ blocked: null, items: [
+    planItem({ sku: "gone", dbQty: 1, newQty: 0, ebayGone: true, actions: [{ channel: "db", set: 0 }] }),
+    planItem({ sku: "sold-one", dbQty: 3, newQty: 2, actions: [{ channel: "db", set: 2 }] }),
+    planItem({ sku: "same" }),
+  ] });
+  assert.deepStrictEqual(out.apply, [
+    { sku: "gone", ebayListingId: "1", from: 1, to: 0, needsEbayProof: true },
+    { sku: "sold-one", ebayListingId: "1", from: 3, to: 2, needsEbayProof: false },
+  ]);
+  assert.deepStrictEqual(out.held, []);
+});
+
+test("autoSteps: anything that would write to a selling site, is oversold, or has an error is held for Josh", () => {
+  const out = autoSteps({ blocked: null, items: [
+    planItem({ sku: "to-ebay", dbQty: 2, newQty: 1, actions: [{ channel: "db", set: 1 }, { channel: "ebay", set: 1 }] }),
+    planItem({ sku: "manual", dbQty: 1, newQty: 0, actions: [{ channel: "db", set: 0 }, { channel: "ebay", manual: "end the listing" }] }),
+    planItem({ sku: "over", dbQty: 1, newQty: 0, oversoldBy: 1, actions: [{ channel: "db", set: 0 }] }),
+    planItem({ sku: "bad", error: "no eBay baseline" }),
+  ] });
+  assert.deepStrictEqual(out.apply, []);
+  assert.deepStrictEqual(out.held.map((h) => h.sku), ["to-ebay", "manual", "over", "bad"]);
+  assert.ok(out.held.every((h) => h.reason));
+});
+
+test("parseArgs: automatic mode needs its own confirm word", () => {
+  assert.strictEqual(parseSyncArgs(["--auto", "--confirm", AUTO_CONFIRM_WORD]).auto, true);
+  assert.strictEqual(parseSyncArgs([]).auto, false);
+  assert.strictEqual(AUTO_CONFIRM_WORD, "SYNC_ALL_SAFE");
+});
+
+// ---- the other direction: a sale somewhere else must lower eBay --------------
+test("autoSteps: with eBay changes switched on, a sale elsewhere lowers eBay or ends the listing", () => {
+  const plan = { blocked: null, items: [
+    planItem({ sku: "three-left", ebayListingId: "11", dbQty: 2, newQty: 2, actions: [{ channel: "ebay", set: 2 }] }),
+    planItem({ sku: "last-one", ebayListingId: "22", dbQty: 0, newQty: 0, actions: [{ channel: "ebay", set: 0, manual: "end the eBay listing" }] }),
+    planItem({ sku: "shop", dbQty: 1, newQty: 1, actions: [{ channel: "shopify", set: 1 }] }),
+  ] };
+  const on = autoSteps(plan, { ebayWrites: true });
+  assert.deepStrictEqual(on.ebay, [
+    { sku: "three-left", ebayListingId: "11", set: 2, end: false },
+    { sku: "last-one", ebayListingId: "22", set: 0, end: true },
+  ]);
+  assert.deepStrictEqual(on.held.map((h) => h.sku), ["shop"]);
+
+  const off = autoSteps(plan);
+  assert.deepStrictEqual(off.ebay, []);
+  assert.deepStrictEqual(off.held.map((h) => h.sku), ["three-left", "last-one", "shop"]);
+});
+
+test("autoSteps: an eBay change is never made for an oversold or broken item, even when switched on", () => {
+  const out = autoSteps({ blocked: null, items: [
+    planItem({ sku: "over", oversoldBy: 1, newQty: 0, actions: [{ channel: "ebay", set: 0, manual: "end the eBay listing" }] }),
+    planItem({ sku: "bad", error: "bad eBay count: -1", actions: [] }),
+  ] }, { ebayWrites: true });
+  assert.deepStrictEqual(out.ebay, []);
+  assert.strictEqual(out.held.length, 2);
+});
+
+test("autoSteps: a count change and an eBay change on the same item are both carried out", () => {
+  const out = autoSteps({ blocked: null, items: [
+    planItem({ sku: "both", ebayListingId: "5", dbQty: 3, newQty: 2, actions: [{ channel: "db", set: 2 }, { channel: "ebay", set: 2 }] }),
+  ] }, { ebayWrites: true });
+  assert.deepStrictEqual(out.apply, [{ sku: "both", ebayListingId: "5", from: 3, to: 2, needsEbayProof: false }]);
+  assert.deepStrictEqual(out.ebay, [{ sku: "both", ebayListingId: "5", set: 2, end: false }]);
+});
+
+const { runAuto } = require("./inventory-count-sync");
+const quiet = async (fn) => { const log = console.log; console.log = () => {}; try { return await fn(); } finally { console.log = log; } };
+
+test("runAuto: lowers the BossListers count first, then eBay; a count that did not apply leaves eBay alone", async () => {
+  const plan = { blocked: null, items: [
+    planItem({ sku: "ok", ebayListingId: "1", dbQty: 3, newQty: 2, actions: [{ channel: "db", set: 2 }, { channel: "ebay", set: 2 }] }),
+    planItem({ sku: "last", ebayListingId: "2", dbQty: 0, newQty: 0, actions: [{ channel: "ebay", set: 0, manual: "end the eBay listing" }] }),
+    planItem({ sku: "stale", ebayListingId: "3", dbQty: 5, newQty: 4, actions: [{ channel: "db", set: 4 }, { channel: "ebay", set: 4 }] }),
+  ] };
+  const order = [];
+  const rest = async (path, opts) => {
+    const body = JSON.parse(opts.body);
+    order.push(`db:${body.p_sku}`);
+    return [{ applied: body.p_sku !== "stale", reason: "count changed since it was read" }];
+  };
+  const changeEbay = {
+    set: async (_f, _t, id, qty) => { order.push(`ebay-set:${id}:${qty}`); },
+    end: async (_f, _t, id) => { order.push(`ebay-end:${id}`); },
+  };
+  const out = await quiet(() => runAuto({ plan, ebay: { map: new Map(), fetcher: {} }, tenantId: "t", rest, ebayWrites: true, changeEbay }));
+  assert.deepStrictEqual(order, ["db:ok", "db:stale", "ebay-set:1:2", "ebay-end:2"]);
+  assert.deepStrictEqual(out.ebayChanged, [{ sku: "ok", set: 2, ended: false }, { sku: "last", set: 0, ended: true }]);
+  assert.deepStrictEqual(out.failed.map((f) => f.sku), ["stale"]);
+});
+
+test("runAuto: with eBay changes switched off, eBay is never called", async () => {
+  const plan = { blocked: null, items: [planItem({ sku: "last", dbQty: 0, newQty: 0, actions: [{ channel: "ebay", set: 0, manual: "end the eBay listing" }] })] };
+  let calls = 0;
+  const changeEbay = { set: async () => { calls++; }, end: async () => { calls++; } };
+  const out = await quiet(() => runAuto({ plan, ebay: { map: new Map(), fetcher: {} }, tenantId: "t", rest: async () => [], changeEbay }));
+  assert.strictEqual(calls, 0);
+  assert.deepStrictEqual(out.held.map((h) => h.sku), ["last"]);
+});
+
+test("runAuto: a failed eBay change is reported, not hidden", async () => {
+  const plan = { blocked: null, items: [planItem({ sku: "x", ebayListingId: "9", dbQty: 1, newQty: 1, actions: [{ channel: "ebay", set: 1 }] })] };
+  const changeEbay = { set: async () => { throw new Error("eBay refused"); }, end: async () => {} };
+  const out = await quiet(() => runAuto({ plan, ebay: { map: new Map(), fetcher: {} }, tenantId: "t", rest: async () => [], ebayWrites: true, changeEbay }));
+  assert.deepStrictEqual(out.ebayChanged, []);
+  assert.match(out.failed[0].reason, /eBay refused/);
 });

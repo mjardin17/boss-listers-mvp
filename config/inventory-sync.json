@@ -1,4 +1,6 @@
 {
+  "ownerTenantId": "f6ec6132-2cd0-4352-81e9-3c76d955b60d",
+  "ownerTenantIdReason": "The BossListers account the cloud sync works for. An id, not a secret.",
   "shopifyPushSkip": [
     "ebay-198509908519",
     "ebay-198509922080",
@@ -10,5 +12,7 @@
     "BOOK-IRON-LEGENDS-EBOOK",
     "BOOK-LITTLE-ZEUS-EBOOK"
   ],
+  "ebayWritesEnabled": false,
+  "ebayWritesEnabledReason": "When true, the automatic sync may lower an eBay quantity or end an eBay listing after the item sold on another site. Off until Josh says the store is going live.",
   "digitalSkusReason": "Ebooks have no stock to count; the quantity sync leaves them alone."
 }

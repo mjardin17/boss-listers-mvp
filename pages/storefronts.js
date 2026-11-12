@@ -94,10 +94,11 @@ function ListingRow({ item, onAction }) {
   return (
     <div className="sf-row">
       <div style={{ minWidth: 0 }}>
-        <div className="sf-sku">{item.sku}</div>
+        <div className="sf-sku">{item.title || item.sku}</div>
         <div className="sf-sub">
           {item.listingId ? `Listing ${item.listingId}` : "Draft, not live"}
           {item.quantity != null ? ` · qty ${item.quantity}` : ""}
+          {item.listedOnEbay ? " · listed on eBay" : ""}
         </div>
       </div>
       <div className="sf-price">${item.price ?? "—"}</div>
@@ -106,7 +107,9 @@ function ListingRow({ item, onAction }) {
         {item.url && <a className="sf-link" href={item.url} target="_blank" rel="noreferrer">View</a>}
         {isDraft
           ? <button className="sf-btn primary" onClick={() => onAction("publish", item)}>Publish</button>
-          : <button className="sf-btn quiet" onClick={() => onAction("end", item)}>End listing</button>}
+          : item.offerId
+            ? <button className="sf-btn quiet" onClick={() => onAction("end", item)}>End listing</button>
+            : null}
       </div>
     </div>
   );
@@ -139,10 +142,11 @@ function EbayPanel({ ebay, onAction }) {
           <button key={k} role="tab" aria-selected={tab === k} className="sf-tab" onClick={() => setTab(k)}>{label}</button>
         ))}
       </div>
+      {ebay.listNote && tab === "active" ? <p className="sf-note">{ebay.listNote}</p> : null}
       {tab === "sold"
         ? <SoldRows sold={ebay.sold} />
         : lists[tab].length
-          ? lists[tab].map((item) => <ListingRow key={item.offerId} item={item} onAction={onAction} />)
+          ? lists[tab].map((item) => <ListingRow key={item.offerId || item.listingId} item={item} onAction={onAction} />)
           : <p className="sf-empty">{tab === "active" ? "Nothing is live right now." : "No drafts."}</p>}
     </>
   );

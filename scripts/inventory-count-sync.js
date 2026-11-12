@@ -5,6 +5,11 @@
 //   node scripts/inventory-count-sync.js                 preview only, changes nothing
 //   node scripts/inventory-count-sync.js --sku ebay-123   preview one item
 //   node scripts/inventory-count-sync.js --live --sku ebay-123 --confirm SYNC_ONE_ITEM
+//   node scripts/inventory-count-sync.js --auto --confirm SYNC_ALL_SAFE   unattended run (scheduled)
+//
+// Automatic mode only changes the BossListers count, and only where eBay is the proof: a sold
+// or ended listing goes to 0, a changed eBay quantity is copied. It never writes to a selling
+// site. Anything else is held and reported. Each run adds one line to logs/inventory-sync.log.
 //
 //   Shopify is left out: Josh stopped using it on 2026-11-11. --with-shopify turns that leg back on.
 //
@@ -13,14 +18,18 @@
 // listing by itself: when eBay must go to zero it says so and leaves that to Josh.
 const { loadEnvConfig } = require("@next/env");
 const { XMLParser } = require("fast-xml-parser");
-const { planCounts, classifyEbayItem } = require("../lib/inventoryCountPlan");
+const fs = require("fs");
+const path = require("path");
+const { planCounts, classifyEbayItem, autoSteps } = require("../lib/inventoryCountPlan");
 
 const CONFIRM_WORD = "SYNC_ONE_ITEM";
+const AUTO_CONFIRM_WORD = "SYNC_ALL_SAFE";
+const LOG_FILE = path.join(process.cwd(), "logs", "inventory-sync.log");
 const SHOPIFY_API = "2024-10";
 
 function parseArgs(argv) {
   const get = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
-  return { live: argv.includes("--live"), confirm: get("--confirm"), sku: get("--sku") || null, shopify: argv.includes("--with-shopify") };
+  return { live: argv.includes("--live"), auto: argv.includes("--auto"), confirm: get("--confirm"), sku: get("--sku") || null, shopify: argv.includes("--with-shopify") };
 }
 
 async function readEbay(tenantId) {
@@ -107,6 +116,22 @@ async function setEbay(fetcher, tenantId, itemId, quantity) {
   if (!res.ok || !parsed || parsed.Ack === "Failure") throw new Error(`eBay refused the count (HTTP ${res.status}): ${JSON.stringify(parsed && parsed.Errors).slice(0, 200)}`);
 }
 
+/** Ends one fixed-price eBay listing because its last unit sold somewhere else. */
+async function endEbay(fetcher, tenantId, itemId) {
+  const token = await fetcher.connector._getAccessToken(tenantId);
+  const body =
+    `<?xml version="1.0" encoding="utf-8"?><EndFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">` +
+    `<ItemID>${Number(itemId)}</ItemID><EndingReason>NotAvailable</EndingReason></EndFixedPriceItemRequest>`;
+  const res = await fetch(fetcher.tradingApiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "text/xml", "X-EBAY-API-SITEID": "0", "X-EBAY-API-COMPATIBILITY-LEVEL": "1155", "X-EBAY-API-CALL-NAME": "EndFixedPriceItem", "X-EBAY-API-IAF-TOKEN": token },
+    body,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const parsed = new XMLParser().parse(await res.text()).EndFixedPriceItemResponse;
+  if (!res.ok || !parsed || parsed.Ack === "Failure") throw new Error(`eBay refused to end the listing (HTTP ${res.status}): ${JSON.stringify(parsed && parsed.Errors).slice(0, 200)}`);
+}
+
 /** Asks eBay about one listing that is missing from the active list: sold, ended, active or unknown. Read-only. */
 async function whyGone(fetcher, tenantId, itemId) {
   const token = await fetcher.connector._getAccessToken(tenantId);
@@ -139,6 +164,8 @@ async function main() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!tenantId || !url || !key) throw new Error("Need PLATFORM_OWNER_TENANT_ID, SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+  if (args.auto && args.live) throw new Error("Use --auto or --live, not both. Nothing was changed.");
+  if (args.auto && args.confirm !== AUTO_CONFIRM_WORD) throw new Error(`Automatic mode needs --confirm ${AUTO_CONFIRM_WORD}. Nothing was changed.`);
   if (args.live && (args.confirm !== CONFIRM_WORD || !args.sku)) throw new Error(`Live mode needs --sku <one SKU> and --confirm ${CONFIRM_WORD}. Nothing was changed.`);
 
   const rest = async (path, opts = {}) => {
@@ -166,6 +193,12 @@ async function main() {
 
   console.log(`eBay live listings: ${ebay.map.size} | Shopify products: ${shopify.map.size} | database products: ${products.length}`);
   printPlan(plan, args.sku);
+  if (args.auto) {
+    const result = await runAuto({ plan, ebay, tenantId, rest, ebayWrites: config.ebayWritesEnabled === true });
+    logRun(result, ebay.map.size);
+    if (result.blocked || result.failed.length) process.exitCode = 1;
+    return;
+  }
   if (!args.live) { console.log(`\nPREVIEW ONLY. Nothing was changed.`); return; }
 
   if (plan.blocked) throw new Error("Plan is blocked. Nothing was changed.");
@@ -213,8 +246,68 @@ async function main() {
   console.log(process.exitCode ? "\nDONE WITH FAILURES: run the preview again." : "\nDONE.");
 }
 
-module.exports = { parseArgs, readShopify, setShopify, whyGone, CONFIRM_WORD };
+/** Applies every safe step of the plan. Database only. Returns what was done, held and failed. */
+async function runAuto({ plan, ebay, tenantId, rest, ebayWrites = false, changeEbay = { set: setEbay, end: endEbay } }) {
+  const steps = autoSteps(plan, { ebayWrites });
+  const result = { blocked: steps.blocked, applied: [], ebayChanged: [], held: [...steps.held], failed: [] };
+  if (steps.blocked) { console.log(`\nAUTOMATIC RUN STOPPED: ${steps.blocked}. Nothing was changed.`); return result; }
+  const stamp = new Date().toISOString().slice(0, 16);
+  for (const step of steps.apply) {
+    try {
+      let note = "automatic sync";
+      if (step.needsEbayProof) {
+        const why = await whyGone(ebay.fetcher, tenantId, step.ebayListingId).catch(() => "unknown");
+        if (why !== "sold" && why !== "ended") { result.held.push({ sku: step.sku, reason: `missing from eBay's live list, but eBay reports it as "${why}"` }); continue; }
+        note = `automatic sync; eBay says: ${why}`;
+      }
+      const out = await rest("rpc/set_inventory_count", {
+        method: "POST",
+        body: JSON.stringify({ p_tenant_id: tenantId, p_sku: step.sku, p_expected: step.from, p_new: step.to, p_source: "reconcile", p_external_id: `${step.sku}:${step.from}>${step.to}:${stamp}`, p_ebay_baseline: ebay.map.get(step.ebayListingId) ?? 0, p_note: note }),
+      });
+      const r = Array.isArray(out) ? out[0] : out;
+      if (!r || !r.applied) { result.failed.push({ sku: step.sku, reason: r ? r.reason : "no answer from the database" }); continue; }
+      result.applied.push({ sku: step.sku, from: step.from, to: step.to });
+      console.log(`  ${step.sku}: ${step.from} -> ${step.to}`);
+    } catch (err) {
+      result.failed.push({ sku: step.sku, reason: err.message });
+    }
+  }
+  // eBay last, and only for items whose count is already right in BossListers.
+  const notReady = new Set([...result.failed, ...result.held].map((x) => x.sku));
+  for (const step of steps.ebay) {
+    if (notReady.has(step.sku)) continue;
+    try {
+      if (step.end) await changeEbay.end(ebay.fetcher, tenantId, step.ebayListingId);
+      else await changeEbay.set(ebay.fetcher, tenantId, step.ebayListingId, step.set);
+      result.ebayChanged.push({ sku: step.sku, set: step.set, ended: step.end });
+      console.log(`  eBay ${step.sku}: ${step.end ? "listing ended" : "quantity -> " + step.set}`);
+    } catch (err) {
+      result.failed.push({ sku: step.sku, reason: `eBay: ${err.message}` });
+    }
+  }
+  for (const h of result.held) console.log(`  HELD ${h.sku}: ${h.reason}`);
+  for (const f of result.failed) console.log(`  FAILED ${f.sku}: ${f.reason}`);
+  console.log(`\nAUTOMATIC RUN: changed ${result.applied.length}, eBay changes ${result.ebayChanged.length}, held ${result.held.length}, failed ${result.failed.length}.`);
+  return result;
+}
+
+/** One line per run, so anyone can see when it last ran and what it did. */
+function logRun(result, ebayLive) {
+  const line = JSON.stringify({ at: new Date().toISOString(), ebayLive, blocked: result.blocked, applied: result.applied, ebayChanged: result.ebayChanged || [], held: result.held, failed: result.failed });
+  try {
+    fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
+    fs.appendFileSync(LOG_FILE, line + "\n", "utf8");
+  } catch (err) {
+    console.error(`Could not write the run log: ${err.message}`);
+  }
+}
+
+module.exports = { parseArgs, readShopify, setShopify, whyGone, runAuto, CONFIRM_WORD, AUTO_CONFIRM_WORD };
 
 if (require.main === module) {
-  main().catch((err) => { console.error(`ERROR: ${err.message}`); process.exit(1); });
+  main().catch((err) => {
+    console.error(`ERROR: ${err.message}`);
+    if (process.argv.includes("--auto")) logRun({ blocked: `run failed: ${err.message}`.slice(0, 300), applied: [], held: [], failed: [] }, null);
+    process.exit(1);
+  });
 }
