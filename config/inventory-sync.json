@@ -1,0 +1,14 @@
+{
+  "shopifyPushSkip": [
+    "ebay-198509908519",
+    "ebay-198509922080",
+    "ebay-198657871781"
+  ],
+  "shopifyPushSkipReason": "Josh deleted these three from Shopify (Smurfs socks x2, Hot Wheels hauler). Do not push them again.",
+  "digitalSkus": [
+    "BOOK-CLOCK-EBOOK",
+    "BOOK-IRON-LEGENDS-EBOOK",
+    "BOOK-LITTLE-ZEUS-EBOOK"
+  ],
+  "digitalSkusReason": "Ebooks have no stock to count; the quantity sync leaves them alone."
+}
