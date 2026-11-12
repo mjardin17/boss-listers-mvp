@@ -1,7 +1,7 @@
 // pages/api/stock.js
 // The in-house stock list: everything Josh physically has, listed or not. Owner session only.
 //   GET  → { items: [...with stage and what is missing], summary, stages }
-//   POST → { action: "add" | "update" | "approve" | "unapprove" | "archive" | "photo", ... }
+//   POST → { action: "add" | "update" | "approve" | "unapprove" | "archive" | "restore" | "photo", ... }
 // Nothing here lists, posts or changes any selling site. The count of an item that is live on
 // a selling site is kept by the automatic sync and cannot be typed in here.
 
@@ -9,7 +9,8 @@ const { loadEnvConfig } = require("@next/env");
 const { requireOwnerSession } = require("../../lib/requireSession");
 const { listStock, getStockItem, insertStockItem, updateStockItem } = require("../../lib/supabaseInventory");
 const { uploadPublicImage } = require("../../lib/supabaseStorage");
-const { STAGES, stockStage, missingForApproval, newItemRow, editableFields, summarize } = require("../../lib/stockList");
+const { STAGES, stockStage, missingForApproval, newItemRow, editableFields, summarize, canBringBack, isDigital } = require("../../lib/stockList");
+const { digitalSkus: DIGITAL_SKUS = [] } = require("../../config/inventory-sync.json");
 
 const SKU_RULE = /^[A-Za-z0-9._-]{1,80}$/;
 const PHOTO_RULE = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
@@ -18,7 +19,7 @@ const PHOTO_EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp
 
 export const config = { api: { bodyParser: { sizeLimit: "12mb" } } };
 
-const present = (p) => ({ ...p, stage: stockStage(p), missing: missingForApproval(p) });
+const present = (p) => ({ ...p, stage: stockStage(p), missing: missingForApproval(p), digital: isDigital(p, DIGITAL_SKUS), canBringBack: canBringBack(p) });
 const bad = (res, error, status = 400) => res.status(status).json({ ok: false, error });
 
 async function savePhoto(sku, dataUrl) {
@@ -58,6 +59,9 @@ async function act(session, body) {
   } else if (action === "archive") {
     if (stage === "listed") return { status: 400, error: "This item is live on a selling site. End the listing there first." };
     changes = { status: "ended", approved_at: null };
+  } else if (action === "restore") {
+    if (!canBringBack(current)) return { status: 400, error: "Only an in-house item that was put away can be brought back" };
+    changes = { status: "draft", approved_at: null };
   } else if (action === "photo") {
     if (stage === "listed" || stage === "sold") return { status: 400, error: "The photo of a listed item is managed on its selling site" };
     const photo = await savePhoto(sku, body.photo);
@@ -84,7 +88,7 @@ export default async function handler(req, res) {
   try {
     if (req.method === "GET") {
       const products = await listStock(session.tenantId);
-      return res.status(200).json({ ok: true, stages: STAGES, summary: summarize(products), items: products.map(present) });
+      return res.status(200).json({ ok: true, stages: STAGES, summary: summarize(products, { digitalSkus: DIGITAL_SKUS }), items: products.map(present) });
     }
     const out = await act(session, req.body || {});
     if (out.error) return bad(res, out.error, out.status);

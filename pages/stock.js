@@ -61,6 +61,8 @@ const STAGE_HELP = {
   archived: "Ended or put away.",
 };
 
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
 function readAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -79,7 +81,7 @@ function Row({ item, busy, onAct, onEdit, onPhoto }) {
       <div style={{ minWidth: 0 }}>
         <div className="st-name">{item.title}</div>
         <div className="st-sub">
-          {item.sku} · qty {item.quantity}{item.condition ? ` · ${item.condition}` : ""}{item.location ? ` · ${item.location}` : ""}
+          {item.sku} · {item.digital ? "digital, never runs out" : `qty ${item.quantity}`}{item.condition ? ` · ${item.condition}` : ""}{item.location ? ` · ${item.location}` : ""}
         </div>
         {item.stage === "intake" && item.missing.length ? <div className="st-need">Needs {item.missing.join(", ")}</div> : null}
       </div>
@@ -95,6 +97,7 @@ function Row({ item, busy, onAct, onEdit, onPhoto }) {
         {item.stage === "needs_review" && <button className="st-btn primary" disabled={busy} onClick={() => onAct("approve", item)}>Approve</button>}
         {item.stage === "ready" && <button className="st-btn quiet" disabled={busy} onClick={() => onAct("unapprove", item)}>Send back</button>}
         {(inHouse || item.stage === "sold") && <button className="st-btn quiet" disabled={busy} onClick={() => onAct("archive", item)}>Put away</button>}
+        {item.canBringBack && <button className="st-btn quiet" disabled={busy} onClick={() => onAct("restore", item)}>Bring back</button>}
       </div>
     </div>
   );
@@ -159,7 +162,7 @@ export default function StockPage() {
     if (item) { setDraft(BLANK); setStage(item.stage); }
   }
   const act = async (action, item) => {
-    const words = { approve: "is ready to list", unapprove: "went back for review", archive: "was put away" };
+    const words = { approve: "is ready to list", unapprove: "went back for review", archive: "was put away", restore: "is back in your stock" };
     const saved = await send({ action, sku: item.sku }, (i) => `${i.title} ${words[action]}.`);
     if (saved) setStage(saved.stage);
   };
@@ -195,7 +198,7 @@ export default function StockPage() {
     <>
       <header className="st-top">
         <h1>In-house stock</h1>
-        <p>{total} items · {onHand} units on hand · <a className="st-link" href="/storefronts">Storefronts</a></p>
+        <p>{plural(total, "item")} · {plural(onHand, "unit")} on hand · <a className="st-link" href="/storefronts">Storefronts</a></p>
       </header>
 
       <div className="st-body">
@@ -215,7 +218,7 @@ export default function StockPage() {
         <div className="st-stages" role="group" aria-label="Stage">
           {data.stages.map((s) => (
             <button key={s.id} className="st-stage" aria-pressed={stage === s.id} onClick={() => setStage(s.id)}>
-              <b>{data.summary[s.id].items}</b><span>{s.label}</span><small>{data.summary[s.id].units} units</small>
+              <b>{data.summary[s.id].items}</b><span>{s.label}</span><small>{plural(data.summary[s.id].units, "unit")}</small>
             </button>
           ))}
         </div>

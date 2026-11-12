@@ -81,3 +81,20 @@ test("summary counts items and units per stage", () => {
   assert.deepStrictEqual(out.archived, { items: 1, units: 2 });
   assert.deepStrictEqual(out.intake, { items: 0, units: 0 });
 });
+
+const { canBringBack } = require("../lib/stockList");
+
+test("digital items never run out, so their huge counts are left out of the unit totals", () => {
+  const out = summarize(
+    [item({ sku: "BOOK-1", status: "active", quantity: 999 }), item({ sku: "ebay-1", status: "active", ebay_listing_id: "1", quantity: 2 })],
+    { digitalSkus: ["book-1"] },
+  );
+  assert.deepStrictEqual(out.listed, { items: 2, units: 2 });
+});
+
+test("only an in-house item that was put away can be brought back; an ended eBay listing cannot", () => {
+  assert.strictEqual(canBringBack(item({ status: "ended" })), true);
+  assert.strictEqual(canBringBack(item({ status: "ended", source: "ebay", ebay_listing_id: "5" })), false);
+  assert.strictEqual(canBringBack(item({ status: "ended", ebay_listing_id: "5" })), false);
+  assert.strictEqual(canBringBack(item()), false);
+});
