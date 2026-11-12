@@ -6,7 +6,7 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test scripts/test-core.js scripts/test-card-vault.js scripts/test-card-commercial.js scripts/test-token-health.js scripts/test-api-auth.js scripts/test-multi-platform-poster.js scripts/test-push-all-shopify.js scripts/test-inventory-count-plan.js scripts/test-social-video-post.js scripts/test-commercial-files.js scripts/test-commercial-maker.js scripts/test-client-auth.js scripts/test-stock-list.js scripts/test-cloud-sync.js scripts/test-storefronts-read.js scripts/test-bible.js",
+    "test": "node --test scripts/test-core.js scripts/test-card-vault.js scripts/test-card-commercial.js scripts/test-token-health.js scripts/test-api-auth.js scripts/test-multi-platform-poster.js scripts/test-push-all-shopify.js scripts/test-inventory-count-plan.js scripts/test-social-video-post.js scripts/test-commercial-files.js scripts/test-commercial-maker.js scripts/test-client-auth.js scripts/test-service-worker.js scripts/test-stock-list.js scripts/test-cloud-sync.js scripts/test-storefronts-read.js scripts/test-bible.js",
     "token-health": "node scripts/token-health.js",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
