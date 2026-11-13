@@ -2,7 +2,7 @@
 // GET → one overview of every storefront the owner runs.
 //   eBay: active and draft offers from the eBay API; sold orders need the order-read permission.
 //   Facebook Page and Instagram: connection check plus the most recent posts.
-//   Shopify, website, Etsy, Amazon: link or status only (not checked here).
+//   Website, Etsy, Amazon: link or status only (not checked here). Shopify is retired.
 // Auth: owner session required. Read-only; nothing is published or changed here.
 
 const fs = require("fs");
@@ -64,8 +64,7 @@ export default async function handler(req, res) {
       ebay,
       facebook,
       instagram,
-      shopify: { connected: false, linkOnly: true, url: "https://jardinsoutpost.com", note: "Not checked by BossListers. Store closes Nov 15 2026 unless you change it" },
-      site: { connected: false, linkOnly: true, url: "https://jardins-outpost.pages.dev", note: "Not checked by BossListers. Its shop section syncs from eBay" },
+      site: { connected: false, linkOnly: true, url: "https://jardins-outpost.pages.dev", note: "Your main store (replaced Shopify). Its shop section reads active, published items from the products table, so eBay-synced items and new items you add both show there." },
       etsy: { connected: false, note: "No shop yet" },
       amazon: { connected: false, note: "Account not connected (plan decision pending)" },
     },

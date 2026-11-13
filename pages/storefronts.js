@@ -82,7 +82,6 @@ const CHANNELS = [
   { key: "facebook", label: "Facebook Page" },
   { key: "video", label: "Send a video" },
   { key: "site", label: "Website" },
-  { key: "shopify", label: "Shopify" },
   { key: "etsy", label: "Etsy" },
   { key: "amazon", label: "Amazon" },
 ];
@@ -186,12 +185,11 @@ function ExternalPanel({ id, data }) {
   const text = {
     instagram: data.instagram?.connected ? `Connected as @${data.instagram.username}` : "Not connected",
     facebook: data.facebook?.connected ? `Connected: ${data.facebook.name}` : "Not connected",
-    site: "The shop section syncs live from eBay. New ebook listings appear within about 15 minutes.",
-    shopify: data.shopify?.note || "",
+    site: data.site?.note || "The shop section shows your active Boss Listers inventory (eBay-synced and items you add here).",
     etsy: data.etsy?.note || "",
     amazon: data.amazon?.note || "",
   };
-  const url = { site: data.site?.url, shopify: data.shopify?.url }[id];
+  const url = { site: data.site?.url }[id];
   return (
     <div className="sf-ext">
       <span className="sf-sub">{text[id]}</span>

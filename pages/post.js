@@ -2,26 +2,27 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { requireSession, authedFetch } from "../lib/clientAuth";
+import { LIVE_CONFIRM } from "../lib/liveConfirm";
 
 const PLATFORMS = [
   { id: "ebay", label: "eBay", color: "#E53238" },
   { id: "amazon", label: "Amazon", color: "#FF9900" },
   { id: "etsy", label: "Etsy", color: "#F1641E" },
-  { id: "facebook", label: "Facebook Marketplace", color: "#1877F2" },
-  { id: "shopify", label: "Shopify", color: "#96BE28" },
+  { id: "facebook", label: "Facebook Shop (Page catalog)", color: "#1877F2" },
   { id: "tiktok", label: "TikTok Shop", color: "#000000" },
   { id: "bonanza", label: "Bonanza", color: "#FF6B35" },
   { id: "woocommerce", label: "WooCommerce", color: "#96588A" },
-  { id: "instagram", label: "Instagram Shopping", color: "#E4405F" },
+  { id: "instagram", label: "Instagram photo post", color: "#E4405F" },
 ];
 
 export default function PostPage() {
   const router = useRouter();
   const [inventory, setInventory] = useState([]);
   const [selectedSku, setSelectedSku] = useState("");
-  const [selectedPlatforms, setSelectedPlatforms] = useState(["ebay", "amazon"]);
+  const [selectedPlatforms, setSelectedPlatforms] = useState(["ebay"]);
   const [posting, setPosting] = useState(false);
   const [results, setResults] = useState(null);
+  const [lastRunLive, setLastRunLive] = useState(false);
   const [error, setError] = useState("");
   const [loadingInventory, setLoadingInventory] = useState(true);
 
@@ -58,7 +59,8 @@ export default function PostPage() {
     }
   }
 
-  async function postToAllPlatforms() {
+  // Dry run (preview) by default. Live only after the seller confirms.
+  async function postToAllPlatforms(live = false) {
     if (!selectedSku) {
       setError("Please select an item");
       return;
@@ -68,9 +70,17 @@ export default function PostPage() {
       return;
     }
 
+    if (live) {
+      const ok = window.confirm(
+        `Publish ${selectedSku} LIVE to ${selectedPlatforms.join(", ")}? Buyers will see it and it can sell.`
+      );
+      if (!ok) return;
+    }
+
     setPosting(true);
     setError("");
     setResults(null);
+    setLastRunLive(live);
 
     try {
       const res = await authedFetch("/api/inventory/post-to-platforms", {
@@ -79,6 +89,7 @@ export default function PostPage() {
         body: JSON.stringify({
           productSKU: selectedSku,
           platforms: selectedPlatforms,
+          ...(live ? { confirmLive: LIVE_CONFIRM } : {}),
         }),
       });
 
@@ -187,9 +198,9 @@ export default function PostPage() {
         </div>
       </section>
 
-      <section>
+      <section style={{ display: "grid", gap: 12 }}>
         <button
-          onClick={postToAllPlatforms}
+          onClick={() => postToAllPlatforms(false)}
           disabled={posting || !selectedSku || selectedPlatforms.length === 0}
           style={{
             width: "100%",
@@ -204,13 +215,34 @@ export default function PostPage() {
             opacity: posting || !selectedSku || selectedPlatforms.length === 0 ? 0.5 : 1,
           }}
         >
-          {posting ? "Posting..." : `Post to ${selectedPlatforms.length} Platform${selectedPlatforms.length !== 1 ? "s" : ""}`}
+          {posting ? "Working..." : `Preview (dry run) on ${selectedPlatforms.length} platform${selectedPlatforms.length !== 1 ? "s" : ""}`}
         </button>
+        <button
+          onClick={() => postToAllPlatforms(true)}
+          disabled={posting || !selectedSku || selectedPlatforms.length === 0}
+          style={{
+            width: "100%",
+            padding: "12px 16px",
+            background: "#DC2626",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            fontSize: 16,
+            fontWeight: 700,
+            cursor: posting ? "wait" : "pointer",
+            opacity: posting || !selectedSku || selectedPlatforms.length === 0 ? 0.5 : 1,
+          }}
+        >
+          {posting ? "Working..." : "Publish live"}
+        </button>
+        <p style={{ margin: 0, fontSize: 13, color: "#6B7280" }}>
+          Preview checks the listing without posting anything. Publish live asks you to confirm, then posts for real.
+        </p>
       </section>
 
       {results && (
         <section style={{ marginTop: 32, padding: 16, background: "#F0FDF4", borderRadius: 8 }}>
-          <h3 style={{ margin: "0 0 16px" }}>Posting Results</h3>
+          <h3 style={{ margin: "0 0 16px" }}>{lastRunLive ? "Live posting results" : "Preview results (nothing was posted)"}</h3>
           <div style={{ display: "grid", gap: 8 }}>
             {Object.entries(results).map(([platform, result]) => (
               <div

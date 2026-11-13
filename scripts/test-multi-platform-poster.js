@@ -110,3 +110,94 @@ test("live eBay with no https photo or unreadable policies fails honestly and ne
   assert.match(out.ebay.error, /return_policy_id/);
   assert.strictEqual(created, 0);
 });
+
+// ---- /api/inventory/post-to-platforms core: the live flag passes through ----
+
+const { postSavedProduct } = require("../lib/postSavedProduct");
+const { LIVE_CONFIRM } = require("../lib/liveConfirm");
+
+function recordingPoster() {
+  const calls = [];
+  return {
+    calls,
+    postToAllPlatforms: async (tenantId, product, platforms, options) => {
+      calls.push({ tenantId, sku: product.sku, platforms, options });
+      return Object.fromEntries(platforms.map((p) => [p, { success: false, dryRun: !options.live, note: "stub" }]));
+    },
+  };
+}
+const loadProduct = async (sku) => ({ sku, title: "Gengar PSA 10", price: 120, image_url: "https://x.test/a.jpg" });
+
+test("post-to-platforms dry-runs by default", async () => {
+  const poster = recordingPoster();
+  const out = await postSavedProduct({ tenantId: "t1", body: { productSKU: "S1", platforms: ["ebay"] }, loadProduct, poster });
+  assert.strictEqual(out.status, 200);
+  assert.strictEqual(out.json.live, false);
+  assert.deepStrictEqual(poster.calls[0].options, { live: false });
+});
+
+test("post-to-platforms goes live only with confirmLive PUBLISH_LIVE", async () => {
+  const poster = recordingPoster();
+  const out = await postSavedProduct({ tenantId: "t1", body: { productSKU: "S1", platforms: ["ebay"], confirmLive: LIVE_CONFIRM }, loadProduct, poster });
+  assert.strictEqual(out.json.live, true);
+  assert.deepStrictEqual(poster.calls[0], { tenantId: "t1", sku: "S1", platforms: ["ebay"], options: { live: true } });
+});
+
+test("a truthy but wrong live flag stays a dry run", async () => {
+  for (const body of [{ live: true }, { confirmLive: true }, { confirmLive: "yes" }, { confirmLive: "publish_live" }]) {
+    const poster = recordingPoster();
+    const out = await postSavedProduct({ tenantId: "t1", body: { productSKU: "S1", ...body }, loadProduct, poster });
+    assert.strictEqual(out.json.live, false, JSON.stringify(body));
+    assert.strictEqual(poster.calls[0].options.live, false);
+  }
+});
+
+test("Shopify is retired: reported, never sent to the poster", async () => {
+  const poster = recordingPoster();
+  const out = await postSavedProduct({ tenantId: "t1", body: { productSKU: "S1", platforms: ["shopify", "ebay"], confirmLive: LIVE_CONFIRM }, loadProduct, poster });
+  assert.deepStrictEqual(poster.calls[0].platforms, ["ebay"]);
+  assert.strictEqual(out.json.results.shopify.success, false);
+  assert.strictEqual(out.json.results.shopify.retired, true);
+  const only = recordingPoster();
+  const out2 = await postSavedProduct({ tenantId: "t1", body: { productSKU: "S1", platforms: ["shopify"] }, loadProduct, poster: only });
+  assert.strictEqual(only.calls.length, 0);
+  assert.strictEqual(out2.json.successCount, 0);
+});
+
+test("missing sku and unknown product are rejected before posting", async () => {
+  const poster = recordingPoster();
+  assert.strictEqual((await postSavedProduct({ tenantId: "t1", body: {}, loadProduct, poster })).status, 400);
+  assert.strictEqual((await postSavedProduct({ tenantId: "t1", body: { productSKU: "nope" }, loadProduct: async () => null, poster })).status, 404);
+  assert.strictEqual(poster.calls.length, 0);
+});
+
+test("live eBay through the real poster sends PUBLISH_LIVE to the connector (mocked, nothing posted)", async () => {
+  const poster = new MultiPlatformPoster();
+  const seen = [];
+  poster.ebay = {
+    _getAccessToken: async () => "tok",
+    createListing: async (product, policies, opts) => { seen.push({ product, policies, opts }); return { ok: true, published: true, listingId: "MOCK1" }; },
+  };
+  poster.ebayInputs = { suggestCategoryId: async () => ({ categoryId: "183454" }), resolvePolicies: async () => ({ fulfillmentPolicyId: "f" }) };
+  const out = await postSavedProduct({ tenantId: "t1", body: { productSKU: "S1", platforms: ["ebay"], confirmLive: LIVE_CONFIRM }, loadProduct, poster });
+  assert.strictEqual(seen.length, 1);
+  assert.deepStrictEqual(seen[0].opts, { tenantId: "t1", dryRun: false, confirm: "PUBLISH_LIVE" });
+  assert.strictEqual(out.json.results.ebay.success, true);
+
+  seen.length = 0;
+  const dry = await postSavedProduct({ tenantId: "t1", body: { productSKU: "S1", platforms: ["ebay"] }, loadProduct, poster });
+  assert.strictEqual(seen[0].opts.dryRun, true);
+  assert.strictEqual(seen[0].opts.confirm, undefined);
+  assert.strictEqual(dry.json.live, false);
+});
+
+test("Post and Add Product pages send confirmLive only on the live path, and offer no Shopify", () => {
+  const fs = require("fs");
+  const path = require("path");
+  for (const rel of ["pages/post.js", "pages/inventory/add-product.js"]) {
+    const src = fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
+    assert.match(src, /\.\.\.\(live \? \{ confirmLive: LIVE_CONFIRM \} : \{\}\)/, `${rel} must send confirmLive only when live`);
+    assert.match(src, /window\.confirm\(/, `${rel} must ask before publishing live`);
+    assert.doesNotMatch(src, /id: "shopify"/, `${rel} must not offer Shopify`);
+  }
+});
