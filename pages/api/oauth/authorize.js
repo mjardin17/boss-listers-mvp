@@ -40,7 +40,9 @@ export default async function handler(req, res) {
   const userAccessToken = session.accessToken;
 
   // Generate CSRF state token
-  const state = tokenManager.generateState();
+  // The browser redirect back from the platform carries no sign-in header, so the
+  // signed-in user's id travels inside the stored state (exact-match verified in callback).
+  const state = `${tokenManager.generateState()}.${session.userId}`;
 
   try {
     // Store state for verification in callback

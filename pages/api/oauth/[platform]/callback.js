@@ -74,7 +74,8 @@ export default async function handler(req, res) {
   const authHeader = req.headers.authorization || '';
   const userAccessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
-  if (!userAccessToken) {
+  const stateUserId = state.includes('.') ? state.split('.').pop() : null;
+  if (!userAccessToken && !stateUserId) {
     return res.status(401).json({
       ok: false,
       error: 'Authentication required',
@@ -122,8 +123,9 @@ export default async function handler(req, res) {
     }
 
     // 4. Get user ID from Supabase auth token
-    let userId;
+    let userId = stateUserId;
     try {
+      if (!userId) {
       const meRes = await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`, {
         headers: {
           Authorization: `Bearer ${userAccessToken}`,
@@ -142,6 +144,7 @@ export default async function handler(req, res) {
 
       const me = await meRes.json();
       userId = me.id;
+      }
     } catch (err) {
       console.error(`[OAuth] User resolution failed:`, err.message);
       return res.status(500).json({

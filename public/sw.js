@@ -1,8 +1,12 @@
 // Boss Listers service worker.
 // - Pages: network first (never serve a stale app after an update), cached copy only when offline.
-// - /_next/static and icons: cache first (hashed / immutable).
+// - /_next/static files with a content hash in their name, and icons: cache first. A hashed
+//   file never changes under the same name, so a cached copy is always right.
+// - /_next/static files WITHOUT a hash (the development server's webpack.js, main.js, page
+//   files, manifests and hot updates) are never cached. They are rewritten under the same name
+//   on every change; caching them once made the app reload itself forever on stale code.
 // - /api/* and anything that is not a GET: always straight to the network.
-const CACHE_NAME = "boss-listers-v2";
+const CACHE_NAME = "boss-listers-v3"; // v3: drops the v2 cache, which held stale development files
 const URLS_TO_CACHE = ["/login", "/manifest.json", "/icon-192.png"];
 
 self.addEventListener("install", (event) => {
@@ -23,6 +27,15 @@ self.addEventListener("activate", (event) => {
   );
   self.clients.claim();
 });
+
+// True only for build output that carries a content hash, e.g. webpack-4e7214a60fad8e88.js.
+function isImmutableAsset(pathname) {
+  if (!pathname.startsWith("/_next/static/")) return false;
+  if (pathname.startsWith("/_next/static/development/") || pathname.startsWith("/_next/static/webpack/")) return false;
+  if (pathname.includes(".hot-update.")) return false;
+  const file = pathname.slice(pathname.lastIndexOf("/") + 1);
+  return /(^|[-.])[0-9a-f]{8,}\.[a-z0-9]+$/i.test(file);
+}
 
 function putInCache(request, response) {
   if (!response || response.status !== 200 || response.type !== "basic") return;
@@ -48,7 +61,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (url.pathname.startsWith("/_next/static/") || /^\/(icon-|apple-touch-icon|favicon)/.test(url.pathname)) {
+  if (isImmutableAsset(url.pathname) || /^\/(icon-|apple-touch-icon|favicon)/.test(url.pathname)) {
     event.respondWith(
       caches.match(request).then(
         (cached) =>
