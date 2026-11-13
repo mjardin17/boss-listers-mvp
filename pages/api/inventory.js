@@ -1,13 +1,23 @@
 // pages/api/inventory.js
 // GET  → list the caller's tenant inventory (eBay-synced + manual products)
 // POST → publish a generated listing into the caller's tenant inventory
-//        body: { sku, title, description, price, quantity, imageUrl, condition }
+//        body: { sku, title, description, price, quantity, imageUrl|image_url,
+//                imageBase64, imageMediaType, imageFilename, condition,
+//                category, cardDetails|card_details }
 //
 // Auth: Bearer session required. tenant_id always comes from the session —
 // a client-supplied tenant_id in the body is ignored.
 
 const { requireSession } = require("../../lib/requireSession");
 const { listInventory, publishToInventory } = require("../../lib/supabaseInventory");
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "10mb",
+    },
+  },
+};
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { requireSession, authedFetch, clearSession } from "../lib/clientAuth";
+import { toInventoryCardDetails } from "../lib/cardFields";
 
 const STATUS_LABEL = {
   confirmed: "Confirmed",
@@ -85,6 +86,42 @@ function ValuationPanel({ valuation }) {
   );
 }
 
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",")[1] : result;
+      if (!base64) reject(new Error("Failed to read image"));
+      else resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("Failed to read image"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildCardTitle(fields) {
+  if (!fields) return "Trading Card";
+  return [
+    fields.year,
+    fields.set,
+    fields.player,
+    fields.cardNumber ? `#${fields.cardNumber}` : null,
+    fields.variant || fields.parallel,
+    fields.graded ? `${fields.gradingCompany || ""} ${fields.grade || ""}`.trim() : null,
+  ].filter(Boolean).join(" ") || "Trading Card";
+}
+
+function buildCardSku(fields) {
+  const slug = (value) => String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 24);
+  return ["CARD", slug(fields?.set) || "ITEM", slug(fields?.cardNumber) || "X", slug(fields?.grade) || "RAW", Date.now().toString(36).toUpperCase()].join("-");
+}
+
 export default function CardScan() {
   const [ready, setReady] = useState(false);
   const [frontPhoto, setFrontPhoto] = useState(null); // { file, previewUrl }
@@ -95,6 +132,11 @@ export default function CardScan() {
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmedValuation, setConfirmedValuation] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [savedProduct, setSavedProduct] = useState(null);
+  const [savePrice, setSavePrice] = useState("");
+  const [saveQuantity, setSaveQuantity] = useState(1);
 
   const frontInputRef = useRef(null);
   const backInputRef = useRef(null);
@@ -139,6 +181,11 @@ export default function CardScan() {
         return;
       }
       setResult(data);
+      const market = data?.valuation?.market;
+      setSavePrice(market != null && Number.isFinite(Number(market)) ? String(market) : "");
+      setSaveQuantity(1);
+      setSavedProduct(null);
+      setSaveError("");
     } catch (err) {
       setError(err.message || "Upload failed — check your connection and try again.");
     } finally {
@@ -170,6 +217,11 @@ export default function CardScan() {
     setError("");
     setSelectedCandidateIndex(null);
     setConfirmedValuation(null);
+    setSaving(false);
+    setSaveError("");
+    setSavedProduct(null);
+    setSavePrice("");
+    setSaveQuantity(1);
   }
 
   if (!ready) return null;
@@ -185,6 +237,50 @@ export default function CardScan() {
       result.identification.status === "likely" ||
       (result.identification.status === "needs_review" && selectedCandidateIndex !== null));
 
+  async function handleSaveToInventory() {
+    if (!canSave || !finalFields) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      const price = savePrice === "" ? 0 : Number(savePrice);
+      if (!Number.isFinite(price) || price < 0) {
+        throw new Error("Enter a valid price");
+      }
+      const payload = {
+        sku: buildCardSku(finalFields),
+        title: buildCardTitle(finalFields),
+        description: finalFields.conditionNotes || "",
+        price,
+        quantity: Number.parseInt(saveQuantity, 10) || 1,
+        condition: finalFields.conditionNotes || (finalFields.graded ? `${finalFields.gradingCompany || ""} ${finalFields.grade || ""}`.trim() : "Ungraded"),
+        category: finalFields.cardGame || finalFields.sport || "Trading Cards",
+        cardDetails: toInventoryCardDetails(finalFields),
+      };
+      if (frontPhoto?.file) {
+        payload.imageBase64 = await fileToBase64(frontPhoto.file);
+        payload.imageMediaType = frontPhoto.file.type || "image/jpeg";
+        payload.imageFilename = frontPhoto.file.name || "card-front.jpg";
+      }
+      const res = await authedFetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        if (res.status === 503) {
+          throw new Error("Inventory isn't connected yet. Supabase isn't configured in this environment.");
+        }
+        throw new Error(data.error || "Failed to save card");
+      }
+      setSavedProduct(data.product || payload);
+    } catch (err) {
+      setSaveError(err.message || "Failed to save card");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="app-shell" style={{ maxWidth: 560, paddingBottom: "4rem" }}>
       <div className="topbar">
@@ -192,9 +288,12 @@ export default function CardScan() {
           <h1 style={{ fontSize: "1.4rem", margin: 0 }}>Scan a Card</h1>
           <p className="muted" style={{ fontSize: "0.8rem" }}>Front + back photos for accurate identification</p>
         </div>
-        <button type="button" className="btn-ghost" onClick={() => { clearSession(); window.location.href = "/login"; }}>
-          Sign out
-        </button>
+        <nav>
+          <Link className="nav-link" href="/inventory">Inventory</Link>
+          <button type="button" className="btn-ghost" onClick={() => { clearSession(); window.location.href = "/login"; }}>
+            Sign out
+          </button>
+        </nav>
       </div>
 
       {!result && (
@@ -335,6 +434,51 @@ export default function CardScan() {
                   explanation: "Re-scan with this candidate confirmed to fetch a fresh price, or add pricing manually.",
                 }}
               />
+            </div>
+          )}
+
+          {canSave && (
+            <div style={{ marginTop: "1.5rem", padding: "1rem", border: "1px solid var(--border, #2a3142)", borderRadius: "var(--radius, 10px)" }}>
+              <h3 style={{ marginTop: 0, fontSize: "1rem" }}>Save to inventory</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                <label style={{ fontSize: "0.8rem" }}>
+                  Price
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={savePrice}
+                    onChange={(e) => setSavePrice(e.target.value)}
+                    style={{ width: "100%", marginTop: 4, padding: 8, background: "var(--surface-2, #1f2430)", color: "inherit", border: "1px solid var(--border, #2a3142)", borderRadius: 6 }}
+                  />
+                </label>
+                <label style={{ fontSize: "0.8rem" }}>
+                  Quantity
+                  <input
+                    type="number"
+                    min="1"
+                    value={saveQuantity}
+                    onChange={(e) => setSaveQuantity(e.target.value)}
+                    style={{ width: "100%", marginTop: 4, padding: 8, background: "var(--surface-2, #1f2430)", color: "inherit", border: "1px solid var(--border, #2a3142)", borderRadius: 6 }}
+                  />
+                </label>
+              </div>
+              <button type="button" className="btn-secondary" style={{ width: "100%" }} disabled={saving} onClick={handleSaveToInventory}>
+                {saving ? "Saving…" : "Save to inventory"}
+              </button>
+              {saveError && <p style={{ color: "var(--danger, #f87171)", fontSize: "0.8rem", marginTop: "0.75rem" }}>{saveError}</p>}
+              {savedProduct && (
+                <p style={{ color: "var(--accent-strong, #34d399)", fontSize: "0.8rem", marginTop: "0.75rem" }}>
+                  Saved {savedProduct.title || savedProduct.sku} to inventory.{" "}
+                  <Link href="/inventory">View inventory</Link>
+                  {savedProduct.sku && (
+                    <>
+                      {" · "}
+                      <Link href={`/post?sku=${encodeURIComponent(savedProduct.sku)}`}>Post this item</Link>
+                    </>
+                  )}
+                </p>
+              )}
             </div>
           )}
 

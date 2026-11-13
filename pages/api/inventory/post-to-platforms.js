@@ -31,6 +31,10 @@ export default async function handler(req, res) {
       .json({ ok: false, error: "productSKU is required" });
   }
 
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return res.status(503).json({ ok: false, error: "Supabase not configured" });
+  }
+
   try {
     const supabase = createClient(
       process.env.SUPABASE_URL,
