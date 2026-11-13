@@ -13,7 +13,7 @@ const CONFIG = { ownerTenantId: "tenant-1", digitalSkus: ["EBOOK"], ebayWritesEn
 const reply = (status, body) => ({ ok: status < 400, status, text: async () => (typeof body === "string" ? body : JSON.stringify(body)), json: async () => body });
 
 // A fake world: eBay's live list, what GetItem says about each listing, and the BossListers products.
-function world({ live = {}, items = {}, products = [], ebayFails = false, rpc = () => [{ applied: true }], lastRun = null } = {}) {
+function world({ live = {}, items = {}, products = [], ebayFails = false, rpc = () => [{ applied: true }], lastRun = null, patchFails = false } = {}) {
   const calls = [];
   const fetchImpl = async (url, opts = {}) => {
     const u = String(url);
@@ -21,6 +21,7 @@ function world({ live = {}, items = {}, products = [], ebayFails = false, rpc = 
     calls.push({ url: u, call, body: opts.body });
     if (u.includes("/identity/v1/oauth2/token")) return reply(200, { access_token: "access" });
     if (u.endsWith("/rpc/get_decrypted_marketplace_token")) return reply(200, JSON.stringify("refresh"));
+    if (u.includes("/rest/v1/products") && opts.method === "PATCH") return patchFails ? reply(500, { message: "nope" }) : reply(204, "");
     if (u.includes("/rest/v1/products")) return reply(200, products);
     if (u.endsWith("/rpc/set_inventory_count")) return reply(200, rpc(JSON.parse(opts.body)));
     if (u.includes("/rest/v1/sync_logs?select=")) return reply(200, lastRun ? [{ started_at: lastRun }] : []);
@@ -32,8 +33,9 @@ function world({ live = {}, items = {}, products = [], ebayFails = false, rpc = 
     }
     if (call === "GetItem") {
       const id = /<ItemID>(\d+)<\/ItemID>/.exec(opts.body)[1];
-      const [status, qty, sold] = items[id] || ["Active", 1, 0];
-      return reply(200, `<GetItemResponse><Ack>Success</Ack><Item><ItemID>${id}</ItemID><Quantity>${qty}</Quantity><SellingStatus><ListingStatus>${status}</ListingStatus><QuantitySold>${sold}</QuantitySold></SellingStatus></Item></GetItemResponse>`);
+      const [status, qty, sold, condition = ""] = items[id] || ["Active", 1, 0];
+      if (status === "FAIL") return reply(200, "<GetItemResponse><Ack>Failure</Ack></GetItemResponse>");
+      return reply(200, `<GetItemResponse><Ack>Success</Ack><Item><ItemID>${id}</ItemID><Quantity>${qty}</Quantity>${condition}<SellingStatus><ListingStatus>${status}</ListingStatus><QuantitySold>${sold}</QuantitySold></SellingStatus></Item></GetItemResponse>`);
     }
     if (call === "ReviseInventoryStatus") return reply(200, "<ReviseInventoryStatusResponse><Ack>Success</Ack></ReviseInventoryStatusResponse>");
     if (call === "EndFixedPriceItem") return reply(200, "<EndFixedPriceItemResponse><Ack>Success</Ack></EndFixedPriceItemResponse>");
@@ -43,10 +45,10 @@ function world({ live = {}, items = {}, products = [], ebayFails = false, rpc = 
 }
 const product = (sku, listingId, quantity, base = quantity) => ({ id: sku, sku, quantity, status: quantity > 0 ? "active" : "out_of_stock", ebay_listing_id: listingId, last_ebay_quantity: base });
 
-async function run(w, config = CONFIG, env = ENV) {
+async function run(w, config = CONFIG, env = ENV, now) {
   const { runSync } = await load("core.mjs");
   const planner = await load("plan.mjs");
-  return runSync({ fetchImpl: w.fetchImpl, parseXml: (t) => parser.parse(t), env, config, planner });
+  return runSync({ fetchImpl: w.fetchImpl, parseXml: (t) => parser.parse(t), env, config, planner, now });
 }
 const many = (n) => Array.from({ length: n }, (_, i) => product(`keep-${i}`, String(1000 + i), 1));
 const manyLive = (n) => Object.fromEntries(Array.from({ length: n }, (_, i) => [String(1000 + i), [1, 0]]));
@@ -150,4 +152,64 @@ test("a call fifteen minutes after the last run goes ahead", async () => {
   const w = world({ live: manyLive(20), products: many(20), lastRun: new Date(Date.now() - 900_000).toISOString() });
   const out = await run(w);
   assert.strictEqual(out.status, "success");
+});
+
+// ---- Item condition: eBay is the source; the sync fills a missing one and re-checks each about once a day.
+const cond = (id, name) => `<ConditionID>${id}</ConditionID><ConditionDisplayName>${name}</ConditionDisplayName>`;
+const withCondition = (p, condition) => ({ ...p, condition });
+const patches = (w) => w.calls.filter((c) => c.url.includes("/rest/v1/products?id=eq.") && c.body && !c.url.includes("select="));
+const known = (n) => many(n).map((p) => withCondition(p, "New"));
+const AN_HOUR_WITH_NO_ROTATION = 0; // slot 0: none of the test listings 1000-1019 or 555 fall due
+
+test("a listing saved as Unknown gets its real condition from eBay; nothing on eBay changes", async () => {
+  const w = world({
+    live: { ...manyLive(20), 555: [1, 0] },
+    items: { 555: ["Active", 1, 0, cond(1000, "New with tags")] },
+    products: [...known(20), withCondition(product("hoodie", "555", 1), "Unknown")],
+  });
+  const out = await run(w, CONFIG, ENV, AN_HOUR_WITH_NO_ROTATION);
+  assert.strictEqual(out.status, "success");
+  assert.deepStrictEqual(out.conditions.updated, [{ sku: "hoodie", from: "Unknown", to: "New with tags" }]);
+  const sent = patches(w);
+  assert.strictEqual(sent.length, 1);
+  assert.match(sent[0].url, /products\?id=eq\.hoodie&tenant_id=eq\.tenant-1/);
+  assert.deepStrictEqual(JSON.parse(sent[0].body), { condition: "New with tags" });
+  assert.strictEqual(w.calls.filter((c) => c.call === "ReviseInventoryStatus" || c.call === "EndFixedPriceItem").length, 0);
+});
+
+test("a card keeps its card condition, and a condition that already matches is not rewritten", async () => {
+  const card = "<ConditionID>4000</ConditionID><ConditionDisplayName>Ungraded</ConditionDisplayName><ConditionDescriptors><ConditionDescriptor><Name>40001</Name><Value>400011</Value></ConditionDescriptor></ConditionDescriptors>";
+  const w = world({
+    live: { ...manyLive(20), 555: [1, 0], 556: [1, 0] },
+    items: { 555: ["Active", 1, 0, card], 556: ["Active", 1, 0, cond(1000, "New")] },
+    products: [...known(20), withCondition(product("card", "555", 1), null), withCondition(product("same", "556", 1), "")],
+  });
+  const out = await run(w, CONFIG, ENV, AN_HOUR_WITH_NO_ROTATION);
+  assert.deepStrictEqual(out.conditions.updated, [{ sku: "card", from: null, to: "Ungraded - Excellent" }, { sku: "same", from: "", to: "New" }]);
+  const w2 = world({ live: { ...manyLive(20), 556: [1, 0] }, items: { 556: ["Active", 1, 0, cond(1000, "New")] }, products: [...known(20), withCondition(product("same", "556", 1), "New")] });
+  const all = 24 * 60 * 60 * 1000;
+  for (let t = 0; t < all; t += 15 * 60 * 1000) await run(w2, CONFIG, ENV, t);
+  assert.strictEqual(patches(w2).length, 0);
+  // Over one day every known listing is looked at once (21 listings, 96 runs).
+  assert.strictEqual(w2.calls.filter((c) => c.call === "GetItem").length, 21);
+});
+
+test("a failed condition read or save is reported but never fails the stock sync", async () => {
+  const w = world({
+    live: { ...manyLive(20), 555: [1, 0], 556: [1, 0] },
+    items: { 555: ["FAIL", 1, 0], 556: ["Active", 1, 0, cond(3000, "Used")] },
+    products: [...known(20), withCondition(product("a", "555", 1), "Unknown"), withCondition(product("b", "556", 1), "Unknown")],
+    patchFails: true,
+  });
+  const out = await run(w, CONFIG, ENV, AN_HOUR_WITH_NO_ROTATION);
+  assert.strictEqual(out.status, "success");
+  assert.deepStrictEqual(out.conditions.updated, []);
+  assert.deepStrictEqual(out.conditions.failed.map((f) => f.sku), ["a", "b"]);
+});
+
+test("no condition is looked up when the eBay read is blocked", async () => {
+  const w = world({ live: {}, products: [withCondition(product("x", "555", 1), "Unknown")] });
+  const out = await run(w);
+  assert.strictEqual(out.status, "failed");
+  assert.strictEqual(w.calls.filter((c) => c.call === "GetItem").length, 0);
 });
