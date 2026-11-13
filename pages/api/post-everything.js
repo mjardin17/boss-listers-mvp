@@ -13,7 +13,7 @@
 
 const { requireSession } = require("../../lib/requireSession");
 const { enforceTenantRateLimit } = require("../../lib/rateLimit");
-const { MultiPlatformPoster } = require("../../lib/multiPlatformPoster");
+const { MultiPlatformPoster, RETIRED_PLATFORMS } = require("../../lib/multiPlatformPoster");
 const { publishToInventory } = require("../../lib/supabaseInventory");
 const { ensurePublicBucketExists, uploadPublicImage } = require("../../lib/supabaseStorage");
 
@@ -26,7 +26,6 @@ const PLATFORM_FOR = {
   ebay: "ebay",
   etsy: "etsy",
   amazon: "amazon",
-  shopify: "shopify",
   facebook_marketplace: "facebook",
   tiktok_shop: "tiktok",
   instagram_shop: "instagram",
@@ -50,6 +49,7 @@ async function hostPhoto(dataUrl) {
 
 function toProgressItem(marketplace, result) {
   const base = { id: `${marketplace}-${Date.now()}`, type: "marketplace", name: displayName(marketplace) };
+  if (!result && RETIRED_PLATFORMS[marketplace]) return { ...base, status: "skipped", error: RETIRED_PLATFORMS[marketplace] };
   if (!result) return { ...base, status: "skipped", error: "No direct integration for this marketplace yet. Use its manual listing package." };
   if (result.success) {
     return { ...base, status: "success", result: { listingId: result.listingId, url: result.url, postedAt: new Date().toISOString() } };

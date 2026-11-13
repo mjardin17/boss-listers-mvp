@@ -1,6 +1,7 @@
 import { resolveSession } from "../../../lib/supabaseAuth";
 import { MultiPlatformPoster } from "../../../lib/multiPlatformPoster";
 import { createClient } from "@supabase/supabase-js";
+import { postSavedProduct } from "../../../lib/postSavedProduct";
 
 const poster = new MultiPlatformPoster();
 
@@ -23,14 +24,6 @@ export default async function handler(req, res) {
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
-  const { productSKU, platforms = ["ebay"] } = req.body || {};
-
-  if (!productSKU) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "productSKU is required" });
-  }
-
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return res.status(503).json({ ok: false, error: "Supabase not configured" });
   }
@@ -41,31 +34,22 @@ export default async function handler(req, res) {
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
 
-    const { data: product, error: fetchError } = await supabase
-      .from("products")
-      .select("*")
-      .eq("sku", productSKU)
-      .eq("tenant_id", session.tenantId)
-      .single();
-
-    if (fetchError || !product) {
-      return res.status(404).json({ ok: false, error: "Product not found" });
-    }
-
-    const results = await poster.postToAllPlatforms(
-      session.tenantId,
-      product,
-      platforms
-    );
-
-    const successCount = Object.values(results).filter((r) => r.success).length;
-
-    return res.status(200).json({
-      ok: true,
-      results,
-      successCount,
-      totalPlatforms: platforms.length,
+    // Dry run unless the body carries confirmLive: "PUBLISH_LIVE" (see lib/postSavedProduct).
+    const { status, json } = await postSavedProduct({
+      tenantId: session.tenantId,
+      body: req.body,
+      poster,
+      loadProduct: async (sku) => {
+        const { data, error } = await supabase
+          .from("products")
+          .select("*")
+          .eq("sku", sku)
+          .eq("tenant_id", session.tenantId)
+          .single();
+        return error ? null : data;
+      },
     });
+    return res.status(status).json(json);
   } catch (err) {
     console.error("[api/inventory/post-to-platforms]", err.message);
     return res.status(500).json({ ok: false, error: err.message });
