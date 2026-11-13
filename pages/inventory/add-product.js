@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { requireSession, authedFetch } from "../../lib/clientAuth";
+import { LIVE_CONFIRM } from "../../lib/liveConfirm";
 
 const PLATFORMS = [
-  { id: "shopify", label: "Shopify (Your Store)" },
-  { id: "instagram", label: "Instagram Shop" },
-  { id: "facebook", label: "Facebook Marketplace" },
   { id: "ebay", label: "eBay" },
+  { id: "instagram", label: "Instagram photo post" },
+  { id: "facebook", label: "Facebook Shop (Page catalog)" },
   { id: "etsy", label: "Etsy" },
 ];
 
@@ -58,6 +58,8 @@ export default function AddProduct() {
   const [imageAnalyzed, setImageAnalyzed] = useState(false);
   const [selectedPlatforms, setSelectedPlatforms] = useState([]);
   const [postResults, setPostResults] = useState(null);
+  const [publishLive, setPublishLive] = useState(false);
+  const [lastRunLive, setLastRunLive] = useState(false);
   const [savedProduct, setSavedProduct] = useState(null);
 
   useEffect(() => {
@@ -124,6 +126,11 @@ export default function AddProduct() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const live = publishLive && selectedPlatforms.length > 0;
+    if (live && !window.confirm(`Save and publish this item LIVE to ${selectedPlatforms.join(", ")}? Buyers will see it and it can sell.`)) {
+      return;
+    }
+    setLastRunLive(live);
     setSaving(true);
     setError(null);
     setPostResults(null);
@@ -176,6 +183,7 @@ export default function AddProduct() {
           body: JSON.stringify({
             productSKU: sku,
             platforms: selectedPlatforms,
+            ...(live ? { confirmLive: LIVE_CONFIRM } : {}),
           }),
         });
         const postBody = await postRes.json().catch(() => ({}));
@@ -183,9 +191,8 @@ export default function AddProduct() {
           setError(postBody.error || "Saved to inventory, but posting failed.");
           setPostResults(postBody.results || null);
         } else {
+          // Stay on the page so the seller sees what happened (preview or live).
           setPostResults(postBody.results || null);
-          router.push("/inventory");
-          return;
         }
       } else {
         router.push("/inventory");
@@ -321,6 +328,12 @@ export default function AddProduct() {
               {platform.label}
             </label>
           ))}
+          {selectedPlatforms.length > 0 && (
+            <label style={{ display: "block", marginTop: 14, padding: 10, border: "1px solid #DC2626", borderRadius: 6 }}>
+              <input type="checkbox" checked={publishLive} onChange={(e) => setPublishLive(e.target.checked)} />{" "}
+              <strong>Publish live</strong> (unchecked = preview only, nothing is posted). You&apos;ll be asked to confirm.
+            </label>
+          )}
         </div>
 
         <button
@@ -341,20 +354,26 @@ export default function AddProduct() {
               ? "Saving & posting…"
               : "Saving…"
             : selectedPlatforms.length
-              ? `Save & post to ${selectedPlatforms.length} platform${selectedPlatforms.length === 1 ? "" : "s"}`
+              ? publishLive
+                ? `Save & publish live to ${selectedPlatforms.length} platform${selectedPlatforms.length === 1 ? "" : "s"}`
+                : `Save & preview on ${selectedPlatforms.length} platform${selectedPlatforms.length === 1 ? "" : "s"}`
               : "Save to inventory"}
         </button>
       </form>
 
       {postResults && (
         <section className="panel" style={{ marginTop: 24 }}>
-          <h3 style={{ marginTop: 0 }}>Posting results</h3>
+          <h3 style={{ marginTop: 0 }}>{lastRunLive ? "Live posting results" : "Preview results (nothing was posted)"}</h3>
           {Object.entries(postResults).map(([platform, result]) => (
             <div key={platform} style={{ marginBottom: 8 }}>
               <strong>{platform}:</strong>{" "}
               {result.success ? `Posted${result.listingId ? ` — ${result.listingId}` : ""}` : (result.error || result.note || "Not posted")}
             </div>
           ))}
+          <p style={{ marginBottom: 0 }}>
+            Saved to inventory. <Link href="/inventory">Back to inventory</Link>
+            {savedProduct?.sku ? <> · <Link href={`/post?sku=${encodeURIComponent(savedProduct.sku)}`}>Post this item</Link></> : null}
+          </p>
         </section>
       )}
     </div>

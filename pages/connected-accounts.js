@@ -30,7 +30,8 @@ import { TENANT_OAUTH_CHANNELS } from "../lib/clientOAuthConnect";
 // claim. Bonanza's API has no OAuth at all either, only static developer
 // keys pasted into .env.local.
 
-const MARKETPLACE_IDS = ["ebay", "etsy", "amazon", "tiktok-shop", "shopify"];
+// Shopify is retired (the jardins-outpost website replaced it); its OAuth code stays for history.
+const MARKETPLACE_IDS = ["ebay", "etsy", "amazon", "tiktok-shop"];
 
 const LABELS = {
   ebay: "eBay",

@@ -111,7 +111,7 @@ export default function ChannelsPage() {
   const loadTenantConnections = useCallback(async () => {
     const results = {};
     await Promise.all(
-      ["ebay", "etsy", "amazon", "tiktok-shop", "shopify"].map(async (marketplace) => {
+      ["ebay", "etsy", "amazon", "tiktok-shop"].map(async (marketplace) => {
         try {
           const res = await authedFetch(`/api/channels/${marketplace}/status`);
           const data = await res.json();
