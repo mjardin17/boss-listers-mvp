@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { requireSession, authedFetch } from "../lib/clientAuth";
 
 const PLATFORMS = [
@@ -15,27 +16,45 @@ const PLATFORMS = [
 ];
 
 export default function PostPage() {
+  const router = useRouter();
   const [inventory, setInventory] = useState([]);
   const [selectedSku, setSelectedSku] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState(["ebay", "amazon"]);
   const [posting, setPosting] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState("");
+  const [loadingInventory, setLoadingInventory] = useState(true);
 
   useEffect(() => {
     if (!requireSession()) return;
     loadInventory();
   }, []);
 
+  useEffect(() => {
+    const sku = typeof router.query.sku === "string" ? router.query.sku : "";
+    if (sku) setSelectedSku(sku);
+  }, [router.query.sku]);
+
   async function loadInventory() {
+    setLoadingInventory(true);
     try {
       const res = await authedFetch("/api/inventory");
-      const data = await res.json();
-      if (data.ok) {
-        setInventory(data.items || []);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        if (res.status === 503) {
+          setError("Inventory isn't connected yet. Supabase isn't configured in this environment.");
+        } else {
+          setError(data.error || "Failed to load inventory");
+        }
+        setInventory([]);
+        return;
       }
+      setInventory(Array.isArray(data.products) ? data.products : []);
     } catch (err) {
       setError(`Failed to load inventory: ${err.message}`);
+      setInventory([]);
+    } finally {
+      setLoadingInventory(false);
     }
   }
 
@@ -84,7 +103,8 @@ export default function PostPage() {
           <h1>Post to All Platforms</h1>
         </div>
         <nav>
-          <Link className="nav-link" href="/capture">Capture</Link>
+          <Link className="nav-link" href="/inventory">Inventory</Link>
+          <Link className="nav-link" href="/inventory/add-product">Add product</Link>
           <Link className="nav-link" href="/channels">Channels</Link>
           <Link className="nav-link" href="/history">History</Link>
         </nav>
@@ -113,13 +133,20 @@ export default function PostPage() {
               fontSize: 14,
             }}
           >
-            <option value="">Choose an item...</option>
+            <option value="">{loadingInventory ? "Loading inventory..." : "Choose an item..."}</option>
             {inventory.map((item) => (
               <option key={item.sku} value={item.sku}>
-                {item.title || item.sku} (${item.price})
+                {item.title || item.sku} ({item.sku}){item.price != null ? ` — $${item.price}` : ""}
               </option>
             ))}
           </select>
+          {!loadingInventory && inventory.length === 0 && (
+            <p style={{ marginTop: 12 }}>
+              No inventory items yet. <Link href="/inventory/add-product">Add a product</Link>
+              {" or "}
+              <Link href="/card-scan">scan a card</Link>.
+            </p>
+          )}
         </div>
       </section>
 
