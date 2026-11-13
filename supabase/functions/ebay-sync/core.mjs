@@ -7,8 +7,13 @@
 //   2. Plans the counts (plan.mjs, generated from lib/inventoryCountPlan.js).
 //   3. Changes the BossListers count where eBay is the proof (sold or ended goes to 0).
 //   4. If eBay changes are switched on, lowers or ends eBay listings whose stock sold elsewhere.
-//   5. Writes one row to sync_logs.
+//   5. Saves each item's condition from eBay (GetItem, read only): every missing one, and each
+//      known one about once a day. Only the condition column is written; a failure here is
+//      reported but never fails the stock sync.
+//   6. Writes one row to sync_logs.
 // It fails closed: an empty or suspect eBay read changes nothing.
+
+import { conditionFromTradingItem, pickConditionChecks } from "./condition.mjs";
 
 const EBAY_API = "https://api.ebay.com";
 const TRADING_URL = `${EBAY_API}/ws/api.dll`;
@@ -133,6 +138,28 @@ async function applySteps({ steps, ctx, rest, tenantId, live, classifyEbayItem, 
   return result;
 }
 
+/** Reads the condition of the chosen listings from eBay and saves the ones that changed. */
+async function refreshConditions({ ctx, rest, tenantId, products, live, now }) {
+  const result = { checked: 0, updated: [], failed: [] };
+  for (const p of pickConditionChecks(products, live, { now })) {
+    result.checked++;
+    try {
+      const response = await trading(ctx, "GetItem", `<ItemID>${Number(p.ebay_listing_id)}</ItemID>`);
+      const condition = conditionFromTradingItem([].concat(response.Item || [])[0]);
+      if (!condition || condition === p.condition) continue;
+      await rest(`products?id=eq.${encodeURIComponent(p.id)}&tenant_id=eq.${tenantId}`, {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ condition }),
+      });
+      result.updated.push({ sku: p.sku, from: p.condition ?? null, to: condition });
+    } catch (err) {
+      result.failed.push({ sku: p.sku, reason: String(err.message).slice(0, 200) });
+    }
+  }
+  return result;
+}
+
 /** True when a run was logged less than MIN_SECONDS_BETWEEN_RUNS ago. */
 async function ranRecently(rest, nowMs) {
   const rows = await rest("sync_logs?select=started_at&order=started_at.desc&limit=1");
@@ -167,13 +194,15 @@ async function writeLog(rest, startedAt, summary) {
  * @param {{ fetchImpl: typeof fetch, parseXml: (xml: string) => any,
  *           env: { supabaseUrl: string, serviceKey: string, ebayClientId: string, ebayClientSecret: string },
  *           config: { ownerTenantId: string, digitalSkus?: string[], ebayWritesEnabled?: boolean },
- *           planner: { planCounts: Function, autoSteps: Function, classifyEbayItem: Function } }} deps
+ *           planner: { planCounts: Function, autoSteps: Function, classifyEbayItem: Function },
+ *           now?: number }} deps  `now` only picks which known conditions are re-checked (tests)
  * @returns {Promise<{ ok: boolean, status: string, ebayLive: number|null, blocked: string|null,
- *                     applied: object[], ebayChanged: object[], held: object[], failed: object[] }>}
+ *                     applied: object[], ebayChanged: object[], held: object[], failed: object[],
+ *                     conditions: { checked: number, updated: object[], failed: object[] } }>}
  */
-export async function runSync({ fetchImpl, parseXml, env, config, planner }) {
+export async function runSync({ fetchImpl, parseXml, env, config, planner, now }) {
   const startedAt = new Date().toISOString();
-  const summary = { ebayLive: null, blocked: null, applied: [], ebayChanged: [], held: [], failed: [] };
+  const summary = { ebayLive: null, blocked: null, applied: [], ebayChanged: [], held: [], failed: [], conditions: { checked: 0, updated: [], failed: [] } };
   const missing = ["supabaseUrl", "serviceKey", "ebayClientId", "ebayClientSecret"].filter((k) => !env[k]);
   if (missing.length || !config.ownerTenantId) {
     return { ok: false, status: "failed", ...summary, blocked: `not set up: ${[...missing, ...(config.ownerTenantId ? [] : ["ownerTenantId"])].join(", ")}` };
@@ -190,11 +219,14 @@ export async function runSync({ fetchImpl, parseXml, env, config, planner }) {
     const ctx = { fetchImpl, parseXml, token };
     const live = await readActiveListings(ctx);
     summary.ebayLive = live.size;
-    const products = await rest(`products?select=id,sku,quantity,status,ebay_listing_id,last_ebay_quantity&tenant_id=eq.${tenantId}&limit=5000`);
+    const products = await rest(`products?select=id,sku,quantity,status,ebay_listing_id,last_ebay_quantity,condition&tenant_id=eq.${tenantId}&limit=5000`);
     const plan = planner.planCounts({ products: products.map((p) => ({ ...p, shopify_baseline: null })), ebay: live, shopify: new Map(), digitalSkus: config.digitalSkus || [] });
     const steps = planner.autoSteps(plan, { ebayWrites: config.ebayWritesEnabled === true });
     if (steps.blocked) summary.blocked = steps.blocked;
-    else Object.assign(summary, await applySteps({ steps, ctx, rest, tenantId, live, classifyEbayItem: planner.classifyEbayItem, stamp: startedAt.slice(0, 16) }));
+    else {
+      Object.assign(summary, await applySteps({ steps, ctx, rest, tenantId, live, classifyEbayItem: planner.classifyEbayItem, stamp: startedAt.slice(0, 16) }));
+      summary.conditions = await refreshConditions({ ctx, rest, tenantId, products, live, now: now ?? Date.parse(startedAt) });
+    }
   } catch (err) {
     summary.blocked = `run failed: ${String(err.message).slice(0, 200)}`;
   }
