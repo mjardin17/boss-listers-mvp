@@ -3,6 +3,7 @@
 // BossListers uses, so the cloud and this computer can never follow different rules:
 //   supabase/functions/ebay-sync/plan.mjs      from lib/inventoryCountPlan.js
 //   supabase/functions/ebay-sync/condition.mjs from lib/ebayCondition.js
+//   supabase/functions/ebay-sync/shipping.mjs  from lib/ebayShipping.js
 //   supabase/functions/ebay-sync/config.json  from config/inventory-sync.json
 //
 //   node scripts/build-cloud-sync.js          write the files
@@ -30,7 +31,7 @@ function buildConfig() {
 }
 
 function build() {
-  return { "plan.mjs": buildModule("inventoryCountPlan.js"), "condition.mjs": buildModule("ebayCondition.js"), "config.json": buildConfig() };
+  return { "plan.mjs": buildModule("inventoryCountPlan.js"), "condition.mjs": buildModule("ebayCondition.js"), "shipping.mjs": buildModule("ebayShipping.js"), "config.json": buildConfig() };
 }
 
 function main() {

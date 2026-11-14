@@ -156,7 +156,7 @@ test("a call fifteen minutes after the last run goes ahead", async () => {
 
 // ---- Item condition: eBay is the source; the sync fills a missing one and re-checks each about once a day.
 const cond = (id, name) => `<ConditionID>${id}</ConditionID><ConditionDisplayName>${name}</ConditionDisplayName>`;
-const withCondition = (p, condition) => ({ ...p, condition });
+const withCondition = (p, condition) => ({ ...p, condition, shipping_type: "flat", shipping_cost: 5 });
 const patches = (w) => w.calls.filter((c) => c.url.includes("/rest/v1/products?id=eq.") && c.body && !c.url.includes("select="));
 const known = (n) => many(n).map((p) => withCondition(p, "New"));
 const AN_HOUR_WITH_NO_ROTATION = 0; // slot 0: none of the test listings 1000-1019 or 555 fall due
@@ -212,4 +212,58 @@ test("no condition is looked up when the eBay read is blocked", async () => {
   const out = await run(w);
   assert.strictEqual(out.status, "failed");
   assert.strictEqual(w.calls.filter((c) => c.call === "GetItem").length, 0);
+});
+
+// ---- Shipping price: read from eBay in the same GetItem call, saved so the store can charge it.
+const flat = (cost) => `<ShippingDetails><ShippingType>Flat</ShippingType><ShippingServiceOptions><ShippingServiceCost currencyID="USD">${cost}</ShippingServiceCost><ShippingServicePriority>1</ShippingServicePriority></ShippingServiceOptions></ShippingDetails>`;
+const calculated = "<ShippingDetails><ShippingType>Calculated</ShippingType></ShippingDetails>";
+
+test("a listing with no shipping saved gets eBay's flat price; condition is left alone", async () => {
+  const w = world({
+    live: { ...manyLive(20), 555: [1, 0] },
+    items: { 555: ["Active", 1, 0, cond(1000, "New") + flat("6.50")] },
+    products: [...known(20), { ...product("lamp", "555", 1), condition: "New", shipping_type: null, shipping_cost: null }],
+  });
+  const out = await run(w, CONFIG, ENV, AN_HOUR_WITH_NO_ROTATION);
+  assert.strictEqual(out.status, "success");
+  assert.deepStrictEqual(out.shipping.updated, [{ sku: "lamp", type: "flat", cost: 6.5 }]);
+  assert.deepStrictEqual(out.conditions.updated, []);
+  const sent = patches(w);
+  assert.strictEqual(sent.length, 1);
+  assert.deepStrictEqual(JSON.parse(sent[0].body), { shipping_type: "flat", shipping_cost: 6.5 });
+  assert.deepStrictEqual(out.shipping.missing, []);
+});
+
+test("condition and shipping missing together are saved in one write", async () => {
+  const w = world({
+    live: { ...manyLive(20), 555: [1, 0] },
+    items: { 555: ["Active", 1, 0, cond(3000, "Used") + flat("4.00")] },
+    products: [...known(20), { ...product("mug", "555", 1), condition: "Unknown" }],
+  });
+  const out = await run(w, CONFIG, ENV, AN_HOUR_WITH_NO_ROTATION);
+  const sent = patches(w);
+  assert.strictEqual(sent.length, 1);
+  assert.deepStrictEqual(JSON.parse(sent[0].body), { condition: "Used", shipping_type: "flat", shipping_cost: 4 });
+  assert.strictEqual(out.conditions.updated.length, 1);
+});
+
+test("calculated shipping is saved as calculated, listed as needing attention, and not re-read every run", async () => {
+  const w = world({
+    live: { ...manyLive(20), 555: [1, 0] },
+    items: { 555: ["Active", 1, 0, cond(1000, "New") + calculated] },
+    products: [...known(20), { ...product("chair", "555", 1), condition: "New" }],
+  });
+  const out = await run(w, CONFIG, ENV, AN_HOUR_WITH_NO_ROTATION);
+  assert.deepStrictEqual(out.shipping.updated, [{ sku: "chair", type: "calculated", cost: null }]);
+  assert.deepStrictEqual(out.shipping.missing, [{ sku: "chair", shipping_type: "calculated" }]);
+  const log = w.calls.find((c) => c.url.endsWith("/rest/v1/sync_logs") && c.body);
+  assert.ok(JSON.parse(log.body).conflicts.some((x) => x.sku === "chair" && /no fixed shipping price/.test(x.reason)));
+  // Saved as calculated: it no longer counts as missing, so it is only looked at in its daily turn.
+  const w2 = world({
+    live: { ...manyLive(20), 555: [1, 0] },
+    items: { 555: ["Active", 1, 0, cond(1000, "New") + calculated] },
+    products: [...known(20), { ...product("chair", "555", 1), condition: "New", shipping_type: "calculated", shipping_cost: null }],
+  });
+  await run(w2, CONFIG, ENV, AN_HOUR_WITH_NO_ROTATION);
+  assert.strictEqual(w2.calls.filter((c) => c.call === "GetItem").length, 0);
 });
