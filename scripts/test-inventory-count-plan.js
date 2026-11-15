@@ -111,6 +111,12 @@ test("acceptGone lets a confirmed mass ending through only when the count matche
   assert.match(planCounts({ products, ebay, shopify: shop([]), acceptGone: 11 }).blocked, /10 of 40/);
 });
 
+test("listings already at 0 that are missing from eBay do not count toward the brake", () => {
+  const products = Array.from({ length: 40 }, (_, i) => prod(i + 1, i < 10 ? 0 : 1));
+  const plan = planCounts({ products, ebay: live(products.slice(10).map((p) => [p.ebay_listing_id, 1])), shopify: shop([]) });
+  assert.strictEqual(plan.blocked, null);
+});
+
 test("acceptGone never allows an empty eBay read", () => {
   const plan = planCounts({ products: [prod(1, 1)], ebay: live([]), shopify: shop([]), acceptGone: 1 });
   assert.match(plan.blocked, /eBay returned no listings/);
