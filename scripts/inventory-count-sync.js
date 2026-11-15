@@ -29,7 +29,7 @@ const SHOPIFY_API = "2024-10";
 
 function parseArgs(argv) {
   const get = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
-  return { live: argv.includes("--live"), auto: argv.includes("--auto"), confirm: get("--confirm"), sku: get("--sku") || null, shopify: argv.includes("--with-shopify") };
+  return { live: argv.includes("--live"), auto: argv.includes("--auto"), confirm: get("--confirm"), sku: get("--sku") || null, shopify: argv.includes("--with-shopify"), acceptGone: get("--accept-gone") != null ? Number(get("--accept-gone")) : null };
 }
 
 async function readEbay(tenantId) {
@@ -189,7 +189,7 @@ async function main() {
   const listingByProduct = new Map(listings.map((r) => [r.product_id, r]));
   const rows = products.map((p) => ({ ...p, shopify_baseline: listingByProduct.get(p.id)?.listed_quantity ?? null }));
   const config = require("../config/inventory-sync.json");
-  const plan = planCounts({ products: rows, ebay: ebay.map, shopify: shopify.map, digitalSkus: config.digitalSkus || [] });
+  const plan = planCounts({ products: rows, ebay: ebay.map, shopify: shopify.map, digitalSkus: config.digitalSkus || [], acceptGone: args.acceptGone });
 
   console.log(`eBay live listings: ${ebay.map.size} | Shopify products: ${shopify.map.size} | database products: ${products.length}`);
   printPlan(plan, args.sku);

@@ -103,6 +103,19 @@ test("fails closed: too many listings missing at once looks like a bad read, not
   assert.match(plan.blocked, /10 of 40/);
 });
 
+test("acceptGone lets a confirmed mass ending through only when the count matches exactly", () => {
+  const products = Array.from({ length: 40 }, (_, i) => prod(i + 1, 1));
+  const ebay = live(products.slice(0, 30).map((p) => [p.ebay_listing_id, 1]));
+  assert.strictEqual(planCounts({ products, ebay, shopify: shop([]), acceptGone: 10 }).blocked, null);
+  assert.match(planCounts({ products, ebay, shopify: shop([]), acceptGone: 9 }).blocked, /10 of 40/);
+  assert.match(planCounts({ products, ebay, shopify: shop([]), acceptGone: 11 }).blocked, /10 of 40/);
+});
+
+test("acceptGone never allows an empty eBay read", () => {
+  const plan = planCounts({ products: [prod(1, 1)], ebay: live([]), shopify: shop([]), acceptGone: 1 });
+  assert.match(plan.blocked, /eBay returned no listings/);
+});
+
 test("a negative or non-integer live count blocks that item only", () => {
   const plan = planCounts({ products: [prod(1, 2), prod(2, 2)], ebay: live([[1, -1], [2, 1]]), shopify: shop([]) });
   assert.match(row(plan, 1).error, /bad eBay count/);
@@ -139,8 +152,9 @@ test("classifyEbayItem: a missing or unreadable item is 'unknown', never 'sold'"
 });
 
 test("parseArgs: preview without Shopify is the default; --with-shopify and --live are opt-in", () => {
-  assert.deepStrictEqual(parseArgs([]), { live: false, auto: false, confirm: undefined, sku: null, shopify: false });
-  assert.deepStrictEqual(parseArgs(["--with-shopify", "--live", "--sku", "A", "--confirm", "X"]), { live: true, auto: false, confirm: "X", sku: "A", shopify: true });
+  assert.deepStrictEqual(parseArgs([]), { live: false, auto: false, confirm: undefined, sku: null, shopify: false, acceptGone: null });
+  assert.strictEqual(parseArgs(["--accept-gone", "21"]).acceptGone, 21);
+  assert.deepStrictEqual(parseArgs(["--with-shopify", "--live", "--sku", "A", "--confirm", "X"]), { live: true, auto: false, confirm: "X", sku: "A", shopify: true, acceptGone: null });
 });
 
 // ---- automatic mode -------------------------------------------------------
