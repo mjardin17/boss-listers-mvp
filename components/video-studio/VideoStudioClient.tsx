@@ -13,6 +13,7 @@ import type {
 } from "../../lib/video-studio/types";
 
 import { authedFetch } from "../../lib/clientAuth";
+import { CardShowcaseEditorPanel } from "./CardShowcaseEditorPanel";
 
 const POLL_INTERVAL_MS = 2000;
 const IN_FLIGHT_STATUSES = new Set([
@@ -448,44 +449,21 @@ export function VideoStudioClient({
         </div>
 
         {project.projectType === "CARD_SHOWCASE" && project.cardShowcase ? (
-          <div className="rounded-3xl border border-amber-400/30 bg-zinc-900 p-5">
-            <p className="text-xs uppercase tracking-widest text-amber-300">
-              Vault Card Facts (read from vault)
-            </p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-[120px_1fr]">
-              <div className="aspect-[3/4] overflow-hidden rounded-xl border border-amber-400/60 bg-zinc-950">
-                <img
-                  src={project.cardShowcase.photoUrl}
-                  alt={project.cardShowcase.cardName}
-                  className="h-full w-full object-cover"
-                />
-              </div>
-              <div className="space-y-1.5 text-sm">
-                <p className="text-lg font-bold text-white">
-                  {project.cardShowcase.cardName}
-                </p>
-                <p className="text-zinc-300">
-                  {[project.cardShowcase.setName, project.cardShowcase.year]
-                    .filter(Boolean)
-                    .join(" · ") || "—"}
-                </p>
-                <p className="font-semibold text-amber-300">
-                  {project.cardShowcase.cardNumber
-                    ? `#${project.cardShowcase.cardNumber.replace(/^#+/, "")}`
-                    : "No card number stored"}
-                </p>
-                <p className="text-xs text-zinc-400">
-                  Suggested price:{" "}
-                  {project.cardShowcase.suggestedPrice !== null
-                    ? `$${project.cardShowcase.suggestedPrice.toFixed(2)} (from vault)`
-                    : "None stored in vault — omitted from video"}
-                </p>
-                <p className="text-xs text-zinc-500">
-                  1080×1920 · 9:16 · 12s · No voiceover · Render-only (never auto-lists or auto-posts)
-                </p>
-              </div>
-            </div>
-          </div>
+          <CardShowcaseEditorPanel
+            showcase={project.cardShowcase}
+            onChange={(nextShowcase) =>
+              setProject({
+                ...project,
+                cardShowcase: nextShowcase,
+                scenes: project.scenes.map((scene, idx) =>
+                  idx === 0
+                    ? { ...scene, assetUrl: nextShowcase.photoUrl }
+                    : scene
+                ),
+                updatedAt: new Date().toISOString()
+              })
+            }
+          />
         ) : null}
 
         {project.scenes.map(

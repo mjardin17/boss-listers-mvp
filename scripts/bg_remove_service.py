@@ -20,11 +20,31 @@ import argparse
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Add commercial-maker-v6 to path to import v6's exact bg_remove engine
-v6_dir = Path(r"C:\Users\jjard\claude\commercial-maker-v6")
-sys.path.insert(0, str(v6_dir))
+# Add commercial-maker-v6 to path to import v6's exact bg_remove engine when present;
+# otherwise fall back cleanly to local scripts/card_prep.py (OpenCV GrabCut / Card Cutout).
+v6_dir = Path(os.environ.get("COMMERCIAL_MAKER_V6_DIR", r"C:\Users\jjard\claude\commercial-maker-v6"))
+_HAS_V6_RMBG = False
+if (v6_dir / "lib" / "bg_remove.py").exists():
+    sys.path.insert(0, str(v6_dir))
+    try:
+        from lib.bg_remove import remove_background as _v6_remove_background
+        _HAS_V6_RMBG = True
+    except Exception:
+        _HAS_V6_RMBG = False
 
-from lib.bg_remove import remove_background
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from card_prep import prepare_image as _local_prepare_image
+
+
+def remove_background(input_path, output_path, mode="cutout"):
+    if _HAS_V6_RMBG and mode == "cutout":
+        return _v6_remove_background(str(input_path), str(output_path))
+    return _local_prepare_image(
+        input_path=str(input_path),
+        output_path=str(output_path),
+        mode=mode,
+        use_rmbg=False,
+    )
 
 def process_cutout(input_path, output_path):
     """Run RMBG-1.4 background removal and compute coverage statistics."""

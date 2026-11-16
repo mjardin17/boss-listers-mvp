@@ -125,6 +125,11 @@ try {
           process.cwd(),
           "video",
           "index.ts"
+        ),
+      publicDir:
+        path.join(
+          process.cwd(),
+          "public"
         )
     });
 

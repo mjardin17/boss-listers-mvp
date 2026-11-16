@@ -77,6 +77,112 @@ export const VideoCtaSchema = z.object({
   showQrCode: z.boolean().default(false)
 });
 
+export const CardShowcaseBgPresetSchema = z.enum([
+  "navy-gold",
+  "studio-spotlight",
+  "gold-rays",
+  "neon-pulse",
+  "warm-bokeh",
+  "studio-linen",
+  "obsidian-velvet",
+  "emerald-vault",
+  "crimson-vault",
+  "custom"
+]);
+export type CardShowcaseBgPreset = z.infer<typeof CardShowcaseBgPresetSchema>;
+
+export const CardStageBackdropPresetSchema = z.enum([
+  "transparent",
+  "dark-velvet",
+  "gold-glow",
+  "spotlight",
+  "studio-white",
+  "custom"
+]);
+export type CardStageBackdropPreset = z.infer<typeof CardStageBackdropPresetSchema>;
+
+export const CardFrameStyleSchema = z.enum([
+  "gold-frame",
+  "floating",
+  "minimal"
+]);
+export type CardFrameStyle = z.infer<typeof CardFrameStyleSchema>;
+
+export const CardBgRemoveModeSchema = z.enum([
+  "card",
+  "cutout",
+  "none"
+]);
+export type CardBgRemoveMode = z.infer<typeof CardBgRemoveModeSchema>;
+
+export const CardShowcaseBackgroundSchema = z.object({
+  preset: CardShowcaseBgPresetSchema.default("navy-gold"),
+  imageUrl: z.string().optional(),
+  color: z.string().max(32).optional(),
+  secondaryColor: z.string().max(32).optional(),
+  dim: z.number().min(0).max(0.92).optional(),
+  motion: z.enum(["subtle", "none"]).default("subtle")
+});
+export type CardShowcaseBackground = z.infer<typeof CardShowcaseBackgroundSchema>;
+
+export const CardShowcaseStageSchema = z.object({
+  removeBg: CardBgRemoveModeSchema.default("card"),
+  backgroundRemoved: z.boolean().default(false),
+  originalPhotoUrl: z.string().optional(),
+  backdropPreset: CardStageBackdropPresetSchema.default("transparent"),
+  backdropImageUrl: z.string().optional(),
+  backdropColor: z.string().max(32).optional(),
+  frameStyle: CardFrameStyleSchema.default("gold-frame"),
+  zoom: z.number().min(0.7).max(2.2).default(1),
+  offsetX: z.number().min(-50).max(50).default(0),
+  offsetY: z.number().min(-50).max(50).default(0)
+});
+export type CardShowcaseStage = z.infer<typeof CardShowcaseStageSchema>;
+
+export const CardShowcaseCutInLayoutSchema = z.enum([
+  "full",
+  "pip",
+  "split",
+  "closeup"
+]);
+export type CardShowcaseCutInLayout = z.infer<typeof CardShowcaseCutInLayoutSchema>;
+
+export const CardShowcaseCutInPositionSchema = z.enum([
+  "top-right",
+  "bottom-right",
+  "bottom-left",
+  "top-left"
+]);
+export type CardShowcaseCutInPosition = z.infer<typeof CardShowcaseCutInPositionSchema>;
+
+export const CardShowcaseCutInTransitionSchema = z.enum([
+  "fade",
+  "cut",
+  "slide-left",
+  "slide-up",
+  "zoom"
+]);
+export type CardShowcaseCutInTransition = z.infer<typeof CardShowcaseCutInTransitionSchema>;
+
+export const CardShowcaseCutInSchema = z.object({
+  id: z.string().min(1),
+  imageUrl: z.string().min(1),
+  originalImageUrl: z.string().optional(),
+  label: z.string().max(60).default(""),
+  layout: CardShowcaseCutInLayoutSchema.default("full"),
+  position: CardShowcaseCutInPositionSchema.default("bottom-right"),
+  transition: CardShowcaseCutInTransitionSchema.default("fade"),
+  startSec: z.number().min(0).max(30).default(5.2),
+  durationSec: z.number().min(0.4).max(12).default(2.2),
+  removeBg: CardBgRemoveModeSchema.default("none"),
+  backgroundRemoved: z.boolean().default(false),
+  fit: z.enum(["contain", "cover"]).default("contain"),
+  zoom: z.number().min(1).max(3).default(1),
+  focusX: z.number().min(0).max(100).default(50),
+  focusY: z.number().min(0).max(100).default(50)
+});
+export type CardShowcaseCutIn = z.infer<typeof CardShowcaseCutInSchema>;
+
 export const CardShowcaseDataSchema = z.object({
   cardId: z.string().min(1),
   cardName: z.string().min(1).max(160),
@@ -92,7 +198,10 @@ export const CardShowcaseDataSchema = z.object({
   subBrand: z.string().max(80).default("BossListers"),
   ctaLine: z.string().min(1).max(80).default("Message to claim"),
   handle: z.string().min(1).max(80).default("@jardinoutpost"),
-  logoUrl: z.string().optional()
+  logoUrl: z.string().optional(),
+  background: CardShowcaseBackgroundSchema.optional(),
+  cardStage: CardShowcaseStageSchema.optional(),
+  cutIns: z.array(CardShowcaseCutInSchema).max(12).default([])
 });
 
 export type CardShowcaseData = z.infer<typeof CardShowcaseDataSchema>;

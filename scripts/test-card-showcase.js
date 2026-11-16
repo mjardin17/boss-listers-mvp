@@ -287,6 +287,8 @@ test("brand hygiene: Card Showcase code contains none of the reference phrasing 
     "lib/video-studio/cardShowcase.ts",
     "video/CardShowcaseComposition.tsx",
     "scripts/render-card-showcase.mjs",
+    "scripts/card_prep.py",
+    "components/video-studio/CardShowcaseEditorPanel.tsx",
   ];
   const forbidden = [/today'?s card from the vault/i, /\bauction\b/i, /kaleidoscope/i];
   for (const rel of filesToCheck) {
@@ -296,4 +298,244 @@ test("brand hygiene: Card Showcase code contains none of the reference phrasing 
     }
   }
   assert.ok(formatCardShowcaseSlug({ cardName: "Oddish" }).startsWith("card-showcase-"));
+});
+
+test("background replacement & cut-in pictures validate through Zod schema", () => {
+  const typesMod = loadTs("lib/video-studio/types.ts");
+  const project = buildCardShowcaseProject(
+    {
+      id: "card-bg-cutin",
+      frontImage: "/cutouts/card.png",
+      fields: { player: "Oddish", set: "Lost Origin", year: "2022", cardNumber: "001/196" },
+    },
+    {
+      background: {
+        preset: "gold-rays",
+        imageUrl: "/backgrounds/bg-cta.jpg",
+        dim: 0.35,
+        motion: "subtle",
+      },
+      cardStage: {
+        removeBg: "card",
+        backgroundRemoved: true,
+        backdropPreset: "dark-velvet",
+        frameStyle: "floating",
+        zoom: 1.08,
+      },
+      cutIns: [
+        {
+          id: "cut-back",
+          imageUrl: "/cutouts/back.png",
+          label: "Back of Card",
+          layout: "split",
+          transition: "slide-left",
+          startSec: 5.0,
+          durationSec: 2.3,
+          removeBg: "card",
+          backgroundRemoved: true,
+        },
+        {
+          id: "cut-art",
+          imageUrl: "/cutouts/art.png",
+          label: "Art Detail",
+          layout: "pip",
+          position: "bottom-right",
+          transition: "zoom",
+          startSec: 7.4,
+          durationSec: 2.0,
+        },
+      ],
+    }
+  );
+
+  const parsed = typesMod.VideoProjectSchema.parse(project);
+  assert.equal(parsed.cardShowcase.background.preset, "gold-rays");
+  assert.equal(parsed.cardShowcase.cardStage.backgroundRemoved, true);
+  assert.equal(parsed.cardShowcase.cardStage.frameStyle, "floating");
+  assert.equal(parsed.cardShowcase.cutIns.length, 2);
+  assert.equal(parsed.cardShowcase.cutIns[0].layout, "split");
+  assert.equal(parsed.cardShowcase.cutIns[1].layout, "pip");
+  assert.equal(parsed.cardShowcase.cutIns[1].position, "bottom-right");
+  assert.equal(parsed.cardShowcase.suggestedPrice, null);
+});
+
+test("CLI --dry-run resolves background presets, stage options, --cut-in specs, and --auto-closeup", () => {
+  const dir = tempDir("cli-bg-cutin-");
+  try {
+    const frontPath = path.join(dir, "front.jpg");
+    const extraPic = path.join(dir, "detail.jpg");
+    fs.writeFileSync(frontPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+    fs.writeFileSync(extraPic, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
+    const vaultPath = path.join(dir, "vault.json");
+    const vault = createVault(vaultPath);
+    addCard(vault, {
+      frontImage: frontPath,
+      fields: { player: "Oddish", set: "Lost Origin", year: "2022", cardNumber: "001/196", identificationStatus: "confirmed" },
+    });
+
+    const proc = spawnSync(
+      process.execPath,
+      [
+        path.join(ROOT, "scripts", "render-card-showcase.mjs"),
+        "--vault", vaultPath,
+        "--bg-preset", "gold-rays",
+        "--card-bg", "gold-glow",
+        "--frame", "floating",
+        "--bg-remove", "card",
+        "--cut-in", `${extraPic}|label=Holo Check|layout=pip|pos=top-right|transition=zoom|start=5.1|dur=2.2|bg=cutout`,
+        "--auto-closeup",
+        "--dry-run",
+        "--json",
+      ],
+      { encoding: "utf8", cwd: ROOT }
+    );
+    assert.equal(proc.status, 0, proc.stderr);
+    const out = JSON.parse(proc.stdout);
+    assert.equal(out.ok, true);
+    assert.equal(out.background.preset, "gold-rays");
+    assert.ok(out.background.imageUrl.endsWith(path.join("backgrounds", "bg-cta.jpg")));
+    assert.equal(out.cardStage.removeBg, "card");
+    assert.equal(out.cardStage.backdropPreset, "gold-glow");
+    assert.equal(out.cardStage.frameStyle, "floating");
+    assert.equal(out.cutIns.length, 2);
+    assert.equal(out.cutIns[0].label, "Holo Check");
+    assert.equal(out.cutIns[0].layout, "pip");
+    assert.equal(out.cutIns[0].position, "top-right");
+    assert.equal(out.cutIns[0].transition, "zoom");
+    assert.equal(out.cutIns[0].removeBg, "cutout");
+    assert.equal(out.cutIns[1].id, "cutin-auto-closeup");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("commercialMaker forwards background replacement and cut-in flags safely", async () => {
+  const dir = tempDir("maker-bg-");
+  try {
+    let seenArgs = [];
+    const fakeRun = async (args) => {
+      seenArgs = args;
+      const outIdx = args.indexOf("--out");
+      fs.writeFileSync(args[outIdx + 1], Buffer.alloc(2048, 7));
+      return {
+        code: 0,
+        stderr: "",
+        stdout: JSON.stringify({ ok: true, card: { id: "c1", name: "Oddish" } }),
+      };
+    };
+
+    const res = await makeCardShowcaseCommercial({
+      vaultPath: "/tmp/vault.json",
+      bgPreset: "studio-spotlight",
+      cardBgPreset: "transparent",
+      removeBg: "card",
+      frameStyle: "floating",
+      autoCloseup: true,
+      dir,
+      run: fakeRun,
+    });
+
+    assert.equal(res.ok, true);
+    assert.ok(seenArgs.includes("--bg-preset"));
+    assert.ok(seenArgs.includes("studio-spotlight"));
+    assert.ok(seenArgs.includes("--card-bg"));
+    assert.ok(seenArgs.includes("--bg-remove"));
+    assert.ok(seenArgs.includes("--frame"));
+    assert.ok(seenArgs.includes("--auto-closeup"));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("scripts/card_prep.py removes background, straightens tilted card, extracts closeup, and replaces backdrop locally", () => {
+  let pyBin = null;
+  for (const bin of ["python3", "python"]) {
+    const check = spawnSync(bin, ["-c", "import cv2, PIL, numpy"], { encoding: "utf8" });
+    if (!check.error && check.status === 0) {
+      pyBin = bin;
+      break;
+    }
+  }
+  if (!pyBin) return; // Skip cleanly on environments without Python/OpenCV
+
+  const dir = tempDir("card-prep-py-");
+  try {
+    const rawCard = path.join(dir, "tilted-card.jpg");
+    const cutoutOut = path.join(dir, "card-cutout.png");
+    const closeupOut = path.join(dir, "card-closeup.png");
+    const replacedOut = path.join(dir, "card-replaced.jpg");
+
+    // Create a synthetic photo of a tilted yellow-bordered card on a dark desk
+    const mkCard = spawnSync(
+      pyBin,
+      [
+        "-c",
+        [
+          "import cv2, numpy as np, sys",
+          "img = np.full((800, 600, 3), (38, 42, 50), dtype=np.uint8)",
+          "pts = np.array([[130, 150], [475, 162], [462, 650], [118, 638]], dtype=np.int32)",
+          "cv2.fillConvexPoly(img, pts, (120, 210, 245))",
+          "inner = np.array([[155, 180], [450, 190], [438, 622], [142, 610]], dtype=np.int32)",
+          "cv2.fillConvexPoly(img, inner, (70, 175, 110))",
+          "art = np.array([[172, 220], [432, 228], [426, 408], [166, 400]], dtype=np.int32)",
+          "cv2.fillConvexPoly(img, art, (215, 140, 65))",
+          "cv2.imwrite(sys.argv[1], img)",
+        ].join("\n"),
+        rawCard,
+      ],
+      { encoding: "utf8" }
+    );
+    assert.equal(mkCard.status, 0, mkCard.stderr);
+
+    const prep1 = spawnSync(
+      pyBin,
+      [path.join(ROOT, "scripts", "card_prep.py"), "--input", rawCard, "--output", cutoutOut, "--mode", "card"],
+      { encoding: "utf8" }
+    );
+    assert.equal(prep1.status, 0, prep1.stderr);
+    const meta1 = JSON.parse(prep1.stdout);
+    assert.equal(meta1.ok, true);
+    assert.equal(meta1.background_removed, true);
+    assert.equal(meta1.width, 1000);
+    assert.equal(meta1.height, 1400);
+    assert.ok(fs.existsSync(cutoutOut));
+
+    // Verify rounded transparent corner pixel (0,0) has alpha === 0
+    const alphaCheck = spawnSync(
+      pyBin,
+      ["-c", "from PIL import Image; import sys; im=Image.open(sys.argv[1]); print(im.mode, im.getpixel((0,0))[3], im.getpixel((500,700))[3])", cutoutOut],
+      { encoding: "utf8" }
+    );
+    assert.equal(alphaCheck.status, 0, alphaCheck.stderr);
+    const [mode, cornerA, centerA] = alphaCheck.stdout.trim().split(" ");
+    assert.equal(mode, "RGBA");
+    assert.equal(Number(cornerA), 0, "rounded card corner must be transparent");
+    assert.equal(Number(centerA), 255, "card center must be opaque");
+
+    // Verify closeup extraction
+    const prep2 = spawnSync(
+      pyBin,
+      [path.join(ROOT, "scripts", "card_prep.py"), "--input", rawCard, "--output", closeupOut, "--mode", "closeup", "--region", "art"],
+      { encoding: "utf8" }
+    );
+    assert.equal(prep2.status, 0, prep2.stderr);
+    const meta2 = JSON.parse(prep2.stdout);
+    assert.equal(meta2.ok, true);
+    assert.ok(meta2.width > 500 && meta2.height > 250);
+
+    // Verify static background replacement
+    const prep3 = spawnSync(
+      pyBin,
+      [path.join(ROOT, "scripts", "card_prep.py"), "--input", rawCard, "--output", replacedOut, "--mode", "card", "--replace-bg-preset", "emerald-vault"],
+      { encoding: "utf8" }
+    );
+    assert.equal(prep3.status, 0, prep3.stderr);
+    const meta3 = JSON.parse(prep3.stdout);
+    assert.equal(meta3.ok, true);
+    assert.equal(meta3.background_replaced, true);
+    assert.ok(fs.existsSync(replacedOut));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -1,7 +1,14 @@
 import {
   CardShowcaseDataSchema,
   VideoProjectSchema,
+  type CardBgRemoveMode,
+  type CardFrameStyle,
+  type CardShowcaseBackground,
+  type CardShowcaseBgPreset,
+  type CardShowcaseCutIn,
   type CardShowcaseData,
+  type CardShowcaseStage,
+  type CardStageBackdropPreset,
   type VideoProject
 } from "./types";
 
@@ -13,6 +20,241 @@ export const CARD_SHOWCASE_DURATION_SECONDS = 12;
 export const CARD_SHOWCASE_FPS = 30;
 export const CARD_SHOWCASE_TOTAL_FRAMES =
   CARD_SHOWCASE_DURATION_SECONDS * CARD_SHOWCASE_FPS;
+
+export type VideoBgPresetMeta = {
+  id: CardShowcaseBgPreset;
+  label: string;
+  description: string;
+  kind: "gradient" | "image" | "custom";
+  publicPath?: string;
+  backgroundColor: string;
+  gradient?: string;
+  defaultDim: number;
+  swatch: string;
+};
+
+export const VIDEO_BG_PRESETS: Record<CardShowcaseBgPreset, VideoBgPresetMeta> = {
+  "navy-gold": {
+    id: "navy-gold",
+    label: "Navy & Gold",
+    description: "Signature Jardin's Outpost dark navy radial studio glow",
+    kind: "gradient",
+    backgroundColor: "#040812",
+    gradient:
+      "radial-gradient(ellipse 90% 62% at 50% 42%, #0d172d 0%, #070d1b 52%, #03060d 100%)",
+    defaultDim: 0,
+    swatch: "linear-gradient(135deg, #102042 0%, #040812 100%)"
+  },
+  "studio-spotlight": {
+    id: "studio-spotlight",
+    label: "Studio Spotlight",
+    description: "Dramatic dark studio overhead spotlight beam with dust motes",
+    kind: "image",
+    publicPath: "/backgrounds/bg-hook.jpg",
+    backgroundColor: "#05070c",
+    defaultDim: 0.24,
+    swatch: "linear-gradient(180deg, #4b463d 0%, #0a0c10 100%)"
+  },
+  "gold-rays": {
+    id: "gold-rays",
+    label: "Gold Starburst",
+    description: "Luxury black & gold light rays with centered focus zone",
+    kind: "image",
+    publicPath: "/backgrounds/bg-cta.jpg",
+    backgroundColor: "#050507",
+    defaultDim: 0.34,
+    swatch: "linear-gradient(135deg, #c99732 0%, #110c05 100%)"
+  },
+  "neon-pulse": {
+    id: "neon-pulse",
+    label: "Cyber Neon",
+    description: "Electric cyan & violet collector rim light streaks",
+    kind: "image",
+    publicPath: "/backgrounds/bg-features.jpg",
+    backgroundColor: "#06081a",
+    defaultDim: 0.42,
+    swatch: "linear-gradient(135deg, #00d2ff 0%, #4b1575 60%, #e11d97 100%)"
+  },
+  "warm-bokeh": {
+    id: "warm-bokeh",
+    label: "Warm Bokeh",
+    description: "Golden studio bokeh backdrop with dark contrast veil",
+    kind: "image",
+    publicPath: "/backgrounds/bg-proof.jpg",
+    backgroundColor: "#140e09",
+    defaultDim: 0.56,
+    swatch: "linear-gradient(135deg, #d8a258 0%, #2d1f14 100%)"
+  },
+  "studio-linen": {
+    id: "studio-linen",
+    label: "Editorial Linen",
+    description: "Sunlit editorial backdrop dimmed for crisp poster typography",
+    kind: "image",
+    publicPath: "/backgrounds/bg-showcase.jpg",
+    backgroundColor: "#141210",
+    defaultDim: 0.62,
+    swatch: "linear-gradient(135deg, #dfd4c3 0%, #5a5248 100%)"
+  },
+  "obsidian-velvet": {
+    id: "obsidian-velvet",
+    label: "Obsidian Velvet",
+    description: "Matte charcoal-black display velvet with soft center key",
+    kind: "gradient",
+    backgroundColor: "#06070a",
+    gradient:
+      "radial-gradient(ellipse 84% 58% at 50% 42%, #1d212b 0%, #0c0e13 55%, #040507 100%)",
+    defaultDim: 0,
+    swatch: "linear-gradient(135deg, #272c38 0%, #050608 100%)"
+  },
+  "emerald-vault": {
+    id: "emerald-vault",
+    label: "Emerald Vault",
+    description: "Deep collector emerald felt with antique gold warmth",
+    kind: "gradient",
+    backgroundColor: "#04100d",
+    gradient:
+      "radial-gradient(ellipse 85% 60% at 50% 42%, #0f3a2e 0%, #071e18 54%, #030b09 100%)",
+    defaultDim: 0,
+    swatch: "linear-gradient(135deg, #134e3e 0%, #04100d 100%)"
+  },
+  "crimson-vault": {
+    id: "crimson-vault",
+    label: "Crimson Vault",
+    description: "Deep ruby collector showcase velvet",
+    kind: "gradient",
+    backgroundColor: "#110408",
+    gradient:
+      "radial-gradient(ellipse 85% 60% at 50% 42%, #471120 0%, #220810 54%, #0b0305 100%)",
+    defaultDim: 0,
+    swatch: "linear-gradient(135deg, #63162b 0%, #110408 100%)"
+  },
+  custom: {
+    id: "custom",
+    label: "Custom Image / Color",
+    description: "Use any replacement background image or custom hex color",
+    kind: "custom",
+    backgroundColor: "#040812",
+    defaultDim: 0.36,
+    swatch: "linear-gradient(135deg, #d8ac46 0%, #0e1a36 100%)"
+  }
+};
+
+export type CardStageBackdropMeta = {
+  id: CardStageBackdropPreset;
+  label: string;
+  description: string;
+  backgroundColor: string;
+  gradient?: string;
+};
+
+export const CARD_STAGE_BACKDROP_PRESETS: Record<
+  CardStageBackdropPreset,
+  CardStageBackdropMeta
+> = {
+  transparent: {
+    id: "transparent",
+    label: "Transparent Floating",
+    description: "Cutout card floats with studio shadow over the replaced poster background",
+    backgroundColor: "transparent"
+  },
+  "dark-velvet": {
+    id: "dark-velvet",
+    label: "Dark Velvet Matte",
+    description: "Deep obsidian-navy velvet behind the cutout card",
+    backgroundColor: "#070c18",
+    gradient:
+      "radial-gradient(ellipse 85% 70% at 50% 44%, #182746 0%, #091020 62%, #04070f 100%)"
+  },
+  "gold-glow": {
+    id: "gold-glow",
+    label: "Royal Gold Aura",
+    description: "Warm metallic gold rim aura behind the floating card",
+    backgroundColor: "#0a0806",
+    gradient:
+      "radial-gradient(circle at 50% 48%, rgba(226,184,78,0.34) 0%, rgba(112,80,22,0.18) 42%, #070a14 82%)"
+  },
+  spotlight: {
+    id: "spotlight",
+    label: "Studio Softbox",
+    description: "Crisp top-down studio light cone behind the card",
+    backgroundColor: "#06080f",
+    gradient:
+      "radial-gradient(ellipse 72% 88% at 50% 18%, rgba(235,240,255,0.24) 0%, rgba(30,42,68,0.22) 50%, #050810 92%)"
+  },
+  "studio-white": {
+    id: "studio-white",
+    label: "Collector Pure White",
+    description: "High-key pure white collector light-box behind the card",
+    backgroundColor: "#f7f8fa",
+    gradient:
+      "radial-gradient(circle at 50% 42%, #ffffff 0%, #eef1f6 76%, #dde3ec 100%)"
+  },
+  custom: {
+    id: "custom",
+    label: "Custom Backdrop",
+    description: "Replace the behind-card backdrop with your own image or color",
+    backgroundColor: "#070c18"
+  }
+};
+
+export const DEFAULT_CARD_SHOWCASE_BACKGROUND: CardShowcaseBackground = {
+  preset: "navy-gold",
+  motion: "subtle"
+};
+
+export const DEFAULT_CARD_SHOWCASE_STAGE: CardShowcaseStage = {
+  removeBg: "card",
+  backgroundRemoved: false,
+  backdropPreset: "transparent",
+  frameStyle: "gold-frame",
+  zoom: 1,
+  offsetX: 0,
+  offsetY: 0
+};
+
+export function resolveShowcaseBackground(
+  bg?: Partial<CardShowcaseBackground> | null
+): CardShowcaseBackground {
+  const preset =
+    bg?.preset && bg.preset in VIDEO_BG_PRESETS ? bg.preset : "navy-gold";
+  return {
+    preset,
+    imageUrl: bg?.imageUrl || undefined,
+    color: bg?.color || undefined,
+    secondaryColor: bg?.secondaryColor || undefined,
+    dim: typeof bg?.dim === "number" ? bg.dim : undefined,
+    motion: bg?.motion === "none" ? "none" : "subtle"
+  };
+}
+
+export function resolveShowcaseStage(
+  stage?: Partial<CardShowcaseStage> | null
+): CardShowcaseStage {
+  const backdropPreset =
+    stage?.backdropPreset && stage.backdropPreset in CARD_STAGE_BACKDROP_PRESETS
+      ? stage.backdropPreset
+      : "transparent";
+  const frameStyle: CardFrameStyle =
+    stage?.frameStyle === "floating" || stage?.frameStyle === "minimal"
+      ? stage.frameStyle
+      : "gold-frame";
+  const removeBg: CardBgRemoveMode =
+    stage?.removeBg === "cutout" || stage?.removeBg === "none"
+      ? stage.removeBg
+      : "card";
+  return {
+    removeBg,
+    backgroundRemoved: Boolean(stage?.backgroundRemoved),
+    originalPhotoUrl: stage?.originalPhotoUrl || undefined,
+    backdropPreset,
+    backdropImageUrl: stage?.backdropImageUrl || undefined,
+    backdropColor: stage?.backdropColor || undefined,
+    frameStyle,
+    zoom: typeof stage?.zoom === "number" ? stage.zoom : 1,
+    offsetX: typeof stage?.offsetX === "number" ? stage.offsetX : 0,
+    offsetY: typeof stage?.offsetY === "number" ? stage.offsetY : 0
+  };
+}
 
 export type VaultCardFields = {
   player?: string | null;
@@ -35,6 +277,8 @@ export type VaultCardInput = {
   source_key?: string | null;
   frontImage?: string | null;
   front_image_path?: string | null;
+  backImage?: string | null;
+  back_image_path?: string | null;
   fields?: VaultCardFields | null;
   set_name?: string | null;
   card_number?: string | null;
@@ -57,6 +301,9 @@ export type CardShowcaseOptions = {
   logoUrl?: string;
   musicUrl?: string;
   musicVolume?: number;
+  background?: Partial<CardShowcaseBackground>;
+  cardStage?: Partial<CardShowcaseStage>;
+  cutIns?: Array<Partial<CardShowcaseCutIn> & { imageUrl: string }>;
 };
 
 function clean(value: unknown): string {
@@ -64,11 +311,11 @@ function clean(value: unknown): string {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
-function makeId(): string {
+function makeId(prefix = "card-showcase"): string {
   if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
+    return `${prefix}-${globalThis.crypto.randomUUID()}`;
   }
-  return `card-showcase-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
 /**
@@ -220,6 +467,30 @@ export function vaultCardToShowcaseData(
 
   const suggestedPrice = extractStoredCardPrice(card);
 
+  const normalizedCutIns = Array.isArray(options.cutIns)
+    ? options.cutIns.map((item, idx) => ({
+        id: clean(item.id) || `cutin-${idx + 1}`,
+        imageUrl: clean(item.imageUrl),
+        originalImageUrl: clean(item.originalImageUrl) || undefined,
+        label: clean(item.label),
+        layout: item.layout || "full",
+        position: item.position || "bottom-right",
+        transition: item.transition || "fade",
+        startSec:
+          typeof item.startSec === "number"
+            ? item.startSec
+            : Number((5.0 + idx * 2.1).toFixed(2)),
+        durationSec:
+          typeof item.durationSec === "number" ? item.durationSec : 2.1,
+        removeBg: item.removeBg || "none",
+        backgroundRemoved: Boolean(item.backgroundRemoved),
+        fit: item.fit || (item.backgroundRemoved ? "contain" : "cover"),
+        zoom: typeof item.zoom === "number" ? item.zoom : 1,
+        focusX: typeof item.focusX === "number" ? item.focusX : 50,
+        focusY: typeof item.focusY === "number" ? item.focusY : 50
+      }))
+    : [];
+
   return CardShowcaseDataSchema.parse({
     cardId,
     cardName,
@@ -233,7 +504,14 @@ export function vaultCardToShowcaseData(
     subBrand: clean(options.subBrand) || DEFAULT_SUB_BRAND,
     ctaLine: clean(options.ctaLine) || DEFAULT_CTA_LINE,
     handle: clean(options.handle) || DEFAULT_HANDLE,
-    logoUrl: clean(options.logoUrl) || undefined
+    logoUrl: clean(options.logoUrl) || undefined,
+    background: options.background
+      ? resolveShowcaseBackground(options.background)
+      : undefined,
+    cardStage: options.cardStage
+      ? resolveShowcaseStage(options.cardStage)
+      : undefined,
+    cutIns: normalizedCutIns
   });
 }
 
@@ -278,7 +556,7 @@ export function buildCardShowcaseDraft(
         textPosition: "bottom",
         transition: "fade",
         motion: "zoom-in",
-        cropMode: "cover"
+        cropMode: "contain"
       }
     ],
     cardShowcase: showcase,

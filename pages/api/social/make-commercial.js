@@ -8,10 +8,21 @@ const { loadEnvConfig } = require("@next/env");
 const { requireOwnerSession } = require("../../../lib/requireSession");
 const { listInventory, getProductForCommercial } = require("../../../lib/supabaseInventory");
 const { makeCommercial, makeCardShowcaseCommercial } = require("../../../lib/commercialMaker");
+const {
+  VIDEO_BG_PRESETS,
+  CARD_STAGE_BACKDROPS,
+  CARD_FRAME_STYLES,
+  CARD_BG_REMOVE_MODES,
+  CUTIN_LAYOUTS,
+} = require("../../../lib/cardCommercial");
+const { resolveConfined, publicRoots } = require("../../../lib/safePaths");
 
 const SKU_RULE = /^[A-Za-z0-9._-]{1,80}$/;
 const CARD_ID_RULE = /^[A-Za-z0-9._:-]{1,120}$/;
+const HEX_COLOR_RULE = /^#[0-9a-fA-F]{3,6}$/;
 const SHORT_TEXT_LIMIT = 80;
+const ASSET_ROOTS = publicRoots("uploads", "cutouts", "backgrounds", "styleframes");
+const IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
 let isMaking = false; // one render at a time: each one uses the whole machine for a minute or two
 
 export const config = { maxDuration: 600 };
@@ -20,6 +31,19 @@ function cleanShort(value) {
   if (typeof value !== "string") return undefined;
   const trimmed = value.replace(/\s+/g, " ").trim().slice(0, SHORT_TEXT_LIMIT);
   return trimmed || undefined;
+}
+
+function cleanColor(value) {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return HEX_COLOR_RULE.test(trimmed) ? trimmed : undefined;
+}
+
+function cleanConfinedImage(value) {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const resolved = resolveConfined(value.trim(), ASSET_ROOTS);
+  if (!resolved || !IMAGE_EXT.test(resolved)) return null;
+  return resolved;
 }
 
 export default async function handler(req, res) {
@@ -52,6 +76,57 @@ export default async function handler(req, res) {
       if (isMaking) {
         return res.status(409).json({ ok: false, error: "A commercial is already being made. Try again in a minute." });
       }
+
+      const bgPreset = req.body && typeof req.body.bgPreset === "string" && Object.prototype.hasOwnProperty.call(VIDEO_BG_PRESETS, req.body.bgPreset)
+        ? req.body.bgPreset
+        : undefined;
+      const cardBgPreset = req.body && typeof req.body.cardBgPreset === "string" && CARD_STAGE_BACKDROPS.includes(req.body.cardBgPreset)
+        ? req.body.cardBgPreset
+        : undefined;
+      const removeBg = req.body && typeof req.body.removeBg === "string" && CARD_BG_REMOVE_MODES.includes(req.body.removeBg)
+        ? req.body.removeBg
+        : undefined;
+      const frameStyle = req.body && typeof req.body.frameStyle === "string" && CARD_FRAME_STYLES.includes(req.body.frameStyle)
+        ? req.body.frameStyle
+        : undefined;
+      const autoCloseupLayout = req.body && typeof req.body.autoCloseupLayout === "string" && CUTIN_LAYOUTS.includes(req.body.autoCloseupLayout)
+        ? req.body.autoCloseupLayout
+        : undefined;
+
+      const bgImage = cleanConfinedImage(req.body && req.body.bgImage);
+      if (bgImage === null) {
+        return res.status(400).json({ ok: false, error: "bgImage is not an allowed image path" });
+      }
+      const cardBgImage = cleanConfinedImage(req.body && req.body.cardBgImage);
+      if (cardBgImage === null) {
+        return res.status(400).json({ ok: false, error: "cardBgImage is not an allowed image path" });
+      }
+
+      let safeCutIns;
+      if (Array.isArray(req.body && req.body.cutIns) && req.body.cutIns.length > 0) {
+        safeCutIns = [];
+        for (const item of req.body.cutIns.slice(0, 12)) {
+          if (!item || typeof item !== "object") continue;
+          const resolvedCutImg = cleanConfinedImage(item.image || item.imageUrl);
+          if (!resolvedCutImg) {
+            return res.status(400).json({ ok: false, error: "cutIns image is not an allowed image path" });
+          }
+          safeCutIns.push({
+            image: resolvedCutImg,
+            label: cleanShort(item.label) || "",
+            layout: CUTIN_LAYOUTS.includes(item.layout) ? item.layout : "full",
+            position: typeof item.position === "string" ? item.position : "bottom-right",
+            transition: typeof item.transition === "string" ? item.transition : "fade",
+            startSec: typeof item.startSec === "number" ? item.startSec : undefined,
+            durationSec: typeof item.durationSec === "number" ? item.durationSec : undefined,
+            removeBg: CARD_BG_REMOVE_MODES.includes(item.removeBg) ? item.removeBg : "none",
+            zoom: typeof item.zoom === "number" ? item.zoom : 1,
+            focusX: typeof item.focusX === "number" ? item.focusX : 50,
+            focusY: typeof item.focusY === "number" ? item.focusY : 50,
+          });
+        }
+      }
+
       isMaking = true;
       try {
         // Vault path comes from server config only (CARD_VAULT_PATH or default local vault),
@@ -60,6 +135,18 @@ export default async function handler(req, res) {
           cardId: rawCardId || undefined,
           ctaLine: cleanShort(req.body && req.body.ctaLine),
           handle: cleanShort(req.body && req.body.handle),
+          bgPreset,
+          bgImage,
+          bgColor: cleanColor(req.body && req.body.bgColor),
+          cardBgPreset,
+          cardBgImage,
+          cardBgColor: cleanColor(req.body && req.body.cardBgColor),
+          removeBg,
+          frameStyle,
+          includeBack: Boolean(req.body && req.body.includeBack),
+          autoCloseup: Boolean(req.body && req.body.autoCloseup),
+          autoCloseupLayout,
+          cutIns: safeCutIns,
         });
         if (!made.ok) return res.status(400).json({ ok: false, error: made.error });
         return res.status(200).json({

@@ -214,7 +214,8 @@ const defaultCardShowcaseProject: VideoProject = {
     brandName: DEFAULT_BRAND_NAME,
     subBrand: DEFAULT_SUB_BRAND,
     ctaLine: DEFAULT_CTA_LINE,
-    handle: DEFAULT_HANDLE
+    handle: DEFAULT_HANDLE,
+    cutIns: []
   },
   audio: {
     musicVolume: 0.25,
