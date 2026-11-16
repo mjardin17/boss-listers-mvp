@@ -8,7 +8,8 @@ export const VideoProjectTypeSchema = z.enum([
   "SHORT_REEL",
   "MINI_FILM",
   "SERVICE_COMMERCIAL",
-  "BEFORE_AFTER"
+  "BEFORE_AFTER",
+  "CARD_SHOWCASE"
 ]);
 export type VideoProjectType = z.infer<typeof VideoProjectTypeSchema>;
 
@@ -76,6 +77,26 @@ export const VideoCtaSchema = z.object({
   showQrCode: z.boolean().default(false)
 });
 
+export const CardShowcaseDataSchema = z.object({
+  cardId: z.string().min(1),
+  cardName: z.string().min(1).max(160),
+  setName: z.string().max(160).default(""),
+  year: z.string().max(16).default(""),
+  cardNumber: z.string().max(64).default(""),
+  detailTag: z.string().max(120).default(""),
+  photoUrl: z.string().min(1),
+  // Strictly populated ONLY if the card vault already has a price stored for this card.
+  // Never invented, guessed, or defaulted.
+  suggestedPrice: z.number().positive().nullable().default(null),
+  brandName: z.string().min(1).max(80).default("Jardin's Outpost"),
+  subBrand: z.string().max(80).default("BossListers"),
+  ctaLine: z.string().min(1).max(80).default("Message to claim"),
+  handle: z.string().min(1).max(80).default("@jardinoutpost"),
+  logoUrl: z.string().optional()
+});
+
+export type CardShowcaseData = z.infer<typeof CardShowcaseDataSchema>;
+
 export const VideoProjectSchema = z.object({
   id: z.string().min(1),
 
@@ -91,6 +112,8 @@ export const VideoProjectSchema = z.object({
   fps: z.number().int().min(24).max(60).default(30),
 
   scenes: z.array(VideoSceneSchema).min(1).max(60),
+
+  cardShowcase: CardShowcaseDataSchema.optional(),
 
   // Zod 4's .default() requires the fully-resolved output shape, not a
   // partial {} that relies on nested field defaults to fill in — explicit

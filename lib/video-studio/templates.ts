@@ -70,6 +70,16 @@ export const VIDEO_TEMPLATES: VideoTemplate[] = [
       "Multi-scene short-form storytelling.",
     defaultSceneSeconds: 5,
     defaultCta: "Follow for more"
+  },
+
+  {
+    id: "card-showcase",
+    name: "Card Showcase",
+    projectType: "CARD_SHOWCASE",
+    description:
+      "12s vertical vault card poster reel: navy open, gold pill CTA, slow-zoom gold-framed card photo, stored facts, and brand loop.",
+    defaultSceneSeconds: 12,
+    defaultCta: "Message to claim"
   }
 ];
 

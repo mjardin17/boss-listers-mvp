@@ -233,8 +233,10 @@ test("video studio: platform presets map each aspect ratio to the correct real d
 test("video studio: templates are data-driven and getTemplate falls back to the first template on an unknown id", () => {
   const { VIDEO_TEMPLATES, getTemplate } = loadTsModule("lib/video-studio/templates.ts");
 
-  assert.equal(VIDEO_TEMPLATES.length, 6);
+  assert.equal(VIDEO_TEMPLATES.length, 7);
   assert.equal(getTemplate("fast-product-sale").name, "Fast Product Sale");
+  assert.equal(getTemplate("card-showcase").projectType, "CARD_SHOWCASE");
+  assert.equal(getTemplate("card-showcase").defaultSceneSeconds, 12);
   assert.equal(getTemplate("does-not-exist"), VIDEO_TEMPLATES[0]);
 });
 

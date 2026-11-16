@@ -16,6 +16,10 @@ import type {
   VideoScene
 } from "../lib/video-studio/types";
 
+import {
+  CardShowcaseComposition
+} from "./CardShowcaseComposition";
+
 function transitionStyle(
   scene: VideoScene,
   progress: number
@@ -532,6 +536,10 @@ export const VideoComposition:
   ({
     project
   }) => {
+    if (project.projectType === "CARD_SHOWCASE") {
+      return <CardShowcaseComposition project={project} />;
+    }
+
     const fps =
       project.fps ||
       30;

@@ -7,12 +7,20 @@
 const { loadEnvConfig } = require("@next/env");
 const { requireOwnerSession } = require("../../../lib/requireSession");
 const { listInventory, getProductForCommercial } = require("../../../lib/supabaseInventory");
-const { makeCommercial } = require("../../../lib/commercialMaker");
+const { makeCommercial, makeCardShowcaseCommercial } = require("../../../lib/commercialMaker");
 
 const SKU_RULE = /^[A-Za-z0-9._-]{1,80}$/;
+const CARD_ID_RULE = /^[A-Za-z0-9._:-]{1,120}$/;
+const SHORT_TEXT_LIMIT = 80;
 let isMaking = false; // one render at a time: each one uses the whole machine for a minute or two
 
 export const config = { maxDuration: 600 };
+
+function cleanShort(value) {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.replace(/\s+/g, " ").trim().slice(0, SHORT_TEXT_LIMIT);
+  return trimmed || undefined;
+}
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
@@ -29,7 +37,42 @@ export default async function handler(req, res) {
       const items = rows
         .filter((r) => r.status === "active" && Number(r.price) > 0)
         .map((r) => ({ sku: r.sku, title: r.title, price: Number(r.price) }));
-      return res.status(200).json({ ok: true, items });
+      return res.status(200).json({ ok: true, items, modes: ["product", "card-showcase"] });
+    }
+
+    const mode = req.body && req.body.mode === "card-showcase" ? "card-showcase" : "product";
+
+    if (mode === "card-showcase") {
+      const rawCardId = req.body && req.body.cardId;
+      if (rawCardId !== undefined && rawCardId !== null && rawCardId !== "") {
+        if (typeof rawCardId !== "string" || !CARD_ID_RULE.test(rawCardId)) {
+          return res.status(400).json({ ok: false, error: "Invalid cardId" });
+        }
+      }
+      if (isMaking) {
+        return res.status(409).json({ ok: false, error: "A commercial is already being made. Try again in a minute." });
+      }
+      isMaking = true;
+      try {
+        // Vault path comes from server config only (CARD_VAULT_PATH or default local vault),
+        // never from an untrusted client filesystem path.
+        const made = await makeCardShowcaseCommercial({
+          cardId: rawCardId || undefined,
+          ctaLine: cleanShort(req.body && req.body.ctaLine),
+          handle: cleanShort(req.body && req.body.handle),
+        });
+        if (!made.ok) return res.status(400).json({ ok: false, error: made.error });
+        return res.status(200).json({
+          ok: true,
+          mode: "card-showcase",
+          commercial: { name: made.name, bytes: made.bytes },
+          card: made.card,
+          posted: false,
+          listed: false,
+        });
+      } finally {
+        isMaking = false;
+      }
     }
 
     const sku = req.body && req.body.sku;
