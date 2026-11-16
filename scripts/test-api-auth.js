@@ -15,6 +15,7 @@ const API_ROOT = path.join(__dirname, "..", "pages", "api");
 // (signature/state/secret) or expose nothing.
 const PUBLIC_ALLOWLIST = new Set([
   "health.js",
+  "empire/health.js", // Empire OS health: what is set up, no data or values
   "debug-buckets.js", // returns 410
   "channels/payhip/webhook.js", // constant-time signature check
   "channels/ebay/account-deletion.js", // eBay challenge + verification token
@@ -40,7 +41,7 @@ const TOKEN_FORWARDING_ALLOWLIST = new Set([
   "social/disconnect.js",
 ]);
 
-const AUTH_MARKERS = /requireSession|requireOwnerSession|resolveSession/;
+const AUTH_MARKERS = /requireSession|requireOwnerSession|resolveSession|requireEmpireKey/;
 
 function listFiles(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {

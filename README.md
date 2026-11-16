@@ -98,6 +98,22 @@ TIKTOK_CLIENT_ID=xxx
 APP_URL=https://yourdomain.com
 ```
 
+## Empire OS
+
+Boss Listers is a module of the Empire OS hub. The hub calls these routes (server to server):
+
+| Route | What it does |
+|---|---|
+| `GET /empire/health` | Is Boss Listers up and set up? No key needed; shows what is configured, never values or data. |
+| `POST /empire/event` | Accepts an Empire OS event (`topic` required), kept in memory. `GET` lists the last 50. |
+| `GET /empire/listings?limit=10&stage=ready` | Stock list totals by stage and the newest items (owner's tenant). |
+| `GET /empire/platforms` | Which selling sites have credentials set (names only, no live calls). |
+| `POST /empire/stock/add` | Adds an item to the stock list as an **unlisted draft**, like the Stock page's Add form. `"dryRun": true` only checks it. Nothing is posted to any selling site. |
+
+Every route except health needs the header `X-Empire-Key` matching `EMPIRE_SHARED_KEY` (set the same value as `BOSSLISTERS_EMPIRE_KEY` in Empire OS). Without `EMPIRE_SHARED_KEY` those routes answer 503. Data is read for `PLATFORM_OWNER_TENANT_ID` (falling back to `ownerTenantId` in `config/inventory-sync.json`).
+
+Boss Listers keeps port **3001**. The Empire OS server defaults to 4000, so both can run side by side; in Empire OS set `BOSSLISTERS_BASE_URL=http://localhost:3001` (the default).
+
 ## ? Testing
 
 ```bash
