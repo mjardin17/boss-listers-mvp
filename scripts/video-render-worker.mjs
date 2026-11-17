@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
-
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 import {
   bundle
@@ -15,8 +15,10 @@ import {
 // rather than a named import, which Node's ESM/CJS interop can't always
 // statically resolve for a dynamically assigned module.exports object.
 import supabaseRestPkg from "../lib/supabaseRest.js";
+import commercialLearningPkg from "../lib/commercialLearning.js";
 
 const { rest } = supabaseRestPkg;
+const { detectItemCategory, recordCommercialRun } = commercialLearningPkg;
 
 const projectId =
   process.argv[2];
@@ -246,6 +248,66 @@ try {
     outputUrl:
       `/api/video-studio/output/${project.id}`
   });
+
+  // Record finished showcase renders in local learning memory so Video Studio UI renders
+  // also continuously sharpen future commercials (never fails a completed render).
+  if (project.projectType === "CARD_SHOWCASE" && project.cardShowcase) {
+    try {
+      const sc = project.cardShowcase;
+      const category = detectItemCategory({
+        isDirectItem: sc.cardStage?.removeBg === "cutout" || sc.cardStage?.frameStyle === "floating",
+        title: sc.cardName || project.title,
+        subtitle: sc.setName || "",
+        detailTag: sc.detailTag || "",
+        cutIns: sc.cutIns || [],
+      });
+      let qc = null;
+      for (const pyBin of ["python3", "python"]) {
+        const qcScript = path.join(process.cwd(), "scripts", "commercial_qc.py");
+        const probe = spawnSync(
+          pyBin,
+          [
+            qcScript,
+            "--video", outputLocation,
+            "--category", category,
+            "--prep-strategy", sc.cardStage?.backgroundRemoved ? (sc.cardStage.removeBg || "card") : "none",
+            ...(sc.cardStage?.backgroundRemoved ? ["--bg-removed"] : []),
+            "--frame-style", sc.cardStage?.frameStyle || "gold-frame",
+            "--cutin-count", String(Array.isArray(sc.cutIns) ? sc.cutIns.length : 0),
+            ...(typeof sc.background?.dim === "number" ? ["--bg-dim", String(sc.background.dim)] : []),
+          ],
+          { encoding: "utf8", windowsHide: true, timeout: 60_000 }
+        );
+        if (!probe.error && probe.status === 0) {
+          qc = JSON.parse(probe.stdout || "null");
+          break;
+        }
+      }
+      recordCommercialRun({
+        category,
+        title: sc.cardName || project.title,
+        fileName: path.basename(outputLocation),
+        outputPath: outputLocation,
+        prepStrategy: sc.cardStage?.backgroundRemoved ? (sc.cardStage.removeBg || "card") : "none",
+        cutInCount: Array.isArray(sc.cutIns) ? sc.cutIns.length : 0,
+        recipe: {
+          bgPreset: sc.background?.preset || "studio-spotlight",
+          bgDim: typeof sc.background?.dim === "number" ? sc.background.dim : 0.22,
+          bgMotion: sc.background?.motion || "subtle",
+          cardBgPreset: sc.cardStage?.backdropPreset || "transparent",
+          frameStyle: sc.cardStage?.frameStyle || "gold-frame",
+          removeBg: sc.cardStage?.removeBg || "card",
+          cutInTransition: (sc.cutIns && sc.cutIns[0]?.transition) || "slide-left",
+          cutInLayout: (sc.cutIns && sc.cutIns[0]?.layout) || "full",
+          autoCloseup: false,
+          autoBundleCutins: false,
+        },
+        qc,
+      });
+    } catch {
+      // Learning telemetry must never fail a completed video render
+    }
+  }
 
 } catch (error) {
   const project =

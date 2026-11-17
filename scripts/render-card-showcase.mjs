@@ -42,8 +42,16 @@ const {
   formatCardShowcaseSlug,
 } = require("../lib/cardCommercial.js");
 const { COMMERCIALS_DIR } = require("../lib/commercialFiles.js");
+const {
+  detectItemCategory,
+  recommendCommercialRecipe,
+  recordCommercialRun,
+  recordCommercialFeedback,
+  summarizeLearningProgress,
+} = require("../lib/commercialLearning.js");
 
 const CARD_PREP_SCRIPT = path.join(process.cwd(), "scripts", "card_prep.py");
+const COMMERCIAL_QC_SCRIPT = path.join(process.cwd(), "scripts", "commercial_qc.py");
 
 const MIME_BY_EXT = {
   ".jpg": "image/jpeg",
@@ -115,6 +123,20 @@ Cut Pictures In (Cutaways, PiP Insets, Split View, Close-Ups):
                               Item 2 transparent PNG cut-ins (local RMBG-1.4 + DP seam split)
   --item1-label <text>        Badge label for split Item 1 cut-in (default: "Item 1 of 2")
   --item2-label <text>        Badge label for split Item 2 cut-in (default: "Item 2 of 2")
+
+Self-Improving Builder (local learning memory & automated QC, zero paid APIs):
+  --auto-improve              If QC score < 88 with a concrete fixable tweak, auto-tune & re-render once
+  --explore                   Test an untried high-potential backdrop or transition to expand the playbook
+  --no-learn                  Disable learned recipe defaults and skip recording this run
+  --learning-store <path>     Custom path to learning memory JSON (default: data/commercial-learning.json)
+  --learning-report           Show current improvement trend, scores, and winning recipes per category
+  --rate <runId>              Rate a past commercial so the builder learns what you & buyers prefer
+    --stars <1-5>             Star rating (1..5)
+    --tags <a,b,c>            Comma-separated feedback tags (e.g. loved-backdrop,bg-too-bright,item-sold)
+    --notes <text>            Optional note
+    --views <n>               Optional view count
+    --inquiries <n>           Optional DM / inquiry count
+    --sold                    Mark item as sold from this commercial
 
 Other:
   --dry-run                   Resolve vault card & full spec JSON without rendering
@@ -214,6 +236,20 @@ function parseArgs(argv) {
     autoBundleCutins: false,
     item1Label: "Item 1 of 2",
     item2Label: "Item 2 of 2",
+    cutInTransition: null,
+    noLearn: false,
+    explore: false,
+    autoImprove: false,
+    learningStore: null,
+    learningReport: false,
+    rateRunId: null,
+    stars: null,
+    tags: null,
+    notes: null,
+    views: null,
+    inquiries: null,
+    sold: false,
+    explicit: new Set(),
     dryRun: false,
     json: false,
     help: false,
@@ -224,10 +260,24 @@ function parseArgs(argv) {
     if (arg === "--help" || arg === "-h") opts.help = true;
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--json") opts.json = true;
-    else if (arg === "--no-bg-motion") opts.bgMotion = "none";
+    else if (arg === "--no-bg-motion") { opts.bgMotion = "none"; opts.explicit.add("bgMotion"); }
     else if (arg === "--include-back") opts.includeBack = true;
-    else if (arg === "--auto-closeup") opts.autoCloseup = true;
-    else if (arg === "--auto-bundle-cutins") opts.autoBundleCutins = true;
+    else if (arg === "--auto-closeup") { opts.autoCloseup = true; opts.explicit.add("autoCloseup"); }
+    else if (arg === "--no-auto-closeup") { opts.autoCloseup = false; opts.explicit.add("autoCloseup"); }
+    else if (arg === "--auto-bundle-cutins") { opts.autoBundleCutins = true; opts.explicit.add("autoBundleCutins"); }
+    else if (arg === "--no-auto-bundle-cutins") { opts.autoBundleCutins = false; opts.explicit.add("autoBundleCutins"); }
+    else if (arg === "--no-learn") opts.noLearn = true;
+    else if (arg === "--explore") opts.explore = true;
+    else if (arg === "--auto-improve") opts.autoImprove = true;
+    else if (arg === "--learning-report") opts.learningReport = true;
+    else if (arg === "--learning-store") opts.learningStore = argv[++i] || null;
+    else if (arg === "--rate") opts.rateRunId = argv[++i] || null;
+    else if (arg === "--stars") opts.stars = Number(argv[++i]);
+    else if (arg === "--tags") opts.tags = (argv[++i] || "").split(",").map((s) => s.trim()).filter(Boolean);
+    else if (arg === "--notes") opts.notes = argv[++i] || "";
+    else if (arg === "--views") opts.views = Number(argv[++i]);
+    else if (arg === "--inquiries") opts.inquiries = Number(argv[++i]);
+    else if (arg === "--sold") opts.sold = true;
     else if (arg === "--vault") opts.vault = argv[++i] || null;
     else if (arg === "--card-id") opts.cardId = argv[++i] || null;
     else if (arg === "--photo") opts.photo = argv[++i] || null;
@@ -250,6 +300,7 @@ function parseArgs(argv) {
         throw new Error(`Invalid --bg-remove "${val}". Expected one of: ${CARD_BG_REMOVE_MODES.join(", ")}`);
       }
       opts.bgRemove = val;
+      opts.explicit.add("removeBg");
     } else if (arg === "--crop") opts.crop = argv[++i] || null;
     else if (arg === "--corners") opts.corners = argv[++i] || null;
     else if (arg === "--card-aspect") opts.cardAspect = argv[++i] || null;
@@ -259,34 +310,39 @@ function parseArgs(argv) {
         throw new Error(`Invalid --bg-preset "${val}". Expected one of: ${Object.keys(VIDEO_BG_PRESETS).join(", ")}`);
       }
       opts.bgPreset = val;
+      opts.explicit.add("bgPreset");
     } else if (arg === "--bg-image") {
       opts.bgImage = argv[++i] || null;
-      if (opts.bgImage) opts.bgPreset = "custom";
+      if (opts.bgImage) { opts.bgPreset = "custom"; opts.explicit.add("bgPreset"); }
     } else if (arg === "--bg-color") {
       opts.bgColor = argv[++i] || null;
       if (opts.bgColor && opts.bgPreset === CARD_SHOWCASE_DEFAULTS.bgPreset) {
         opts.bgPreset = "custom";
+        opts.explicit.add("bgPreset");
       }
     } else if (arg === "--bg-dim") {
       opts.bgDim = Number(argv[++i]);
+      opts.explicit.add("bgDim");
     } else if (arg === "--card-bg") {
       const val = argv[++i];
       if (!CARD_STAGE_BACKDROPS.includes(val)) {
         throw new Error(`Invalid --card-bg "${val}". Expected one of: ${CARD_STAGE_BACKDROPS.join(", ")}`);
       }
       opts.cardBg = val;
+      opts.explicit.add("cardBgPreset");
     } else if (arg === "--card-bg-image") {
       opts.cardBgImage = argv[++i] || null;
-      if (opts.cardBgImage) opts.cardBg = "custom";
+      if (opts.cardBgImage) { opts.cardBg = "custom"; opts.explicit.add("cardBgPreset"); }
     } else if (arg === "--card-bg-color") {
       opts.cardBgColor = argv[++i] || null;
-      if (opts.cardBgColor) opts.cardBg = "custom";
+      if (opts.cardBgColor) { opts.cardBg = "custom"; opts.explicit.add("cardBgPreset"); }
     } else if (arg === "--frame") {
       const val = argv[++i];
       if (!CARD_FRAME_STYLES.includes(val)) {
         throw new Error(`Invalid --frame "${val}". Expected one of: ${CARD_FRAME_STYLES.join(", ")}`);
       }
       opts.frame = val;
+      opts.explicit.add("frameStyle");
     } else if (arg === "--cut-in") {
       const raw = argv[++i];
       opts.cutIns.push(parseCutInSpec(raw, opts.cutIns.length));
@@ -298,6 +354,7 @@ function parseArgs(argv) {
         throw new Error(`Invalid --auto-closeup-layout "${val}"`);
       }
       opts.autoCloseupLayout = val;
+      opts.explicit.add("cutInLayout");
     } else if (arg === "--auto-closeup-region") {
       opts.autoCloseupRegion = argv[++i] || "art";
     } else {
@@ -448,6 +505,37 @@ function runCardPrep(pyBin, inputPath, outputPath, opts = {}) {
     throw new Error(`card_prep.py exited ${res.status}: ${(res.stderr || res.stdout || "").trim()}`);
   }
   return JSON.parse(res.stdout || "{}");
+}
+
+function runCommercialQc(pyBin, videoPath, meta = {}) {
+  if (!pyBin || !fs.existsSync(COMMERCIAL_QC_SCRIPT) || !fs.existsSync(videoPath)) {
+    return null;
+  }
+  const args = [
+    COMMERCIAL_QC_SCRIPT,
+    "--video", videoPath,
+    "--category", meta.category || "trading-card",
+    "--prep-strategy", meta.prepStrategy || "none",
+    "--frame-style", meta.frameStyle || "gold-frame",
+    "--cutin-count", String(meta.cutInCount || 0),
+  ];
+  if (meta.bgRemoved) args.push("--bg-removed");
+  if (typeof meta.coveragePct === "number" && Number.isFinite(meta.coveragePct)) {
+    args.push("--coverage-pct", String(meta.coveragePct));
+  }
+  if (typeof meta.bgDim === "number" && Number.isFinite(meta.bgDim)) {
+    args.push("--bg-dim", String(meta.bgDim));
+  }
+
+  const res = spawnSync(pyBin, args, { encoding: "utf8", windowsHide: true, timeout: 60_000 });
+  if (res.error || res.status !== 0) {
+    return null;
+  }
+  try {
+    return JSON.parse(res.stdout || "null");
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -607,16 +695,53 @@ async function main() {
     return;
   }
 
-  const isDirectItem = Boolean(opts.photo);
-  // Smart defaults: general items/bundles default to neural cutout + floating stage;
-  // vault cards default to rectangular card straightening + gold collector frame.
-  if (!opts.bgRemove) {
-    opts.bgRemove = isDirectItem ? "cutout" : CARD_SHOWCASE_DEFAULTS.removeBg;
-  }
-  if (!opts.frame) {
-    opts.frame = isDirectItem ? "floating" : CARD_SHOWCASE_DEFAULTS.frameStyle;
+  // Subcommand: inspect learned commercial playbooks & score progression
+  if (opts.learningReport) {
+    const report = summarizeLearningProgress(opts.learningStore || undefined);
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(
+        `BossListers Self-Improving Commercial Builder — ${report.totalRuns} commercials analyzed | Avg ${report.overallAvgScore}/100 | Trend ${report.overallTrendDelta >= 0 ? "+" : ""}${report.overallTrendDelta} pts | Sold: ${report.soldCount}`
+      );
+      for (const [cat, pb] of Object.entries(report.playbooks || {})) {
+        console.log(
+          `\n[${cat}] runs=${pb.runCount} avg=${pb.avgScore} best=${pb.bestScore} trend=${pb.trendDelta >= 0 ? "+" : ""}${pb.trendDelta}`
+        );
+        console.log(
+          `  Winning recipe: bg=${pb.winningRecipe.bgPreset} (dim=${pb.winningRecipe.bgDim}), frame=${pb.winningRecipe.frameStyle}, stage=${pb.winningRecipe.cardBgPreset}, removeBg=${pb.winningRecipe.removeBg}, transition=${pb.winningRecipe.cutInTransition}`
+        );
+        for (const rule of pb.learnedRules || []) {
+          console.log(`  - ${rule}`);
+        }
+      }
+    }
+    return;
   }
 
+  // Subcommand: rate a previously rendered commercial to teach the builder
+  if (opts.rateRunId) {
+    const feedbackPayload = {
+      runId: opts.rateRunId,
+      ...(Number.isFinite(opts.stars) ? { rating: opts.stars } : {}),
+      ...(Array.isArray(opts.tags) ? { tags: opts.tags } : {}),
+      ...(typeof opts.notes === "string" ? { notes: opts.notes } : {}),
+      ...(Number.isFinite(opts.views) ? { views: opts.views } : {}),
+      ...(Number.isFinite(opts.inquiries) ? { inquiries: opts.inquiries } : {}),
+      ...(opts.sold ? { sold: true } : {}),
+    };
+    const updated = recordCommercialFeedback(feedbackPayload, opts.learningStore || undefined);
+    if (opts.json) {
+      console.log(JSON.stringify({ ok: true, ...updated }, null, 2));
+    } else {
+      console.log(
+        `Saved feedback for ${updated.run.id} (${updated.run.title}): effectiveScore=${updated.run.effectiveScore}/100. Next ${updated.playbook.category} default: bg=${updated.playbook.winningRecipe.bgPreset} (dim=${updated.playbook.winningRecipe.bgDim}), frame=${updated.playbook.winningRecipe.frameStyle}.`
+      );
+    }
+    return;
+  }
+
+  const isDirectItem = Boolean(opts.photo);
   let vaultPath = null;
   let vaultDir = process.cwd();
   let card = null;
@@ -635,6 +760,65 @@ async function main() {
     vaultPath = resolveVaultPath(opts.vault);
     vaultDir = path.dirname(vaultPath);
     card = loadVaultCard(vaultPath, opts.cardId);
+  }
+
+  const itemCategory = detectItemCategory({
+    isDirectItem,
+    autoBundleCutins: opts.autoBundleCutins,
+    title: opts.title || (card.fields && (card.fields.name || card.fields.player)) || "",
+    subtitle: opts.subtitle || (card.fields && card.fields.set) || "",
+    detailTag: opts.detail || card.detailTag || "",
+    cutIns: opts.cutIns,
+  });
+
+  // Consult local learning memory for any parameter the user did NOT explicitly pass.
+  // Explicit user flags ALWAYS win.
+  let learningRec = null;
+  if (!opts.noLearn) {
+    const explicitOverrides = {};
+    if (opts.explicit.has("bgPreset")) explicitOverrides.bgPreset = opts.bgPreset;
+    if (opts.explicit.has("bgDim")) explicitOverrides.bgDim = opts.bgDim;
+    if (opts.explicit.has("bgMotion")) explicitOverrides.bgMotion = opts.bgMotion;
+    if (opts.explicit.has("cardBgPreset")) explicitOverrides.cardBgPreset = opts.cardBg;
+    if (opts.explicit.has("frameStyle")) explicitOverrides.frameStyle = opts.frame;
+    if (opts.explicit.has("removeBg")) explicitOverrides.removeBg = opts.bgRemove;
+    if (opts.explicit.has("cutInLayout")) explicitOverrides.cutInLayout = opts.autoCloseupLayout;
+    if (opts.explicit.has("autoCloseup")) explicitOverrides.autoCloseup = opts.autoCloseup;
+    if (opts.explicit.has("autoBundleCutins")) explicitOverrides.autoBundleCutins = opts.autoBundleCutins;
+
+    learningRec = recommendCommercialRecipe({
+      category: itemCategory,
+      explicitOverrides,
+      storePath: opts.learningStore || undefined,
+      explore: opts.explore,
+    });
+
+    const hasLearnedHistory = learningRec.categoryStats.runCount > 0 || opts.explore;
+    if (hasLearnedHistory) {
+      if (!opts.explicit.has("bgPreset")) opts.bgPreset = learningRec.recipe.bgPreset;
+      if (!opts.explicit.has("bgDim") && typeof learningRec.recipe.bgDim === "number") {
+        opts.bgDim = learningRec.recipe.bgDim;
+      }
+      if (!opts.explicit.has("cardBgPreset")) opts.cardBg = learningRec.recipe.cardBgPreset;
+      if (!opts.explicit.has("frameStyle")) opts.frame = learningRec.recipe.frameStyle;
+      if (!opts.explicit.has("removeBg")) opts.bgRemove = learningRec.recipe.removeBg;
+      if (!opts.explicit.has("cutInLayout")) opts.autoCloseupLayout = learningRec.recipe.cutInLayout;
+      opts.cutInTransition = learningRec.recipe.cutInTransition;
+      if (!opts.explicit.has("autoBundleCutins") && itemCategory === "resale-bundle" && opts.cutIns.length === 0) {
+        opts.autoBundleCutins = Boolean(learningRec.recipe.autoBundleCutins);
+      }
+      if (!opts.explicit.has("autoCloseup") && itemCategory === "trading-card" && opts.cutIns.length === 0 && !opts.includeBack) {
+        opts.autoCloseup = Boolean(learningRec.recipe.autoCloseup);
+      }
+    }
+  }
+
+  // Fallback category defaults when no learned history exists yet
+  if (!opts.bgRemove) {
+    opts.bgRemove = isDirectItem ? "cutout" : CARD_SHOWCASE_DEFAULTS.removeBg;
+  }
+  if (!opts.frame) {
+    opts.frame = isDirectItem ? "floating" : CARD_SHOWCASE_DEFAULTS.frameStyle;
   }
 
   const resolvedPhoto = resolveLocalAssetPath(card.frontImage, vaultDir);
@@ -770,6 +954,7 @@ async function main() {
       ok: true,
       dryRun: true,
       vaultPath,
+      category: itemCategory,
       card: {
         id: previewProject.cardShowcase.cardId,
         name: previewProject.cardShowcase.cardName,
@@ -782,6 +967,15 @@ async function main() {
       background: previewProject.cardShowcase.background,
       cardStage: previewProject.cardShowcase.cardStage,
       cutIns: previewProject.cardShowcase.cutIns,
+      learning: learningRec
+        ? {
+            category: itemCategory,
+            appliedFromLearning: learningRec.appliedFromLearning,
+            explorationApplied: learningRec.explorationApplied,
+            rationale: learningRec.rationale,
+            categoryStats: learningRec.categoryStats,
+          }
+        : null,
       video: {
         compositionId: "CardShowcase",
         width: CARD_SHOWCASE_DEFAULTS.width,
@@ -897,7 +1091,7 @@ async function main() {
           label: opts.item1Label,
           layout: "full",
           position: "bottom-right",
-          transition: "slide-left",
+          transition: opts.cutInTransition || "slide-left",
           startSec: 4.1,
           durationSec: 2.25,
           removeBg: "cutout",
@@ -913,7 +1107,7 @@ async function main() {
           label: opts.item2Label,
           layout: "full",
           position: "bottom-right",
-          transition: "slide-left",
+          transition: opts.cutInTransition || "slide-left",
           startSec: 6.1,
           durationSec: 2.25,
           removeBg: "cutout",
@@ -1036,29 +1230,212 @@ async function main() {
 
     await fsp.mkdir(path.dirname(outPath), { recursive: true });
     await fsp.copyFile(tempOut, outPath);
+
+    // 3. Automated post-render Visual & Technical QC audit (100% local)
+    let activeProject = renderProject;
+    let activeBgDim = opts.bgDim;
+    let activeFrameStyle = opts.frame;
+    let qcReport = runCommercialQc(pyBin, outPath, {
+      category: itemCategory,
+      prepStrategy: prepInfo ? prepInfo.strategy : "none",
+      bgRemoved: heroBgRemoved,
+      coveragePct: prepInfo ? prepInfo.coverage_pct : undefined,
+      bgDim: activeBgDim,
+      frameStyle: activeFrameStyle,
+      cutInCount: activeProject.cardShowcase.cutIns.length,
+    });
+
+    let autoImproved = false;
+    let firstPassRunId = null;
+
+    // Optional --auto-improve: if QC finds a concrete fixable adjustment and score < 88,
+    // apply the adjustment, re-render once, and keep whichever pass scores higher!
+    if (opts.autoImprove && qcReport && qcReport.overallScore < 88 && qcReport.adjustments) {
+      const adj = qcReport.adjustments;
+      const hasFix =
+        (typeof adj.bgDimDelta === "number" && Math.abs(adj.bgDimDelta) >= 0.03) ||
+        (adj.recommendFrameStyle && adj.recommendFrameStyle !== activeFrameStyle);
+
+      if (hasFix) {
+        if (!opts.noLearn) {
+          const firstLogged = recordCommercialRun(
+            {
+              category: itemCategory,
+              title: activeProject.cardShowcase.cardName,
+              fileName: path.basename(outPath),
+              outputPath: outPath,
+              prepStrategy: prepInfo ? prepInfo.strategy : "none",
+              cutInCount: activeProject.cardShowcase.cutIns.length,
+              recipe: {
+                bgPreset: opts.bgPreset,
+                bgDim: typeof activeBgDim === "number" ? activeBgDim : 0.22,
+                bgMotion: opts.bgMotion,
+                cardBgPreset: opts.cardBg,
+                frameStyle: activeFrameStyle,
+                removeBg: opts.bgRemove,
+                cutInTransition: opts.cutInTransition || "slide-left",
+                cutInLayout: opts.autoCloseupLayout,
+                autoCloseup: opts.autoCloseup,
+                autoBundleCutins: opts.autoBundleCutins,
+              },
+              qc: qcReport,
+            },
+            opts.learningStore || undefined
+          );
+          firstPassRunId = firstLogged.run.id;
+        }
+
+        const nextBgDim =
+          typeof adj.bgDimDelta === "number"
+            ? Math.max(0.08, Math.min(0.72, Number(((activeBgDim ?? 0.22) + adj.bgDimDelta).toFixed(2))))
+            : activeBgDim;
+        const nextFrame = adj.recommendFrameStyle || activeFrameStyle;
+
+        if (!opts.json) {
+          console.error(
+            `[card-showcase] Auto-improve triggered (pass 1 QC ${qcReport.overallScore}/100): tuning bgDim=${nextBgDim}, frame=${nextFrame}...`
+          );
+        }
+
+        const tunedProject = buildCardShowcaseProject(card, {
+          photoUrlOverride: activeProject.cardShowcase.photoUrl,
+          brandName: opts.brand || undefined,
+          subBrand: opts.subBrand || undefined,
+          ctaLine: opts.cta || undefined,
+          handle: opts.handle || undefined,
+          logoUrl: activeProject.cardShowcase.logoUrl,
+          musicUrl: activeProject.audio?.musicUrl,
+          background: {
+            preset: opts.bgPreset,
+            imageUrl: activeProject.cardShowcase.background?.imageUrl,
+            color: opts.bgColor || undefined,
+            dim: nextBgDim,
+            motion: opts.bgMotion,
+          },
+          cardStage: {
+            removeBg: opts.bgRemove,
+            backgroundRemoved: heroBgRemoved,
+            backdropPreset: opts.cardBg,
+            backdropImageUrl: activeProject.cardShowcase.cardStage?.backdropImageUrl,
+            backdropColor: opts.cardBgColor || undefined,
+            frameStyle: nextFrame,
+          },
+          cutIns: preparedCutIns,
+        });
+
+        const tempImproved = path.join(tempDir, "draft-improved.mp4");
+        const tunedComp = await selectComposition({
+          serveUrl,
+          id: "CardShowcase",
+          inputProps: { project: tunedProject },
+        });
+        await renderMedia({
+          composition: tunedComp,
+          serveUrl,
+          codec: "h264",
+          pixelFormat: "yuv420p",
+          muted: !resolvedMusic,
+          outputLocation: tempImproved,
+          inputProps: { project: tunedProject },
+        });
+
+        const qcPass2 = runCommercialQc(pyBin, tempImproved, {
+          category: itemCategory,
+          prepStrategy: prepInfo ? prepInfo.strategy : "none",
+          bgRemoved: heroBgRemoved,
+          coveragePct: prepInfo ? prepInfo.coverage_pct : undefined,
+          bgDim: nextBgDim,
+          frameStyle: nextFrame,
+          cutInCount: tunedProject.cardShowcase.cutIns.length,
+        });
+
+        if (qcPass2 && qcPass2.overallScore >= qcReport.overallScore) {
+          await fsp.copyFile(tempImproved, outPath);
+          activeProject = tunedProject;
+          activeBgDim = nextBgDim;
+          activeFrameStyle = nextFrame;
+          qcReport = qcPass2;
+          autoImproved = true;
+          if (!opts.json) {
+            console.error(
+              `[card-showcase] Auto-improve succeeded: QC improved to ${qcReport.overallScore}/100!`
+            );
+          }
+        }
+      }
+    }
+
     const stat = await fsp.stat(outPath);
+
+    // 4. Record run + QC audit into persistent learning memory so the next commercial starts even better
+    let learningOutcome = null;
+    if (!opts.noLearn) {
+      learningOutcome = recordCommercialRun(
+        {
+          category: itemCategory,
+          title: activeProject.cardShowcase.cardName,
+          fileName: path.basename(outPath),
+          outputPath: outPath,
+          prepStrategy: prepInfo ? prepInfo.strategy : "none",
+          cutInCount: activeProject.cardShowcase.cutIns.length,
+          recipe: {
+            bgPreset: opts.bgPreset,
+            bgDim: typeof activeBgDim === "number" ? activeBgDim : 0.22,
+            bgMotion: opts.bgMotion,
+            cardBgPreset: opts.cardBg,
+            frameStyle: activeFrameStyle,
+            removeBg: opts.bgRemove,
+            cutInTransition: opts.cutInTransition || "slide-left",
+            cutInLayout: opts.autoCloseupLayout,
+            autoCloseup: opts.autoCloseup,
+            autoBundleCutins: opts.autoBundleCutins,
+          },
+          qc: qcReport,
+          improvedFromRunId: autoImproved ? firstPassRunId : undefined,
+        },
+        opts.learningStore || undefined
+      );
+    }
 
     const summary = {
       ok: true,
       vaultPath,
+      category: itemCategory,
       card: {
-        id: renderProject.cardShowcase.cardId,
-        name: renderProject.cardShowcase.cardName,
-        set: renderProject.cardShowcase.setName,
-        year: renderProject.cardShowcase.year,
-        cardNumber: renderProject.cardShowcase.cardNumber,
+        id: activeProject.cardShowcase.cardId,
+        name: activeProject.cardShowcase.cardName,
+        set: activeProject.cardShowcase.setName,
+        year: activeProject.cardShowcase.year,
+        cardNumber: activeProject.cardShowcase.cardNumber,
         photo: card.frontImage,
-        suggestedPrice: renderProject.cardShowcase.suggestedPrice,
+        suggestedPrice: activeProject.cardShowcase.suggestedPrice,
       },
       prep: {
         removeBgMode: opts.bgRemove,
         backgroundRemoved: heroBgRemoved,
         strategy: prepInfo ? prepInfo.strategy : "none",
         bgPreset: opts.bgPreset,
+        bgDim: activeBgDim,
         cardBgPreset: opts.cardBg,
-        frameStyle: opts.frame,
-        cutInCount: renderProject.cardShowcase.cutIns.length,
+        frameStyle: activeFrameStyle,
+        cutInCount: activeProject.cardShowcase.cutIns.length,
       },
+      qc: qcReport,
+      learning: learningOutcome
+        ? {
+            runId: learningOutcome.run.id,
+            effectiveScore: learningOutcome.run.effectiveScore,
+            deltaFromPrevAvg: learningOutcome.deltaFromPrevAvg,
+            isNewBest: learningOutcome.isNewBest,
+            autoImproved,
+            categoryRunCount: learningOutcome.playbook.runCount,
+            categoryAvgScore: learningOutcome.playbook.avgScore,
+            categoryTrendDelta: learningOutcome.playbook.trendDelta,
+            appliedFromLearning: learningRec ? learningRec.appliedFromLearning : [],
+            explorationApplied: learningRec ? learningRec.explorationApplied : null,
+            nextWinningRecipe: learningOutcome.playbook.winningRecipe,
+          }
+        : null,
       video: {
         compositionId: composition.id,
         width: composition.width,
@@ -1081,6 +1458,15 @@ async function main() {
       console.log(
         `Rendered Card Showcase: ${outPath} (${(stat.size / 1024 / 1024).toFixed(2)} MB, ${summary.video.width}x${summary.video.height}, ${summary.video.durationSeconds}s)`
       );
+      if (qcReport) {
+        const deltaStr = learningOutcome && learningOutcome.playbook.runCount > 1
+          ? ` (${learningOutcome.deltaFromPrevAvg >= 0 ? "+" : ""}${learningOutcome.deltaFromPrevAvg} vs ${itemCategory} avg)`
+          : "";
+        const bestTag = learningOutcome && learningOutcome.isNewBest ? " · NEW BEST!" : "";
+        console.log(
+          `[learning] QC Score: ${qcReport.overallScore}/100${deltaStr}${bestTag} | Run ID: ${learningOutcome ? learningOutcome.run.id : "untracked"}`
+        );
+      }
     }
   } finally {
     await assetServer.close().catch(() => {});

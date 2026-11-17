@@ -146,6 +146,8 @@ export default async function handler(req, res) {
           includeBack: Boolean(req.body && req.body.includeBack),
           autoCloseup: Boolean(req.body && req.body.autoCloseup),
           autoCloseupLayout,
+          autoImprove: Boolean(req.body && req.body.autoImprove),
+          explore: Boolean(req.body && req.body.explore),
           cutIns: safeCutIns,
         });
         if (!made.ok) return res.status(400).json({ ok: false, error: made.error });
@@ -154,6 +156,8 @@ export default async function handler(req, res) {
           mode: "card-showcase",
           commercial: { name: made.name, bytes: made.bytes },
           card: made.card,
+          qc: made.qc || null,
+          learning: made.learning || null,
           posted: false,
           listed: false,
         });

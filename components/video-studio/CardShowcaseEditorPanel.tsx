@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 
 import { authedFetch } from "../../lib/clientAuth";
 import {
@@ -9,6 +9,12 @@ import {
   resolveShowcaseBackground,
   resolveShowcaseStage
 } from "../../lib/video-studio/cardShowcase";
+import {
+  COMMERCIAL_FEEDBACK_TAG_OPTIONS,
+  type CommercialCategory,
+  type CommercialFeedbackTag,
+  type LearningSummaryResponse
+} from "../../lib/video-studio/learning";
 import type {
   CardBgRemoveMode,
   CardFrameStyle,
@@ -52,10 +58,89 @@ export function CardShowcaseEditorPanel({
     useState<CardShowcaseCutInLayout>("pip");
   const [cutInRemoveBgOnAdd, setCutInRemoveBgOnAdd] =
     useState<CardBgRemoveMode>("none");
+  const [learning, setLearning] = useState<LearningSummaryResponse | null>(null);
+  const [ratingBusyId, setRatingBusyId] = useState<string | null>(null);
+  const [appliedRecipeNotice, setAppliedRecipeNotice] = useState<string | null>(null);
 
   const bg = resolveShowcaseBackground(showcase.background);
   const stage = resolveShowcaseStage(showcase.cardStage);
   const cutIns = Array.isArray(showcase.cutIns) ? showcase.cutIns : [];
+
+  const activeCategory: CommercialCategory =
+    /\b(bundle|2-item|two-item|3-item|lot|pair|combo)\b/i.test(
+      `${showcase.cardName} ${showcase.setName} ${showcase.detailTag}`
+    )
+      ? "resale-bundle"
+      : stage.removeBg === "cutout" || stage.frameStyle === "floating"
+        ? "single-item"
+        : "trading-card";
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authedFetch("/api/video-studio/learning");
+        if (!res.ok) return;
+        const data = (await res.json()) as LearningSummaryResponse;
+        if (!cancelled && data.ok) {
+          setLearning(data);
+        }
+      } catch {
+        // Non-blocking: editor works even if learning summary isn't loaded yet
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function applyWinningRecipe() {
+    const playbook = learning?.playbooks?.[activeCategory];
+    if (!playbook) return;
+    const win = playbook.winningRecipe;
+    onChange({
+      ...showcase,
+      background: resolveShowcaseBackground({
+        ...bg,
+        preset: win.bgPreset,
+        dim: win.bgDim,
+        motion: win.bgMotion
+      }),
+      cardStage: resolveShowcaseStage({
+        ...stage,
+        backdropPreset: win.cardBgPreset,
+        frameStyle: win.frameStyle,
+        removeBg: win.removeBg
+      })
+    });
+    setAppliedRecipeNotice(
+      `Applied winning ${activeCategory} recipe (${win.bgPreset}, dim ${win.bgDim}, ${win.frameStyle})`
+    );
+  }
+
+  async function submitRunFeedback(
+    runId: string,
+    patch: {
+      rating?: number;
+      tags?: CommercialFeedbackTag[];
+      sold?: boolean;
+    }
+  ) {
+    setRatingBusyId(runId);
+    try {
+      const res = await authedFetch("/api/video-studio/learning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId, ...patch })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok && data.summary) {
+        setLearning(data.summary as LearningSummaryResponse);
+      }
+    } finally {
+      setRatingBusyId(null);
+    }
+  }
 
   function updateBackground(patch: Partial<CardShowcaseBackground>) {
     onChange({
@@ -776,6 +861,179 @@ export function CardShowcaseEditorPanel({
             ))}
           </div>
         ) : null}
+      </div>
+
+      {/* 4. Self-Improving Commercial Playbook & Feedback Loop */}
+      <div className="rounded-lg border border-amber-500/25 bg-zinc-950/70 p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-amber-300">
+              Self-Improving Builder Playbook
+            </h3>
+            <p className="text-xs text-zinc-400">
+              Every commercial is auto-audited for cutout cleanliness, headline contrast, and pacing.
+              Rate renders or mark sales to continuously sharpen future defaults.
+            </p>
+          </div>
+          {learning?.playbooks?.[activeCategory] ? (
+            <button
+              type="button"
+              onClick={applyWinningRecipe}
+              className="rounded-md border border-amber-400/60 bg-amber-500/15 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/25"
+            >
+              Apply Winning {activeCategory} Recipe
+            </button>
+          ) : null}
+        </div>
+
+        {appliedRecipeNotice ? (
+          <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-200">
+            {appliedRecipeNotice}
+          </div>
+        ) : null}
+
+        {learning ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 text-xs">
+              <div className="rounded border border-zinc-800 bg-zinc-900/70 p-2">
+                <div className="text-zinc-400">Commercials Learned</div>
+                <div className="text-base font-bold text-white">{learning.totalRuns}</div>
+              </div>
+              <div className="rounded border border-zinc-800 bg-zinc-900/70 p-2">
+                <div className="text-zinc-400">Avg Quality Score</div>
+                <div className="text-base font-bold text-amber-300">
+                  {learning.overallAvgScore ? `${learning.overallAvgScore}/100` : "—"}
+                </div>
+              </div>
+              <div className="rounded border border-zinc-800 bg-zinc-900/70 p-2">
+                <div className="text-zinc-400">Improvement Trend</div>
+                <div
+                  className={`text-base font-bold ${
+                    learning.overallTrendDelta >= 0 ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  {learning.totalRuns >= 2
+                    ? `${learning.overallTrendDelta >= 0 ? "+" : ""}${learning.overallTrendDelta} pts`
+                    : "Baseline"}
+                </div>
+              </div>
+              <div className="rounded border border-zinc-800 bg-zinc-900/70 p-2">
+                <div className="text-zinc-400">Sales Tracked</div>
+                <div className="text-base font-bold text-white">{learning.soldCount}</div>
+              </div>
+            </div>
+
+            {learning.playbooks?.[activeCategory]?.learnedRules?.length ? (
+              <div className="rounded border border-zinc-800 bg-zinc-900/50 p-2.5 text-xs text-zinc-300 space-y-1">
+                <div className="font-semibold text-amber-200">
+                  Active Rules ({activeCategory})
+                </div>
+                {learning.playbooks[activeCategory].learnedRules.map((rule, idx) => (
+                  <div key={idx} className="text-zinc-300">
+                    • {rule}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {learning.recentRuns.length > 0 ? (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-zinc-300">
+                  Recent Commercials — Rate to Train Next Builds
+                </div>
+                {learning.recentRuns.slice(0, 4).map((run) => {
+                  const activeTags = new Set(run.feedback?.tags || []);
+                  const busy = ratingBusyId === run.id;
+                  return (
+                    <div
+                      key={run.id}
+                      className="rounded border border-zinc-800 bg-zinc-900/60 p-2.5 space-y-2 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <span className="font-semibold text-white">{run.title}</span>
+                          <span className="ml-2 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300">
+                            {run.category}
+                          </span>
+                          <span className="ml-2 text-zinc-400">
+                            {run.recipe.bgPreset} · {run.recipe.frameStyle}
+                          </span>
+                        </div>
+                        <div className="font-semibold text-amber-300">
+                          Score {run.effectiveScore}/100
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-zinc-400 mr-1">Rate:</span>
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            disabled={busy}
+                            onClick={() => submitRunFeedback(run.id, { rating: star })}
+                            className={`rounded px-1.5 py-0.5 text-xs border ${
+                              (run.feedback?.rating || 0) >= star
+                                ? "border-amber-400 bg-amber-500/20 text-amber-200"
+                                : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-white"
+                            }`}
+                          >
+                            {star}★
+                          </button>
+                        ))}
+
+                        {COMMERCIAL_FEEDBACK_TAG_OPTIONS.slice(0, 6).map((opt) => {
+                          const on = activeTags.has(opt.id);
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                const next = new Set(activeTags);
+                                if (on) next.delete(opt.id);
+                                else next.add(opt.id);
+                                submitRunFeedback(run.id, {
+                                  tags: Array.from(next) as CommercialFeedbackTag[]
+                                });
+                              }}
+                              className={`rounded-full px-2 py-0.5 text-[11px] border ${
+                                on
+                                  ? "border-amber-400 bg-amber-500/20 text-amber-200"
+                                  : "border-zinc-700 bg-zinc-950 text-zinc-400 hover:text-white"
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            submitRunFeedback(run.id, { sold: !run.feedback?.sold })
+                          }
+                          className={`rounded-full px-2 py-0.5 text-[11px] border font-semibold ${
+                            run.feedback?.sold
+                              ? "border-emerald-400 bg-emerald-500/25 text-emerald-200"
+                              : "border-zinc-700 bg-zinc-950 text-zinc-300 hover:border-emerald-400/60"
+                          }`}
+                        >
+                          {run.feedback?.sold ? "✓ Sold!" : "Mark Sold"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="text-xs text-zinc-500">
+            Learning playbook initializes automatically as commercials render.
+          </div>
+        )}
       </div>
     </div>
   );
