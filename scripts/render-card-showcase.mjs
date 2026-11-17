@@ -38,6 +38,7 @@ const {
   CUTIN_TRANSITIONS,
   CARD_SHOWCASE_DEFAULTS,
   buildCardShowcaseProject,
+  buildGeneralItemShowcaseRecord,
   formatCardShowcaseSlug,
 } = require("../lib/cardCommercial.js");
 const { COMMERCIALS_DIR } = require("../lib/commercialFiles.js");
@@ -64,9 +65,15 @@ function printHelp() {
 Usage:
   node scripts/render-card-showcase.mjs [options]
 
-Vault & Output:
+Vault / Direct Item & Output:
   --vault <path>              Path to card vault (.json or .sqlite/.sqlite3)
   --card-id <id>              Vault card ID (defaults to first card with a photo)
+  --photo <path|url>          Direct general-item / bundle photo (no card vault needed;
+                              defaults to --bg-remove cutout and --frame floating)
+  --title <text>              Headline for --photo mode (e.g. "Happy Smiles Bundle")
+  --subtitle <text>           Second line for --photo mode (e.g. "Mint Breeze & Dispenser")
+  --detail <text>             Gold detail line for --photo mode (e.g. "2-Item Bundle · 6.76 + 6.4 fl oz")
+  --price <number>            Optional explicit price (ONLY displayed when passed; never invented)
   --out <path>                Output MP4 path (default: public/commercials/<slug>_reel_9_16.mp4)
 
 Brand & Copy:
@@ -104,6 +111,10 @@ Cut Pictures In (Cutaways, PiP Insets, Split View, Close-Ups):
   --auto-closeup              Automatically extract & cut in an artwork close-up from the card
   --auto-closeup-layout <l>   Layout for --auto-closeup: pip | full | split | closeup (default: pip)
   --auto-closeup-region <r>   Region for --auto-closeup: art | top | bottom | center (default: art)
+  --auto-bundle-cutins        Automatically split a 2-item bundle cutout into individual Item 1 &
+                              Item 2 transparent PNG cut-ins (local RMBG-1.4 + DP seam split)
+  --item1-label <text>        Badge label for split Item 1 cut-in (default: "Item 1 of 2")
+  --item2-label <text>        Badge label for split Item 2 cut-in (default: "Item 2 of 2")
 
 Other:
   --dry-run                   Resolve vault card & full spec JSON without rendering
@@ -169,6 +180,11 @@ function parseArgs(argv) {
   const opts = {
     vault: null,
     cardId: null,
+    photo: null,
+    title: null,
+    subtitle: null,
+    detail: null,
+    price: null,
     out: null,
     cta: null,
     handle: null,
@@ -176,7 +192,7 @@ function parseArgs(argv) {
     subBrand: null,
     logo: null,
     music: null,
-    bgRemove: CARD_SHOWCASE_DEFAULTS.removeBg,
+    bgRemove: null,
     crop: null,
     corners: null,
     cardAspect: null,
@@ -188,13 +204,16 @@ function parseArgs(argv) {
     cardBg: CARD_SHOWCASE_DEFAULTS.cardBgPreset,
     cardBgImage: null,
     cardBgColor: null,
-    frame: CARD_SHOWCASE_DEFAULTS.frameStyle,
+    frame: null,
     cutIns: [],
     cutInsJson: null,
     includeBack: false,
     autoCloseup: false,
     autoCloseupLayout: "pip",
     autoCloseupRegion: "art",
+    autoBundleCutins: false,
+    item1Label: "Item 1 of 2",
+    item2Label: "Item 2 of 2",
     dryRun: false,
     json: false,
     help: false,
@@ -208,8 +227,16 @@ function parseArgs(argv) {
     else if (arg === "--no-bg-motion") opts.bgMotion = "none";
     else if (arg === "--include-back") opts.includeBack = true;
     else if (arg === "--auto-closeup") opts.autoCloseup = true;
+    else if (arg === "--auto-bundle-cutins") opts.autoBundleCutins = true;
     else if (arg === "--vault") opts.vault = argv[++i] || null;
     else if (arg === "--card-id") opts.cardId = argv[++i] || null;
+    else if (arg === "--photo") opts.photo = argv[++i] || null;
+    else if (arg === "--title") opts.title = argv[++i] || null;
+    else if (arg === "--subtitle") opts.subtitle = argv[++i] || null;
+    else if (arg === "--detail") opts.detail = argv[++i] || null;
+    else if (arg === "--price") opts.price = argv[++i] || null;
+    else if (arg === "--item1-label") opts.item1Label = argv[++i] || opts.item1Label;
+    else if (arg === "--item2-label") opts.item2Label = argv[++i] || opts.item2Label;
     else if (arg === "--out") opts.out = argv[++i] || null;
     else if (arg === "--cta") opts.cta = argv[++i] || null;
     else if (arg === "--handle") opts.handle = argv[++i] || null;
@@ -408,11 +435,12 @@ function runCardPrep(pyBin, inputPath, outputPath, opts = {}) {
   if (opts.corners) args.push("--corners", opts.corners);
   if (opts.region) args.push("--region", opts.region);
   if (opts.cardAspect) args.push("--card-aspect", opts.cardAspect);
+  if (opts.splitOutDir) args.push("--split-out-dir", opts.splitOutDir);
   if (opts.cornerRadius !== undefined && opts.cornerRadius !== null) {
     args.push("--corner-radius", String(opts.cornerRadius));
   }
 
-  const res = spawnSync(pyBin, args, { encoding: "utf8", windowsHide: true, timeout: 120_000 });
+  const res = spawnSync(pyBin, args, { encoding: "utf8", windowsHide: true, timeout: 180_000 });
   if (res.error) {
     throw new Error(`card_prep.py failed to start: ${res.error.message}`);
   }
@@ -579,9 +607,35 @@ async function main() {
     return;
   }
 
-  const vaultPath = resolveVaultPath(opts.vault);
-  const vaultDir = path.dirname(vaultPath);
-  const card = loadVaultCard(vaultPath, opts.cardId);
+  const isDirectItem = Boolean(opts.photo);
+  // Smart defaults: general items/bundles default to neural cutout + floating stage;
+  // vault cards default to rectangular card straightening + gold collector frame.
+  if (!opts.bgRemove) {
+    opts.bgRemove = isDirectItem ? "cutout" : CARD_SHOWCASE_DEFAULTS.removeBg;
+  }
+  if (!opts.frame) {
+    opts.frame = isDirectItem ? "floating" : CARD_SHOWCASE_DEFAULTS.frameStyle;
+  }
+
+  let vaultPath = null;
+  let vaultDir = process.cwd();
+  let card = null;
+
+  if (isDirectItem) {
+    const resolvedInputPhoto = resolveLocalAssetPath(opts.photo, process.cwd());
+    vaultDir = isHttpUrl(resolvedInputPhoto) ? process.cwd() : path.dirname(resolvedInputPhoto);
+    card = buildGeneralItemShowcaseRecord({
+      photoUrl: resolvedInputPhoto,
+      title: opts.title || path.basename(resolvedInputPhoto, path.extname(resolvedInputPhoto)),
+      subtitle: opts.subtitle || "",
+      detailTag: opts.detail || "",
+      price: opts.price,
+    });
+  } else {
+    vaultPath = resolveVaultPath(opts.vault);
+    vaultDir = path.dirname(vaultPath);
+    card = loadVaultCard(vaultPath, opts.cardId);
+  }
 
   const resolvedPhoto = resolveLocalAssetPath(card.frontImage, vaultDir);
   const resolvedLogo = opts.logo ? resolveLocalAssetPath(opts.logo, vaultDir) : undefined;
@@ -618,6 +672,42 @@ async function main() {
       focusX: item.focusX,
       focusY: item.focusY,
     })),
+    ...(opts.autoBundleCutins
+      ? [
+          {
+            id: "cutin-bundle-item-1",
+            imageUrl: resolvedPhoto,
+            label: opts.item1Label,
+            layout: "full",
+            position: "bottom-right",
+            transition: "slide-left",
+            startSec: 4.1,
+            durationSec: 2.25,
+            removeBg: "cutout",
+            backgroundRemoved: true,
+            fit: "contain",
+            zoom: 1.02,
+            focusX: 50,
+            focusY: 50,
+          },
+          {
+            id: "cutin-bundle-item-2",
+            imageUrl: resolvedPhoto,
+            label: opts.item2Label,
+            layout: "full",
+            position: "bottom-right",
+            transition: "slide-left",
+            startSec: 6.1,
+            durationSec: 2.25,
+            removeBg: "cutout",
+            backgroundRemoved: true,
+            fit: "contain",
+            zoom: 1.02,
+            focusX: 50,
+            focusY: 50,
+          },
+        ]
+      : []),
     ...(opts.autoCloseup
       ? [
           {
@@ -667,7 +757,10 @@ async function main() {
     cutIns: previewCutIns,
   });
 
-  const slug = formatCardShowcaseSlug(previewProject.cardShowcase);
+  const slug = formatCardShowcaseSlug(
+    previewProject.cardShowcase,
+    isDirectItem ? "item-showcase" : "card-showcase"
+  );
   const outPath = path.resolve(
     opts.out || path.join(COMMERCIALS_DIR, `${slug}_reel_9_16.mp4`)
   );
@@ -718,35 +811,38 @@ async function main() {
     const pyBin = findPythonBin();
     const localMainPhoto = await ensureLocalImageFile(resolvedPhoto, tempDir, "card");
 
-    // 1. Prepare hero card photo (remove background & straighten by default!)
+    // 1. Prepare hero photo (remove background & straighten / neural cutout; optionally split 2-item bundle)
     let preparedHeroPath = localMainPhoto;
     let heroBgRemoved = false;
     let prepInfo = null;
+    const bundleSplitDir = opts.autoBundleCutins ? path.join(tempDir, "bundle-split") : null;
 
-    if (opts.bgRemove !== "none" || opts.crop || opts.corners) {
+    if (opts.bgRemove !== "none" || opts.crop || opts.corners || opts.autoBundleCutins) {
       if (!pyBin) {
-        throw new Error("Python 3 is required for local background removal / card cutout (or pass --bg-remove none)");
+        throw new Error("Python 3 is required for local background removal / cutout (or pass --bg-remove none)");
       }
       const cutoutOut = path.join(tempDir, "hero-cutout.png");
+      const prepMode = opts.bgRemove === "none" ? (opts.autoBundleCutins ? "cutout" : "crop") : opts.bgRemove;
       if (!opts.json) {
-        console.error(`[card-showcase] Removing background & prepping card (mode=${opts.bgRemove})...`);
+        console.error(`[card-showcase] Removing background & prepping photo (mode=${prepMode})...`);
       }
       prepInfo = runCardPrep(pyBin, localMainPhoto, cutoutOut, {
-        mode: opts.bgRemove === "none" ? "crop" : opts.bgRemove,
+        mode: prepMode,
         crop: opts.crop,
         corners: opts.corners,
         cardAspect: opts.cardAspect,
+        splitOutDir: bundleSplitDir,
       });
       preparedHeroPath = cutoutOut;
       heroBgRemoved = Boolean(prepInfo.background_removed);
       if (!opts.json) {
         console.error(
-          `[card-showcase] Card prep complete: ${prepInfo.width}x${prepInfo.height} via ${prepInfo.strategy} (bgRemoved=${heroBgRemoved})`
+          `[card-showcase] Photo prep complete: ${prepInfo.width}x${prepInfo.height} via ${prepInfo.strategy} (bgRemoved=${heroBgRemoved})`
         );
       }
     }
 
-    // 2. Prepare cut-in pictures (optional bg removal, crop, and auto-closeup extraction)
+    // 2. Prepare cut-in pictures (optional bg removal, crop, auto bundle split, and auto-closeup extraction)
     const preparedCutIns = [];
     for (let idx = 0; idx < cutInInputs.length; idx += 1) {
       const item = cutInInputs[idx];
@@ -783,6 +879,51 @@ async function main() {
         focusX: item.focusX,
         focusY: item.focusY,
       });
+    }
+
+    // Optional automatic 2-item bundle split cut-ins (each individual item spotlighted cleanly)
+    if (opts.autoBundleCutins && prepInfo && Array.isArray(prepInfo.split_items) && prepInfo.split_items.length >= 2) {
+      const item1Path = prepInfo.split_items[0].path;
+      const item2Path = prepInfo.split_items[1].path;
+      if (!opts.json) {
+        console.error(
+          `[card-showcase] Auto-split 2-item bundle into individual cutouts (split_x=${prepInfo.split_x})`
+        );
+      }
+      preparedCutIns.push(
+        {
+          id: "cutin-bundle-item-1",
+          imageUrl: assetServer.register(item1Path),
+          label: opts.item1Label,
+          layout: "full",
+          position: "bottom-right",
+          transition: "slide-left",
+          startSec: 4.1,
+          durationSec: 2.25,
+          removeBg: "cutout",
+          backgroundRemoved: true,
+          fit: "contain",
+          zoom: 1.02,
+          focusX: 50,
+          focusY: 50,
+        },
+        {
+          id: "cutin-bundle-item-2",
+          imageUrl: assetServer.register(item2Path),
+          label: opts.item2Label,
+          layout: "full",
+          position: "bottom-right",
+          transition: "slide-left",
+          startSec: 6.1,
+          durationSec: 2.25,
+          removeBg: "cutout",
+          backgroundRemoved: true,
+          fit: "contain",
+          zoom: 1.02,
+          focusX: 50,
+          focusY: 50,
+        }
+      );
     }
 
     // Optional automatic artwork macro close-up cut-in

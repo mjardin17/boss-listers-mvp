@@ -422,10 +422,214 @@ def try_v6_rmbg_module(input_path, output_path):
     return None
 
 
+RMBG_ONNX_URL = "https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model.onnx"
+RMBG_CACHE_PATH = Path.home() / ".cache" / "bosslisters-models" / "rmbg-1.4.onnx"
+
+
+def clean_edge_junk_components(alpha_u8):
+    """
+    Remove tiny stray background objects peeking in from image corners/edges
+    (e.g. a nearby box corner on a table) while preserving ALL real products
+    in multi-item bundles.
+    """
+    h, w = alpha_u8.shape[:2]
+    binary = (alpha_u8 > 36).astype(np.uint8)
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    if num_labels <= 2:
+        return alpha_u8
+
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    total_fg = int(areas.sum())
+    largest_idx = 1 + int(np.argmax(areas))
+    edge_pad_x = max(4, int(w * 0.015))
+    edge_pad_y = max(4, int(h * 0.015))
+
+    keep_mask = np.zeros((h, w), dtype=np.uint8)
+    for lbl in range(1, num_labels):
+        area = int(stats[lbl, cv2.CC_STAT_AREA])
+        x = int(stats[lbl, cv2.CC_STAT_LEFT])
+        y = int(stats[lbl, cv2.CC_STAT_TOP])
+        cw = int(stats[lbl, cv2.CC_STAT_WIDTH])
+        ch = int(stats[lbl, cv2.CC_STAT_HEIGHT])
+        touches_edge = (
+            x <= edge_pad_x
+            or y <= edge_pad_y
+            or (x + cw) >= (w - edge_pad_x)
+            or (y + ch) >= (h - edge_pad_y)
+        )
+        frac = area / max(1.0, float(total_fg))
+        # Always keep the largest subject and any real bundle item (>= 4% of foreground)
+        if lbl == largest_idx or frac >= 0.04:
+            keep_mask[labels == lbl] = 255
+        elif not touches_edge and frac >= 0.008:
+            # Keep small interior details (detached labels/parts inside the subject)
+            keep_mask[labels == lbl] = 255
+
+    # Slightly dilate keep_mask so soft alpha feathering around kept items stays smooth
+    k = max(5, int(min(h, w) * 0.006) | 1)
+    keep_mask = cv2.dilate(keep_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    return np.where(keep_mask > 0, alpha_u8, 0).astype(np.uint8)
+
+
+def trim_transparent(rgba_img, alpha_threshold=18, pad_ratio=0.012, max_dim=1800):
+    """Trim outer transparent margin cleanly with subtle padding and cap huge cutouts for fast video decode."""
+    w, h = rgba_img.size
+    alpha = rgba_img.split()[-1]
+    bbox = alpha.point(lambda p: 255 if p > alpha_threshold else 0).getbbox()
+    if bbox:
+        pad = max(8, int(min(w, h) * pad_ratio))
+        x0 = max(0, bbox[0] - pad)
+        y0 = max(0, bbox[1] - pad)
+        x1 = min(w, bbox[2] + pad)
+        y1 = min(h, bbox[3] + pad)
+        rgba_img = rgba_img.crop((x0, y0, x1, y1))
+    cw, ch = rgba_img.size
+    if max_dim and max(cw, ch) > max_dim:
+        scale = max_dim / float(max(cw, ch))
+        rgba_img = rgba_img.resize(
+            (max(1, int(round(cw * scale))), max(1, int(round(ch * scale)))),
+            Image.Resampling.LANCZOS,
+        )
+    return rgba_img
+
+
+def resolve_rmbg_onnx_path(allow_download=True):
+    env_path = os.environ.get("RMBG_MODEL_PATH")
+    if env_path and os.path.exists(env_path):
+        return Path(env_path)
+    if RMBG_CACHE_PATH.exists() and RMBG_CACHE_PATH.stat().st_size > 10_000_000:
+        return RMBG_CACHE_PATH
+    if not allow_download:
+        return None
+    try:
+        RMBG_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = RMBG_CACHE_PATH.with_suffix(".onnx.tmp")
+        urllib.request.urlretrieve(RMBG_ONNX_URL, str(tmp))
+        if tmp.exists() and tmp.stat().st_size > 10_000_000:
+            tmp.replace(RMBG_CACHE_PATH)
+            return RMBG_CACHE_PATH
+        tmp.unlink(missing_ok=True)
+    except Exception:
+        return None
+    return None
+
+
+def try_local_rmbg14_onnx(rgb_pil, trim=True, allow_download=True):
+    """
+    Run free open-source briaai/RMBG-1.4 neural matting locally via onnxruntime.
+    Handles transparent glass/plastic, bottles, and multi-item bundles cleanly.
+    """
+    try:
+        import onnxruntime as ort  # type: ignore
+    except Exception:
+        return None
+
+    model_path = resolve_rmbg_onnx_path(allow_download=allow_download)
+    if model_path is None:
+        return None
+
+    try:
+        sess = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+        inp_name = sess.get_inputs()[0].name
+        W, H = rgb_pil.size
+        resized = rgb_pil.resize((1024, 1024), Image.Resampling.BILINEAR)
+        arr = np.array(resized, dtype=np.float32) / 255.0
+        arr = (arr - 0.5) / 1.0
+        tensor = np.transpose(arr, (2, 0, 1))[None, :, :, :]
+
+        out = sess.run(None, {inp_name: tensor})[0]
+        mask = out[0, 0]
+        ma, mi = float(mask.max()), float(mask.min())
+        mask = (mask - mi) / max(1e-6, (ma - mi))
+        mask_u8 = (mask * 255.0).clip(0, 255).astype(np.uint8)
+        alpha_full = np.array(
+            Image.fromarray(mask_u8, mode="L").resize((W, H), Image.Resampling.LANCZOS)
+        )
+        alpha_clean = clean_edge_junk_components(alpha_full)
+        rgba = rgb_pil.convert("RGBA")
+        rgba.putalpha(Image.fromarray(alpha_clean, mode="L"))
+        return trim_transparent(rgba) if trim else rgba
+    except Exception:
+        return None
+
+
+def split_bundle_horizontal(cutout_rgba):
+    """
+    Split a two-item side-by-side bundle cutout cleanly along the lowest-alpha
+    vertical seam (DP minimum-cost path) between the two items so angled/flared
+    shapes (e.g. wide bottle base next to wide dispenser ears) separate with zero bleed.
+    Returns (left_rgba, right_rgba, median_split_x).
+    """
+    w, h = cutout_rgba.size
+    alpha = np.array(cutout_rgba.split()[-1], dtype=np.float32) / 255.0
+
+    # Downsample alpha to speed up DP seam finding (~320px tall)
+    ds_h = min(h, 320)
+    ds_w = max(64, int(round(w * (ds_h / float(h)))))
+    a_small = cv2.resize(alpha, (ds_w, ds_h), interpolation=cv2.INTER_AREA)
+
+    lo = int(ds_w * 0.30)
+    hi = int(ds_w * 0.70)
+    band_w = max(8, hi - lo)
+    band = a_small[:, lo:hi]
+
+    # Prefer paths through empty (alpha == 0) pixels with smooth horizontal transitions
+    cost = np.zeros_like(band, dtype=np.float64)
+    back = np.zeros((ds_h, band_w), dtype=np.int32)
+    # Mild center bias only to break exact 0-cost ties cleanly down the middle of the gap
+    center_bias = np.abs(np.linspace(-1.0, 1.0, band_w)) * 0.002
+    cost[0] = (band[0] ** 2) * 100.0 + center_bias
+
+    max_step = max(2, int(band_w * 0.03))
+    for y in range(1, ds_h):
+        prev = cost[y - 1]
+        for x in range(band_w):
+            x0 = max(0, x - max_step)
+            x1 = min(band_w, x + max_step + 1)
+            offsets = np.arange(x0, x1) - x
+            step_pen = np.abs(offsets) * 0.06
+            candidates = prev[x0:x1] + step_pen
+            best_rel = int(np.argmin(candidates))
+            best_prev = x0 + best_rel
+            cost[y, x] = candidates[best_rel] + (float(band[y, x]) ** 2) * 100.0 + center_bias[x]
+            back[y, x] = best_prev
+
+    seam_small = np.zeros(ds_h, dtype=np.int32)
+    seam_small[ds_h - 1] = int(np.argmin(cost[ds_h - 1]))
+    for y in range(ds_h - 2, -1, -1):
+        seam_small[y] = back[y + 1, seam_small[y + 1]]
+
+    # Upsample seam x(y) to full image height
+    ys_small = np.linspace(0, h - 1, ds_h)
+    ys_full = np.arange(h, dtype=np.float64)
+    seam_full = np.interp(ys_full, ys_small, (seam_small + lo) * (w / float(ds_w)))
+    seam_x = np.clip(np.round(seam_full).astype(np.int32), 1, w - 2)
+    median_split_x = int(np.median(seam_x))
+
+    # Build left and right alpha masks along the exact seam
+    arr = np.array(cutout_rgba)
+    xs = np.arange(w)[None, :]
+    left_mask = xs < seam_x[:, None]
+    right_mask = ~left_mask
+
+    left_arr = arr.copy()
+    left_arr[:, :, 3] = np.where(left_mask, arr[:, :, 3], 0)
+    right_arr = arr.copy()
+    right_arr[:, :, 3] = np.where(right_mask, arr[:, :, 3], 0)
+
+    # Clean any tiny disconnected sliver on each half
+    left_arr[:, :, 3] = clean_edge_junk_components(left_arr[:, :, 3])
+    right_arr[:, :, 3] = clean_edge_junk_components(right_arr[:, :, 3])
+
+    left_clean = Image.fromarray(left_arr, mode="RGBA")
+    right_clean = Image.fromarray(right_arr, mode="RGBA")
+    return trim_transparent(left_clean), trim_transparent(right_clean), median_split_x
+
+
 def grabcut_general_cutout(rgb_pil, trim=True):
     """
     Local OpenCV GrabCut cutout for arbitrary objects / non-rectangular cut-in photos.
-    Returns RGBA PIL Image with softly anti-aliased edges and optional tight transparent trim.
+    Preserves multiple bundle items while removing outer table/background clutter.
     """
     rgb = np.array(rgb_pil)
     bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
@@ -437,10 +641,20 @@ def grabcut_general_cutout(rgb_pil, trim=True):
     small = cv2.resize(bgr, (sw, sh), interpolation=cv2.INTER_AREA)
 
     gc_bin = run_grabcut_mask(small, iterations=6)
-    comp, area = largest_component(gc_bin)
-    if comp is None or area < int(sw * sh * 0.03):
-        # Nothing clearly isolated; keep original intact
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(gc_bin, connectivity=8)
+    if num_labels <= 1:
         return rgb_pil.convert("RGBA"), False
+
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    max_area = int(areas.max())
+    if max_area < int(sw * sh * 0.03):
+        return rgb_pil.convert("RGBA"), False
+
+    # Keep all significant foreground items (>= 8% of largest item area) for multi-item bundles
+    comp = np.zeros((sh, sw), dtype=np.uint8)
+    for lbl in range(1, num_labels):
+        if int(stats[lbl, cv2.CC_STAT_AREA]) >= max(100, int(max_area * 0.08)):
+            comp[labels == lbl] = 255
 
     # Morphological cleanup + slight edge feathering
     k = max(3, int(min(sw, sh) * 0.008) | 1)
@@ -451,21 +665,11 @@ def grabcut_general_cutout(rgb_pil, trim=True):
     alpha_full = cv2.resize(cleaned, (W, H), interpolation=cv2.INTER_LINEAR)
     blur_k = max(3, int(min(W, H) * 0.003) | 1)
     alpha_full = cv2.GaussianBlur(alpha_full, (blur_k, blur_k), 0)
+    alpha_full = clean_edge_junk_components(alpha_full)
 
     rgba_arr = np.dstack([rgb, alpha_full])
     rgba_img = Image.fromarray(rgba_arr, mode="RGBA")
-
-    if trim:
-        bbox = rgba_img.split()[-1].getbbox()
-        if bbox:
-            pad = max(6, int(min(W, H) * 0.015))
-            x0 = max(0, bbox[0] - pad)
-            y0 = max(0, bbox[1] - pad)
-            x1 = min(W, bbox[2] + pad)
-            y1 = min(H, bbox[3] + pad)
-            rgba_img = rgba_img.crop((x0, y0, x1, y1))
-
-    return rgba_img, True
+    return (trim_transparent(rgba_img) if trim else rgba_img), True
 
 
 def parse_crop_box(crop_str):
@@ -630,18 +834,34 @@ def prepare_image(
         box = parse_crop_box(crop_str) if crop_str else CLOSEUP_REGIONS.get(closeup_region, CLOSEUP_REGIONS["art"])
         result_rgba = crop_normalized(base_img, box, corner_ratio=0.025)
 
-    elif mode == "cutout" or mode == "rmbg":
+    elif mode == "cutout" or mode == "rmbg" or mode == "bundle-split":
         rmbg_img = None
         if use_rmbg:
-            rmbg_img = try_rmbg_sidecar(input_path, output_path) or try_v6_rmbg_module(input_path, output_path)
+            rmbg_img = (
+                try_rmbg_sidecar(input_path, output_path)
+                or try_v6_rmbg_module(input_path, output_path)
+                or try_local_rmbg14_onnx(rgb_pil, trim=True)
+            )
         if rmbg_img is not None:
             result_rgba = rmbg_img
-            strategy = "rmbg_v6"
+            strategy = "rmbg14_onnx"
             background_removed = True
         else:
             result_rgba, ok = grabcut_general_cutout(rgb_pil, trim=True)
             strategy = "grabcut_cutout" if ok else "passthrough"
             background_removed = ok
+
+        if mode == "bundle-split":
+            left_rgba, right_rgba, split_x = split_bundle_horizontal(result_rgba)
+            if closeup_region == "left":
+                result_rgba = left_rgba
+                strategy = f"{strategy}_split_left"
+            elif closeup_region == "right":
+                result_rgba = right_rgba
+                strategy = f"{strategy}_split_right"
+            else:
+                # Save full cutout to output_path AND save left/right siblings if requested
+                result_rgba = result_rgba
         if crop_str:
             result_rgba = crop_normalized(result_rgba, parse_crop_box(crop_str), corner_ratio=0.0)
 
@@ -715,7 +935,7 @@ def main():
     parser.add_argument(
         "--mode",
         default="card",
-        choices=["card", "cutout", "rmbg", "crop", "closeup", "none"],
+        choices=["card", "cutout", "rmbg", "bundle-split", "crop", "closeup", "none"],
         help="Preparation mode (default: card)",
     )
     parser.add_argument("--crop", default=None, help="Normalized crop x,y,w,h (0..1)")
@@ -723,8 +943,13 @@ def main():
     parser.add_argument(
         "--region",
         default="art",
-        choices=list(CLOSEUP_REGIONS.keys()),
-        help="Close-up region for --mode closeup (default: art)",
+        choices=list(CLOSEUP_REGIONS.keys()) + ["left", "right"],
+        help="Region for --mode closeup (art|top|bottom|center) or --mode bundle-split (left|right)",
+    )
+    parser.add_argument(
+        "--split-out-dir",
+        default=None,
+        help="When set with --mode cutout|bundle-split, also saves item_1.png and item_2.png in this directory",
     )
     parser.add_argument(
         "--card-aspect",
@@ -767,6 +992,20 @@ def main():
         replace_bg_color=args.replace_bg_color,
         use_rmbg=not args.no_rmbg,
     )
+    if args.split_out_dir and os.path.exists(args.output):
+        split_dir = Path(args.split_out_dir).resolve()
+        split_dir.mkdir(parents=True, exist_ok=True)
+        with Image.open(args.output) as full_im:
+            left_rgba, right_rgba, split_x = split_bundle_horizontal(full_im.convert("RGBA"))
+            p1 = split_dir / "item_1.png"
+            p2 = split_dir / "item_2.png"
+            left_rgba.save(p1, "PNG")
+            right_rgba.save(p2, "PNG")
+            res["split_items"] = [
+                {"index": 1, "path": str(p1), "width": left_rgba.size[0], "height": left_rgba.size[1]},
+                {"index": 2, "path": str(p2), "width": right_rgba.size[0], "height": right_rgba.size[1]},
+            ]
+            res["split_x"] = int(split_x)
     print(json.dumps(res, indent=2))
 
 

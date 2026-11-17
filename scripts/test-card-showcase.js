@@ -16,6 +16,7 @@ const {
 const {
   buildCardShowcaseSpec,
   buildCardShowcaseProject,
+  buildGeneralItemShowcaseRecord,
   formatCardShowcaseSlug,
 } = require("../lib/cardCommercial");
 const {
@@ -539,3 +540,128 @@ test("scripts/card_prep.py removes background, straightens tilted card, extracts
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("buildGeneralItemShowcaseRecord builds a 2-item bundle showcase without inventing a price", () => {
+  const rec = buildGeneralItemShowcaseRecord({
+    photoUrl: "/tmp/bundle.jpg",
+    title: "Happy Smiles Bundle",
+    subtitle: "Mint Breeze & Mouthwash Dispenser",
+    detailTag: "2-Item Bundle · 6.76 fl oz + 6.4 fl oz",
+  });
+
+  const project = buildCardShowcaseProject(rec, {
+    cardStage: { removeBg: "cutout", backgroundRemoved: true, frameStyle: "floating" },
+  });
+
+  assert.equal(project.cardShowcase.cardName, "Happy Smiles Bundle");
+  assert.equal(project.cardShowcase.setName, "Mint Breeze & Mouthwash Dispenser");
+  assert.equal(project.cardShowcase.detailTag, "2-Item Bundle · 6.76 fl oz + 6.4 fl oz");
+  assert.equal(project.cardShowcase.suggestedPrice, null);
+  assert.equal(project.cardShowcase.cardStage.frameStyle, "floating");
+  assert.equal(project.cardShowcase.cardStage.removeBg, "cutout");
+  assert.ok(formatCardShowcaseSlug(project.cardShowcase, "item-showcase").startsWith("item-showcase-"));
+});
+
+test("render-card-showcase CLI supports direct --photo general bundle mode with --auto-bundle-cutins", () => {
+  const dir = tempDir("bundle-cli-");
+  try {
+    const photoPath = path.join(dir, "bundle.jpg");
+    fs.writeFileSync(photoPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
+    const proc = spawnSync(
+      process.execPath,
+      [
+        path.join(ROOT, "scripts", "render-card-showcase.mjs"),
+        "--photo", photoPath,
+        "--title", "Happy Smiles Bundle",
+        "--subtitle", "Mint Breeze & Mouthwash Dispenser",
+        "--detail", "2-Item Bundle · 6.76 fl oz + 6.4 fl oz",
+        "--auto-bundle-cutins",
+        "--item1-label", "1 of 2 · Mint Breeze",
+        "--item2-label", "2 of 2 · Dispenser",
+        "--dry-run",
+        "--json",
+      ],
+      { encoding: "utf8", cwd: ROOT }
+    );
+    assert.equal(proc.status, 0, proc.stderr);
+    const out = JSON.parse(proc.stdout);
+    assert.equal(out.ok, true);
+    assert.equal(out.vaultPath, null);
+    assert.equal(out.card.name, "Happy Smiles Bundle");
+    assert.equal(out.card.suggestedPrice, null);
+    assert.equal(out.cardStage.removeBg, "cutout");
+    assert.equal(out.cardStage.frameStyle, "floating");
+    assert.equal(out.cutIns.length, 2);
+    assert.equal(out.cutIns[0].label, "1 of 2 · Mint Breeze");
+    assert.equal(out.cutIns[1].label, "2 of 2 · Dispenser");
+    assert.equal(out.cutIns[0].transition, "slide-left");
+    assert.ok(out.video.outputPath.includes("item-showcase-"));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("scripts/card_prep.py splits a 2-item bundle into individual cutouts and drops tiny edge clutter", () => {
+  let pyBin = null;
+  for (const bin of ["python3", "python"]) {
+    const check = spawnSync(bin, ["-c", "import cv2, PIL, numpy"], { encoding: "utf8" });
+    if (!check.error && check.status === 0) {
+      pyBin = bin;
+      break;
+    }
+  }
+  if (!pyBin) return;
+
+  const dir = tempDir("bundle-split-py-");
+  try {
+    const rawBundle = path.join(dir, "bundle.jpg");
+    const cutoutOut = path.join(dir, "bundle-cutout.png");
+    const splitDir = path.join(dir, "split");
+
+    // Create a synthetic 2-item photo on a uniform wood-tone table + tiny stray corner debris
+    const mkBundle = spawnSync(
+      pyBin,
+      [
+        "-c",
+        [
+          "import cv2, numpy as np, sys",
+          "img = np.full((600, 600, 3), (45, 78, 125), dtype=np.uint8)",
+          "cv2.rectangle(img, (80, 180), (260, 520), (210, 170, 40), -1)",   // Left bottle
+          "cv2.rectangle(img, (340, 100), (520, 520), (35, 115, 240), -1)",  // Right tall dispenser
+          "cv2.rectangle(img, (575, 0), (600, 35), (20, 20, 220), -1)",      // Tiny stray top-right corner
+          "cv2.imwrite(sys.argv[1], img)",
+        ].join("\n"),
+        rawBundle,
+      ],
+      { encoding: "utf8" }
+    );
+    assert.equal(mkBundle.status, 0, mkBundle.stderr);
+
+    const prep = spawnSync(
+      pyBin,
+      [
+        path.join(ROOT, "scripts", "card_prep.py"),
+        "--input", rawBundle,
+        "--output", cutoutOut,
+        "--mode", "cutout",
+        "--no-rmbg",
+        "--split-out-dir", splitDir,
+      ],
+      { encoding: "utf8" }
+    );
+    assert.equal(prep.status, 0, prep.stderr);
+    const meta = JSON.parse(prep.stdout);
+    assert.equal(meta.ok, true);
+    assert.equal(meta.background_removed, true);
+    assert.equal(Array.isArray(meta.split_items), true);
+    assert.equal(meta.split_items.length, 2);
+    assert.ok(fs.existsSync(meta.split_items[0].path));
+    assert.ok(fs.existsSync(meta.split_items[1].path));
+    assert.ok(meta.split_items[0].width > 100 && meta.split_items[0].height > 200);
+    assert.ok(meta.split_items[1].width > 100 && meta.split_items[1].height > 200);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+

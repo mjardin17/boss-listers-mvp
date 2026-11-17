@@ -178,24 +178,39 @@ function BrandCrestLogo({
   );
 }
 
-function CutInBadge({ label }: { label: string }) {
+function CutInBadge({
+  label,
+  centered = false
+}: {
+  label: string;
+  centered?: boolean;
+}) {
   if (!label) return null;
   return (
     <div
       style={{
         position: "absolute",
-        left: 18,
-        bottom: 18,
-        padding: "7px 18px",
+        ...(centered
+          ? {
+              left: "50%",
+              transform: "translateX(-50%)",
+              bottom: 12,
+              maxWidth: "calc(100% - 36px)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis"
+            }
+          : { left: 18, bottom: 18 }),
+        padding: centered ? "8px 24px" : "7px 18px",
         borderRadius: 999,
-        backgroundColor: "rgba(5, 9, 18, 0.84)",
-        border: "1.5px solid rgba(232, 198, 107, 0.72)",
+        backgroundColor: "rgba(5, 9, 18, 0.86)",
+        border: "1.5px solid rgba(232, 198, 107, 0.78)",
         color: "#f5de92",
-        fontSize: 18,
+        fontSize: centered ? 19 : 18,
         fontWeight: 700,
-        letterSpacing: "0.12em",
+        letterSpacing: "0.11em",
         textTransform: "uppercase",
-        boxShadow: "0 6px 20px rgba(0, 0, 0, 0.65)",
+        boxShadow: "0 8px 24px rgba(0, 0, 0, 0.72)",
         zIndex: 8
       }}
     >
@@ -241,11 +256,11 @@ function computeCutInMotion(cutIn: CardShowcaseCutIn, t: number) {
 
   if (cutIn.transition === "slide-left") {
     const enterX = interpolate(inP, [0, 1], [110, 0]);
-    const exitX = interpolate(outP, [1, 0], [0, -90]);
+    const exitX = interpolate(outP, [0, 1], [-90, 0]);
     translateX = enterX + exitX;
   } else if (cutIn.transition === "slide-up") {
     const enterY = interpolate(inP, [0, 1], [90, 0]);
-    const exitY = interpolate(outP, [1, 0], [0, -50]);
+    const exitY = interpolate(outP, [0, 1], [-50, 0]);
     translateY = enterY + exitY;
   } else if (cutIn.transition === "zoom") {
     scale = interpolate(inP, [0, 1], [0.84, 1]);
@@ -501,10 +516,10 @@ export const CardShowcaseComposition: React.FC<{
     (entry) => entry.motion.active && entry.cutIn.layout === "pip"
   );
 
-  // If a full-stage cut-in is active, smoothly dim/yield the hero card beneath it
-  const maxFullCutInOpacity = activeFullCutIns.reduce(
-    (acc, entry) => Math.max(acc, entry.motion.opacity),
-    0
+  // If one or more full-stage cut-ins are active (including cross-fades), keep hero cleanly yielded
+  const maxFullCutInOpacity = Math.min(
+    1,
+    activeFullCutIns.reduce((acc, entry) => acc + entry.motion.opacity, 0)
   );
   const splitBlend = activeSplitCutIn ? activeSplitCutIn.motion.opacity : 0;
 
@@ -766,7 +781,10 @@ export const CardShowcaseComposition: React.FC<{
               width: "100%",
               height: "100%",
               borderRadius: isFloatingFrame ? 20 : 8,
-              overflow: "hidden",
+              overflow:
+                isFloatingFrame && !stage.backdropImageUrl
+                  ? "visible"
+                  : "hidden",
               border: isFloatingFrame
                 ? "none"
                 : "1px solid rgba(232, 198, 107, 0.28)",
@@ -799,7 +817,7 @@ export const CardShowcaseComposition: React.FC<{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                padding: isCutoutCard ? (isFloatingFrame ? 14 : 30) : 0,
+                padding: isCutoutCard ? (isFloatingFrame ? 24 : 30) : 0,
                 boxSizing: "border-box",
                 opacity: Math.max(0, 1 - maxFullCutInOpacity)
               }}
@@ -907,7 +925,14 @@ export const CardShowcaseComposition: React.FC<{
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    padding: isCutoutOverlay ? 24 : 0,
+                    paddingTop: isCutoutOverlay ? 18 : 0,
+                    paddingLeft: isCutoutOverlay ? 24 : 0,
+                    paddingRight: isCutoutOverlay ? 24 : 0,
+                    paddingBottom: isCutoutOverlay
+                      ? cutIn.label
+                        ? 74
+                        : 24
+                      : 0,
                     boxSizing: "border-box",
                     opacity: motion.opacity,
                     transform: `translate(${motion.translateX}px, ${motion.translateY}px) scale(${motion.scale})`,
@@ -951,7 +976,7 @@ export const CardShowcaseComposition: React.FC<{
                     />
                   ) : null}
 
-                  <CutInBadge label={cutIn.label} />
+                  <CutInBadge label={cutIn.label} centered={isCutoutOverlay} />
                 </div>
               );
             })}
@@ -1035,8 +1060,8 @@ export const CardShowcaseComposition: React.FC<{
               />
             ) : null}
 
-            {/* Brief luxury metallic sheen on entrance */}
-            {sheenOpacity > 0 ? (
+            {/* Brief luxury metallic sheen on entrance (framed cards only — hidden on frameless floating cutouts) */}
+            {!isFloatingFrame && sheenOpacity > 0 ? (
               <div
                 style={{
                   position: "absolute",

@@ -17,8 +17,8 @@ const { resolveConfined, publicRoots } = require("../../../../lib/safePaths");
 
 export const runtime = "nodejs";
 
-const VALID_MODES = new Set(["card", "cutout", "crop", "closeup", "none"]);
-const VALID_REGIONS = new Set(["art", "top", "bottom", "center"]);
+const VALID_MODES = new Set(["card", "cutout", "bundle-split", "crop", "closeup", "none"]);
+const VALID_REGIONS = new Set(["art", "top", "bottom", "center", "left", "right"]);
 const IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
 const CROP_RULE = /^\d*\.?\d+,\d*\.?\d+,\d*\.?\d+,\d*\.?\d+$/;
 const HEX_COLOR_RULE = /^#[0-9a-fA-F]{3,6}$/;
