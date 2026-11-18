@@ -1,9 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { planVideoPost, postVideoByUrl, VIDEO_URL_PLATFORMS } = require("../lib/socialMediaPosters");
+const { planVideoPost, postVideoByUrl, VIDEO_URL_PLATFORMS, clearFacebookPageTokenCache } = require("../lib/socialMediaPosters");
 
 const ENV = { IG_ACCESS_TOKEN: "ig-secret-token", FB_ACCESS_TOKEN: "fb-secret-token", FB_PAGE_ID: "1315311881667461" };
 const VIDEO = "https://example.supabase.co/storage/v1/object/public/commercials/item.mp4";
+const PAGE_TOKEN_ANSWER = { status: 200, body: { access_token: "page-token" } };
+
+test.beforeEach(() => clearFacebookPageTokenCache());
 
 /** A fake fetch that answers from a queue and records every call. */
 function fakeFetch(answers) {
@@ -103,24 +106,26 @@ test("Instagram live: gives up after the wait limit instead of publishing blind"
   assert.strictEqual(out.containerId, "C1");
 });
 
-test("Facebook live: one call to the Page's videos with the public address", async () => {
-  const fetchImpl = fakeFetch([{ status: 200, body: { id: "V7" } }]);
+test("Facebook live: Page token lookup, then one call to the Page's videos with the public address", async () => {
+  const fetchImpl = fakeFetch([PAGE_TOKEN_ANSWER, { status: 200, body: { id: "V7" } }]);
   const out = await postVideoByUrl("facebook", { videoUrl: VIDEO, caption: "Hi" }, { live: true, confirm: "PUBLISH_LIVE", env: ENV, fetchImpl });
   assert.deepStrictEqual(out, { platform: "facebook", success: true, mediaId: "V7", url: "https://www.facebook.com/1315311881667461/videos/V7" });
-  assert.deepStrictEqual(fetchImpl.calls[0].body, { file_url: VIDEO, description: "Hi" });
+  assert.strictEqual(fetchImpl.calls[0].url, "https://graph.facebook.com/v25.0/1315311881667461?fields=access_token");
   assert.strictEqual(fetchImpl.calls[0].auth, "Bearer fb-secret-token");
+  assert.deepStrictEqual(fetchImpl.calls[1].body, { file_url: VIDEO, description: "Hi" });
+  assert.strictEqual(fetchImpl.calls[1].auth, "Bearer page-token");
 });
 
 test("a platform refusal is reported with its message and never as success", async () => {
-  const fetchImpl = fakeFetch([{ status: 400, body: { error: { message: "Unsupported video format" } } }]);
+  const fetchImpl = fakeFetch([PAGE_TOKEN_ANSWER, { status: 400, body: { error: { message: "Unsupported video format" } } }]);
   const out = await postVideoByUrl("facebook", { videoUrl: VIDEO }, { live: true, confirm: "PUBLISH_LIVE", env: ENV, fetchImpl });
   assert.strictEqual(out.success, false);
   assert.match(out.error, /Unsupported video format/);
-  assert.doesNotMatch(JSON.stringify(out), /secret-token/);
+  assert.doesNotMatch(JSON.stringify(out), /secret-token|page-token/);
 });
 
 test("a response with no id is not counted as posted", async () => {
-  const fetchImpl = fakeFetch([{ status: 200, body: {} }]);
+  const fetchImpl = fakeFetch([PAGE_TOKEN_ANSWER, { status: 200, body: {} }]);
   const out = await postVideoByUrl("facebook", { videoUrl: VIDEO }, { live: true, confirm: "PUBLISH_LIVE", env: ENV, fetchImpl });
   assert.strictEqual(out.success, false);
 });

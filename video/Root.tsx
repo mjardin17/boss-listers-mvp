@@ -10,6 +10,11 @@ import {
 } from "./VideoComposition";
 
 import {
+  CardShowcaseComposition,
+  defaultCardShowcaseProps
+} from "./CardShowcaseComposition";
+
+import {
   PLATFORM_PRESETS
 } from "../lib/video-studio/presets";
 
@@ -170,37 +175,68 @@ export const RemotionRoot:
   React.FC =
   () => {
     return (
-      <Composition
-        id="BossListerVideo"
+      <>
+        <Composition
+          id="BossListerVideo"
 
-        component={
-          VideoComposition
-        }
+          component={
+            VideoComposition
+          }
 
-        durationInFrames={
-          90
-        }
+          durationInFrames={
+            90
+          }
 
-        fps={
-          30
-        }
+          fps={
+            30
+          }
 
-        width={
-          1080
-        }
+          width={
+            1080
+          }
 
-        height={
-          1920
-        }
+          height={
+            1920
+          }
 
-        defaultProps={{
-          project:
-            defaultProject
-        }}
+          defaultProps={{
+            project:
+              defaultProject
+          }}
 
-        calculateMetadata={
-          calculateMetadata
-        }
-      />
+          calculateMetadata={
+            calculateMetadata
+          }
+        />
+
+        <Composition
+          id="CardShowcase"
+
+          component={
+            CardShowcaseComposition
+          }
+
+          durationInFrames={
+            360
+          }
+
+          fps={
+            30
+          }
+
+          width={
+            1080
+          }
+
+          height={
+            1920
+          }
+
+          defaultProps={{
+            card:
+              defaultCardShowcaseProps
+          }}
+        />
+      </>
     );
   };

@@ -60,6 +60,11 @@ export const MODE_DEFAULTS: Record<
   BEFORE_AFTER: {
     aspectRatio: "9:16",
     targetSeconds: 20
+  },
+
+  CARD_SHOWCASE: {
+    aspectRatio: "9:16",
+    targetSeconds: 12
   }
 };
 

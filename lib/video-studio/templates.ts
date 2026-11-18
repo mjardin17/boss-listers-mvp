@@ -70,6 +70,16 @@ export const VIDEO_TEMPLATES: VideoTemplate[] = [
       "Multi-scene short-form storytelling.",
     defaultSceneSeconds: 5,
     defaultCta: "Follow for more"
+  },
+
+  {
+    id: "card-showcase",
+    name: "Card Showcase Reel",
+    projectType: "CARD_SHOWCASE",
+    description:
+      "Daily vault-card reel with logo open, gold frame, verified facts poster, and dark loop.",
+    defaultSceneSeconds: 12,
+    defaultCta: "From the Vault"
   }
 ];
 
