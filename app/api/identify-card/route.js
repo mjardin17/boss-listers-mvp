@@ -1,6 +1,7 @@
 import { withSession } from "../../../../lib/requireSessionApp";
 import { identifyCard } from "../../../../lib/cardIdentification";
 import { getCardValuation } from "../../../../lib/cardPricing";
+import { enforceRateLimit } from "../../../../lib/apiRuntime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,8 +58,9 @@ async function readBoundedRequest(request) {
   });
 }
 
-async function handler(request) {
+async function handler(request, _context, session) {
   try {
+    enforceRateLimit(`identify-card:${session.tenantId}:${session.userId}`);
     const bounded = await readBoundedRequest(request);
     const form = await bounded.formData();
     const front = await readImage(form, "front", true);
