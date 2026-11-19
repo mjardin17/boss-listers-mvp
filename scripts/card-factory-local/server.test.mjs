@@ -105,3 +105,35 @@ test("rejects mismatched image bytes and preserves needs_review", async (t) => {
   assert.equal(good.status, 201);
   assert.equal((await good.json()).card.reviewStatus, "needs_review");
 });
+
+test("staged records survive closing and reopening the local service", async (t) => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "bosslisters-card-factory-persist-"));
+  let server = createLocalCardFactoryServer({ dataDir, token: TOKEN, workspaceId: "persistent-workspace" });
+  const listen = async () => {
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return `http://127.0.0.1:${server.address().port}`;
+  };
+  const close = async () => new Promise((resolve) => server.close(resolve));
+  t.after(async () => {
+    if (server.listening) await close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  const firstBase = await listen();
+  const staged = await fetch(`${firstBase}/api/cards`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify(payload({ idempotencyKey: "persist-me" })),
+  });
+  assert.equal(staged.status, 201);
+  await close();
+
+  server = createLocalCardFactoryServer({ dataDir, token: TOKEN, workspaceId: "persistent-workspace" });
+  const secondBase = await listen();
+  const listed = await fetch(`${secondBase}/api/cards`, {
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  const body = await listed.json();
+  assert.equal(body.cards.length, 1);
+  assert.equal(body.cards[0].title, "1999 Pokémon Oddish");
+});
