@@ -3,7 +3,7 @@
 // It never exposes the local service bearer token to the browser.
 const { requireSession } = require("../../lib/requireSession");
 
-const MAX_BODY_BYTES = 10 * 1024 * 1024;
+const MAX_BODY_BYTES = 12 * 1024 * 1024;
 const LOCAL_SERVICE_URL = "http://127.0.0.1:8787";
 
 export const config = {
