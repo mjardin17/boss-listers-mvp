@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -132,7 +132,10 @@ export function createLocalCardFactoryServer({ dataDir, token, workspaceId }) {
   const dbPath = path.join(root, "card-factory.sqlite");
   mkdirSync(root, { recursive: true, mode: 0o700 });
   mkdirSync(imageDir, { recursive: true, mode: 0o700 });
+  chmodSync(root, 0o700);
+  chmodSync(imageDir, 0o700);
   const db = openDatabase(dbPath);
+  chmodSync(dbPath, 0o600);
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://127.0.0.1");
