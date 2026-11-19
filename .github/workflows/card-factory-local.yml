@@ -32,3 +32,21 @@ jobs:
           node-version: "22.16.0"
       - name: Run isolated local staging tests
         run: npm run test:card-factory-local
+
+  next-build-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      SUPABASE_URL: "https://build-check.invalid"
+      SUPABASE_ANON_KEY: "sb_publishable_build_check_only"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.16.0"
+          cache: "npm"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build Next.js application
+        run: npm run build
