@@ -34,7 +34,7 @@ async function readJson(req) {
   for await (const chunk of req) {
     size += chunk.length;
     if (size > MAX_BODY_BYTES) {
-      const error = new Error("Request body exceeds 10 MB.");
+      const error = new Error("Request body exceeds 12 MB.");
       error.status = 413;
       throw error;
     }
