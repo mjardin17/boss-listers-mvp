@@ -13,7 +13,8 @@
     "check-connections": "node scripts/check-connections.js",
     "start": "next start -p 3001",
     "start:render": "next start -p $PORT",
-    "test:card-factory-local": "node --test scripts/card-factory-local/server.test.mjs"
+    "test:card-factory-local": "node --test scripts/card-factory-local/server.test.mjs",
+    "start:card-factory-local": "next start -p 3001 -H 127.0.0.1"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.73",
