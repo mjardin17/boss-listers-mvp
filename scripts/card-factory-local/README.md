@@ -39,11 +39,11 @@ On Windows, from the repository root, run:
 .\scripts\card-factory-local\start.ps1 -WorkspaceId "<your BossListers tenant UUID>"
 ```
 
-The launcher generates a fresh random bearer token in process memory, starts the local SQLite service on loopback, and starts the BossListers Next.js development server on port 3001. It does not print or persist the token. The workspace ID must match the authenticated user's BossListers tenant ID.
+The launcher generates a fresh random bearer token in process memory, starts the local SQLite service on loopback, builds BossListers, and starts its Next.js production server on port 3001. It does not print or persist the token. The workspace ID must match the authenticated user's BossListers tenant ID.
 
 The scanner now has a separate **Stage locally** action after the user confirms the identified card. It calls `/api/card-factory-local`; that server-side bridge validates the existing BossListers session, checks the tenant ID against `CARD_FACTORY_LOCAL_WORKSPACE_ID`, and forwards the request to loopback while injecting the token server-side. The token is never sent to the browser. The existing **Save to inventory** action remains separate and unchanged.
 
-For iPhone access, use a trusted HTTPS tunnel or reverse proxy to the desktop Next.js server on port 3001, with an access policy enabled. Do not expose port 8787 or create a public route directly to the local service. The local service remains bound to loopback.
+For iPhone access, use a trusted HTTPS tunnel or reverse proxy to the desktop Next.js production server on port 3001, with an access policy enabled. Do not expose the Next.js development server. Do not expose port 8787 or create a public route directly to the local service. The local service remains bound to loopback.
 
 The hosted Cloudflare Pages deployment must keep `CARD_FACTORY_LOCAL_BRIDGE_ENABLED` unset/false. Cloudflare cannot reach the private desktop process; the bridge works only when the Next.js server itself is running on the desktop. Do not enable the bridge in the hosted environment. Avoid permissive CORS; the local service intentionally does not enable it.
 
