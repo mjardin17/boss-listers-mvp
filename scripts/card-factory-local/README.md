@@ -31,11 +31,23 @@ The POST body requires `userConfirmed: true`, an `idempotencyKey`, a title, iden
 
 All records are tied to the server-configured workspace ID. The client cannot choose another workspace. Photos are written outside the public web root with restrictive file permissions. SQLite uses WAL mode and stores paths, not public URLs.
 
-## Phone access / security boundary
+## Desktop launch and phone access
 
-For iPhone access, put this service behind a trusted HTTPS reverse proxy or private tunnel. The proxy must authenticate the user with the existing BossListers session and inject the local bearer token server-side. **Never put `CARD_FACTORY_LOCAL_TOKEN` in browser JavaScript, a mobile app bundle, a URL, or a client-visible environment variable.** Do not enable non-loopback binding until that proxy and its access policy are configured and verified. Avoid permissive CORS; the service intentionally does not enable it.
+On Windows, from the repository root, run:
 
-The current BossListers Cloudflare Pages deployment cannot directly reach a private desktop process. A secure same-origin authenticated bridge is a separate integration milestone and is not included here.
+```powershell
+.\scripts\card-factory-local\start.ps1 -WorkspaceId "<your BossListers tenant UUID>"
+```
+
+The launcher generates a fresh random bearer token in process memory, starts the local SQLite service on loopback, and starts the BossListers Next.js development server on port 3001. It does not print or persist the token. The workspace ID must match the authenticated user's BossListers tenant ID.
+
+The scanner now has a separate **Stage locally** action after the user confirms the identified card. It calls `/api/card-factory-local`; that server-side bridge validates the existing BossListers session, checks the tenant ID against `CARD_FACTORY_LOCAL_WORKSPACE_ID`, and forwards the request to loopback while injecting the token server-side. The token is never sent to the browser. The existing **Save to inventory** action remains separate and unchanged.
+
+For iPhone access, use a trusted HTTPS tunnel or reverse proxy to the desktop Next.js server on port 3001, with an access policy enabled. Do not expose port 8787 or create a public route directly to the local service. The local service remains bound to loopback.
+
+The hosted Cloudflare Pages deployment must keep `CARD_FACTORY_LOCAL_BRIDGE_ENABLED` unset/false. Cloudflare cannot reach the private desktop process; the bridge works only when the Next.js server itself is running on the desktop. Do not enable the bridge in the hosted environment. Avoid permissive CORS; the local service intentionally does not enable it.
+
+The card scanner's identification endpoint is a separate dependency: the current `main` branch does not yet contain `/api/identify-card`; the separate recovery PR for that endpoint must be reviewed and integrated before the full scan → identify → stage flow works from a clean `main` checkout.
 
 ## Deliberate limitations
 
