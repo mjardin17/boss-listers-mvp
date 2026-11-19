@@ -35,14 +35,32 @@ async function readImage(form, field, required) {
   return { bytes: Buffer.from(await file.arrayBuffer()), mime: file.type };
 }
 
+async function readBoundedRequest(request) {
+  const reader = request.body?.getReader();
+  if (!reader) throw Object.assign(new Error("Photo upload body is required."), { status: 400 });
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_REQUEST_BYTES) {
+      await reader.cancel();
+      throw Object.assign(new Error("Combined photo upload exceeds 9 MB."), { status: 413 });
+    }
+    chunks.push(value);
+  }
+  return new Request(request.url, {
+    method: "POST",
+    headers: request.headers,
+    body: Buffer.concat(chunks),
+  });
+}
+
 async function handler(request) {
   try {
-    const declaredLength = Number(request.headers.get("content-length") || 0);
-    if (declaredLength > MAX_REQUEST_BYTES) {
-      return json({ ok: false, error: "Combined photo upload exceeds 9 MB." }, 413);
-    }
-
-    const form = await request.formData();
+    const bounded = await readBoundedRequest(request);
+    const form = await bounded.formData();
     const front = await readImage(form, "front", true);
     const back = await readImage(form, "back", false);
 
