@@ -103,10 +103,29 @@ export async function POST(request) {
       session_id: sessionId,
     });
 
-    if (process.env.VIDEO_PIPELINE_WEBHOOK_URL) {
-      queueVideoGeneration(jobId, { listingId, images, productName, description, price }).catch((err) => {
-        console.error("[commercials] Webhook queue failed:", err.message);
-      });
+    try {
+      await queueVideoGeneration(jobId, { listingId, images, productName, description, price });
+      await rest(
+        process.env,
+        "PATCH",
+        `commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
+        { status: "queued" },
+        { Prefer: "return=minimal" },
+      );
+    } catch (deliveryError) {
+      console.error("[commercials] Webhook delivery failed:", deliveryError.message);
+      try {
+        await rest(
+          process.env,
+          "PATCH",
+          `commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
+          { status: "failed" },
+          { Prefer: "return=minimal" },
+        );
+      } catch (statusError) {
+        console.error("[commercials] Could not persist failed delivery status:", statusError.message);
+      }
+      return jsonResponse({ ok: false, error: "Video pipeline did not accept the job. No queued status was recorded.", jobId }, 502);
     }
 
     return jsonResponse({ ok: true, jobId, status: "queued" }, 201);
@@ -117,14 +136,24 @@ export async function POST(request) {
 }
 
 async function queueVideoGeneration(jobId, data) {
-  const payload = { type: "generate_commercial", job_id: jobId, ...data };
+  const webhookUrl = process.env.VIDEO_PIPELINE_WEBHOOK_URL;
+  const webhookSecret = process.env.VIDEO_PIPELINE_WEBHOOK_SECRET;
+  if (!webhookUrl || !webhookSecret) {
+    throw new Error("Video pipeline webhook is not configured");
+  }
 
-  await fetch(process.env.VIDEO_PIPELINE_WEBHOOK_URL, {
+  const payload = { type: "generate_commercial", job_id: jobId, ...data };
+  const response = await fetch(webhookUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Webhook-Secret": process.env.VIDEO_PIPELINE_WEBHOOK_SECRET || "",
+      "X-Webhook-Secret": webhookSecret,
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
   });
+
+  if (!response.ok) {
+    throw new Error(`Video pipeline rejected the job (HTTP ${response.status})`);
+  }
 }
