@@ -1,10 +1,10 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdir, writeFile, unlink } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { mkdirSync } from "node:fs";
+import { writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -130,8 +130,8 @@ export function createLocalCardFactoryServer({ dataDir, token, workspaceId }) {
   const root = path.resolve(dataDir);
   const imageDir = path.join(root, "images");
   const dbPath = path.join(root, "card-factory.sqlite");
-  mkdir(root, { recursive: true, mode: 0o700 });
-  mkdir(imageDir, { recursive: true, mode: 0o700 });
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  mkdirSync(imageDir, { recursive: true, mode: 0o700 });
   const db = openDatabase(dbPath);
 
   const server = createServer(async (req, res) => {
@@ -201,16 +201,37 @@ export function createLocalCardFactoryServer({ dataDir, token, workspaceId }) {
           writtenFiles.push(backPath);
         }
         const createdAt = new Date().toISOString();
-        db.prepare(`
-          INSERT INTO staged_cards (
-            id, workspace_id, title, identification_json, review_status,
-            front_image_path, back_image_path, image_pair_sha256, idempotency_key, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          id, workspaceId, title, identificationJson,
-          body.reviewStatus === "needs_review" ? "needs_review" : "confirmed_by_user",
-          frontPath, backPath, hash, idempotencyKey, createdAt
-        );
+        try {
+          db.prepare(`
+            INSERT INTO staged_cards (
+              id, workspace_id, title, identification_json, review_status,
+              front_image_path, back_image_path, image_pair_sha256, idempotency_key, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            id, workspaceId, title, identificationJson,
+            body.reviewStatus === "needs_review" ? "needs_review" : "confirmed_by_user",
+            frontPath, backPath, hash, idempotencyKey, createdAt
+          );
+        } catch (insertError) {
+          if (!String(insertError.code || "").includes("CONSTRAINT")) throw insertError;
+          const sameKey = db.prepare(
+            "SELECT * FROM staged_cards WHERE workspace_id = ? AND idempotency_key = ?"
+          ).get(workspaceId, idempotencyKey);
+          if (sameKey) {
+            for (const file of writtenFiles) await unlink(file).catch(() => {});
+            writtenFiles.length = 0;
+            return json(res, 200, { ok: true, card: publicCard(sameKey), idempotentReplay: true });
+          }
+          const samePhotos = db.prepare(
+            "SELECT id FROM staged_cards WHERE workspace_id = ? AND image_pair_sha256 = ?"
+          ).get(workspaceId, hash);
+          if (samePhotos) {
+            for (const file of writtenFiles) await unlink(file).catch(() => {});
+            writtenFiles.length = 0;
+            return json(res, 409, { ok: false, error: "This exact photo pair is already staged.", duplicateId: samePhotos.id });
+          }
+          throw insertError;
+        }
         const row = db.prepare("SELECT * FROM staged_cards WHERE id = ?").get(id);
         return json(res, 201, { ok: true, card: publicCard(row), syncStatus: "local_only" });
       } catch (error) {
