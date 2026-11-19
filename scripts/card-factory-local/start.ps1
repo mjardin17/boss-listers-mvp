@@ -36,9 +36,12 @@ try {
   }
 
   Write-Host "Local Card Factory is running on loopback port 8787."
-  Write-Host "Starting the authenticated BossListers desktop server on port 3001."
+  Write-Host "Building the authenticated BossListers desktop server."
+  npm run build
+  if ($LASTEXITCODE -ne 0) { throw "BossListers production build failed." }
+  Write-Host "Starting the BossListers production server on port 3001."
   Write-Host "For iPhone access, use a trusted HTTPS tunnel to port 3001 only; never expose port 8787."
-  npm run dev
+  npm start
 }
 finally {
   if ($service -and -not $service.HasExited) {
