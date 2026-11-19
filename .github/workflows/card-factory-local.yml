@@ -1,0 +1,30 @@
+name: Card Factory local staging
+
+on:
+  pull_request:
+    paths:
+      - "scripts/card-factory-local/**"
+      - "package.json"
+      - ".github/workflows/card-factory-local.yml"
+  push:
+    branches:
+      - recovery/card-factory-desktop-companion
+    paths:
+      - "scripts/card-factory-local/**"
+      - "package.json"
+      - ".github/workflows/card-factory-local.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  local-staging-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+      - name: Run isolated local staging tests
+        run: npm run test:card-factory-local
