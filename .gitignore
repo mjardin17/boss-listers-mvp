@@ -23,6 +23,7 @@ secrets.txt
 
 .video-studio-data/
 *.mp4
+.universal-creative/
 pnpm-lock.yaml
 pnpm-workspace.yaml
 __pycache__/
