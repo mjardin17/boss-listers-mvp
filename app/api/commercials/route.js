@@ -209,7 +209,7 @@ export async function POST(request) {
     return jsonResponse({ ok: true, jobId, status: "queued" }, 201);
   } catch (err) {
     const status = Number(err.status) || 500;
-    console.error("[commercials POST]", status >= 500 ? "request failed" : err.message);
+    console.error("[commercials POST]", err instanceof Error ? err.message : "Unknown failure");
     return jsonResponse(
       { ok: false, error: status >= 500 ? "Commercial request failed" : err.message },
       status,
