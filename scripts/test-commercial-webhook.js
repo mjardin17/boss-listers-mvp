@@ -22,7 +22,7 @@ function restore() {
   }
 }
 
-function setup({ tenantId = "11111111-1111-4111-8111-111111111111", ack = null } = {}) {
+function setup({ tenantId = `11111111-1111-4111-8111-${Date.now().toString(16).padStart(12, "0")}`, ack = null } = {}) {
   process.env.SUPABASE_URL = "https://supabase.invalid";
   process.env.SUPABASE_ANON_KEY = "sb_publishable_test";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-test-only";
