@@ -73,7 +73,7 @@ async function handler(request, _context, session) {
   try {
     enforceRateLimit(`identify-card:${session.tenantId}:${session.userId}`);
     const contentType = request.headers.get("content-type") || "";
-    if (!/^multipart\\/form-data;\\s*boundary=/i.test(contentType)) {
+    if (!contentType.toLowerCase().startsWith("multipart/form-data;") || !contentType.toLowerCase().includes("boundary=")) {
       return json({ ok: false, error: "Upload must use multipart/form-data." }, 415);
     }
     const bounded = await readBoundedRequest(request);
