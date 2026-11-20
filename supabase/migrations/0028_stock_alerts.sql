@@ -177,9 +177,14 @@ begin
 end;
 $$;
 
-drop trigger if exists products_stock_alerts_after_change on public.products;
-create trigger products_stock_alerts_after_change
-after insert or update of tenant_id, sku, title, quantity, status, stock_tracking_enabled
+drop trigger if exists products_stock_alerts_after_insert on public.products;
+create trigger products_stock_alerts_after_insert
+after insert on public.products
+for each row execute function public.stock_alerts_on_product_change();
+
+drop trigger if exists products_stock_alerts_after_update on public.products;
+create trigger products_stock_alerts_after_update
+after update of tenant_id, sku, title, quantity, status, stock_tracking_enabled
 on public.products
 for each row execute function public.stock_alerts_on_product_change();
 
@@ -223,7 +228,8 @@ grant execute on function public.claim_stock_alert_emails(uuid, integer) to serv
 select public.reconcile_stock_alert_for_product(id) from public.products;
 
 -- Rollback notes:
--- drop trigger if exists products_stock_alerts_after_change on public.products;
+-- drop trigger if exists products_stock_alerts_after_insert on public.products;
+-- drop trigger if exists products_stock_alerts_after_update on public.products;
 -- drop function if exists public.stock_alerts_on_product_change();
 -- drop function if exists public.claim_stock_alert_emails(uuid, integer);
 -- drop function if exists public.refresh_stock_alerts_for_tenant(uuid);
