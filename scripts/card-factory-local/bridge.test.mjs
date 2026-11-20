@@ -115,7 +115,7 @@ test("authorized POST forwards server-side token and does not return it", async 
   }), res);
   assert.equal(res.statusCode, 201);
   assert.equal(localCalls.length, 1);
-  assert.equal(localCalls[0].options.headers.authorization, process.env.CARD_FACTORY_LOCAL_TOKEN);
+  assert.equal(localCalls[0].options.headers.authorization, `Bearer ${process.env.CARD_FACTORY_LOCAL_TOKEN}`);
   assert.equal(JSON.stringify(res.body).includes(process.env.CARD_FACTORY_LOCAL_TOKEN), false);
 });
 
