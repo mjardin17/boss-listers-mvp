@@ -1,0 +1,55 @@
+name: Card identification API
+
+on:
+  pull_request:
+    paths:
+      - "app/api/identify-card/**"
+      - "lib/cardIdentification.js"
+      - "lib/cardPricing.js"
+      - "lib/cardFields.js"
+      - "lib/requireSessionApp.js"
+      - "lib/supabaseAuth.js"
+      - "scripts/test-card-identification.js"
+      - "scripts/test-card-pricing.js"
+      - "scripts/test-identify-card-route.js"
+      - "package.json"
+      - ".github/workflows/card-identification.yml"
+  push:
+    branches:
+      - recovery/card-identify-endpoint
+    paths:
+      - "app/api/identify-card/**"
+      - "lib/cardIdentification.js"
+      - "lib/cardPricing.js"
+      - "lib/cardFields.js"
+      - "lib/requireSessionApp.js"
+      - "lib/supabaseAuth.js"
+      - "scripts/test-card-identification.js"
+      - "scripts/test-card-pricing.js"
+      - "scripts/test-identify-card-route.js"
+      - "package.json"
+      - ".github/workflows/card-identification.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  card-identification-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      SUPABASE_URL: "https://build-check.invalid"
+      SUPABASE_ANON_KEY: "sb_publishable_build_check_only"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.16.0"
+          cache: "npm"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run focused card identification tests
+        run: node --test scripts/test-card-identification.js scripts/test-card-pricing.js scripts/test-identify-card-route.js
+      - name: Build Next.js application
+        run: npm run build
