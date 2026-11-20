@@ -106,7 +106,7 @@ function validateCommercialInput(body) {
     productName: productName.trim(),
     description: description.trim(),
     price: numericPrice,
-    displayPrice: `${numericPrice.toFixed(2)}`,
+    displayPrice: "$" + numericPrice.toFixed(2),
     sessionId: sessionId || null,
   };
 }
