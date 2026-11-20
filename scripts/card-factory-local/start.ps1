@@ -7,6 +7,18 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
+if ($WorkspaceId -notmatch "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$") {
+  throw "WorkspaceId must be the UUID of the BossListers tenant that owns this local Card Factory."
+}
+
+$envFiles = @(".env.local", ".env.production.local", ".env") | ForEach-Object { Join-Path $repoRoot $_ } | Where-Object { Test-Path $_ }
+$envText = ($envFiles | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
+$hasSupabaseUrl = -not [string]::IsNullOrWhiteSpace($env:SUPABASE_URL) -or $envText -match "(?m)^\s*SUPABASE_URL\s*="
+$hasSupabaseAnon = -not [string]::IsNullOrWhiteSpace($env:SUPABASE_ANON_KEY) -or $envText -match "(?m)^\s*SUPABASE_ANON_KEY\s*="
+if (-not $hasSupabaseUrl -or -not $hasSupabaseAnon) {
+  throw "Desktop authentication requires SUPABASE_URL and SUPABASE_ANON_KEY in .env.local (or the process environment). Do not use a service-role key."
+}
+
 $nodeVersionText = & node -p "process.versions.node"
 if ($LASTEXITCODE -ne 0) {
   throw "Node.js is not installed or is not available on PATH."
@@ -26,6 +38,12 @@ $env:CARD_FACTORY_LOCAL_DATA_DIR = Join-Path $env:LOCALAPPDATA "BossListers\Card
 $env:CARD_FACTORY_LOCAL_HOST = "127.0.0.1"
 $env:CARD_FACTORY_LOCAL_PORT = "8787"
 $env:CARD_FACTORY_LOCAL_BRIDGE_ENABLED = "true"
+
+$dataDir = $env:CARD_FACTORY_LOCAL_DATA_DIR
+New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+$windowsIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+& icacls $dataDir /inheritance:r /grant:r "$($windowsIdentity):(OI)(CI)F" /T /C | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Could not restrict Card Factory data-folder permissions to the current Windows account." }
 
 $service = $null
 try {
