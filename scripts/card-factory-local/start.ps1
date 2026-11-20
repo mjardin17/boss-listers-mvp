@@ -31,6 +31,8 @@ function Get-ConfiguredValue([string]$Name) {
   return $null
 }
 
+$service = $null
+try {
 $supabaseUrl = Get-ConfiguredValue "SUPABASE_URL"
 $supabaseAnon = Get-ConfiguredValue "SUPABASE_ANON_KEY"
 $publicSupabaseUrl = Get-ConfiguredValue "NEXT_PUBLIC_SUPABASE_URL"
@@ -79,8 +81,6 @@ $windowsIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Nam
 & icacls $dataDir /inheritance:r /grant:r "$($windowsIdentity):(OI)(CI)F" /T /C | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Could not restrict Card Factory data-folder permissions to the current Windows account." }
 
-$service = $null
-try {
   $service = Start-Process -FilePath "node" -ArgumentList "scripts/card-factory-local/server.mjs" -WorkingDirectory $repoRoot -NoNewWindow -PassThru
   $serviceReady = $false
   for ($attempt = 0; $attempt -lt 10; $attempt++) {
