@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { identifyCard, scoreCandidate, statusForScore } from "../lib/cardIdentification.js";
+import { enforceCardScanRateLimit } from "../lib/cardScanRateLimit.js";
 
 const fields = {
   cardGame: "Pokemon", sport: null, league: null, player: "Oddish", team: null,
@@ -95,4 +96,10 @@ test("malformed provider response remains unknown", async () => {
   });
   assert.equal(result.status, "unknown");
   assert.equal(result.confidenceScore, 0);
+});
+
+test("card scan rate limiter allows 12 requests and blocks the 13th per tenant/user key", () => {
+  const key = `rate-limit-test-${Date.now()}-${Math.random()}`;
+  for (let i = 0; i < 12; i += 1) enforceCardScanRateLimit(key);
+  assert.throws(() => enforceCardScanRateLimit(key), (error) => error.status === 429);
 });
