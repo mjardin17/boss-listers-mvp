@@ -16,7 +16,9 @@ on:
       - recovery/webhook-delivery-hardening
     paths:
       - "app/api/commercials/route.js"
+      - "app/api/commercials/callback/route.js"
       - "scripts/test-commercial-webhook.js"
+      - "scripts/test-commercial-callback.js"
       - "lib/supabaseAuth.js"
       - "lib/supabaseRest.js"
       - "package.json"
