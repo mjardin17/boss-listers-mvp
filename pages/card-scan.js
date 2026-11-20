@@ -275,6 +275,12 @@ export default function CardScan() {
     (result.identification.status === "confirmed" ||
       result.identification.status === "likely" ||
       (result.identification.status === "needs_review" && selectedCandidateIndex !== null));
+  const stageActionLabel =
+    result?.identification.status === "likely"
+      ? "Confirm details & stage locally"
+      : result?.identification.status === "needs_review"
+        ? "Confirm selected card & stage locally"
+        : "Stage locally";
 
   async function handleStageLocally() {
     if (!canSave || !finalFields || !frontPhoto?.file) return;
@@ -539,7 +545,7 @@ export default function CardScan() {
                   disabled={stageBusy || Boolean(stagedCard)}
                   onClick={handleStageLocally}
                 >
-                  {stageBusy ? "Staging locally…" : stagedCard ? "Staged locally" : "Stage locally"}
+                  {stageBusy ? "Staging locally…" : stagedCard ? "Staged locally" : stageActionLabel}
                 </button>
                 {stageError && <p style={{ color: "var(--danger, #f87171)", fontSize: "0.8rem", marginTop: "0.75rem" }}>{stageError}</p>}
                 {stagedCard && (
