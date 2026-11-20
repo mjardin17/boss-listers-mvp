@@ -1,7 +1,7 @@
 import { withSession } from "../../../lib/requireSessionApp.js";
 import { identifyCard } from "../../../lib/cardIdentification.js";
 import { getCardValuation } from "../../../lib/cardPricing.js";
-import { enforceRateLimit } from "../../../lib/apiRuntime.js";
+import { enforceCardScanRateLimit } from "../../../lib/cardScanRateLimit.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,7 +71,7 @@ async function readBoundedRequest(request) {
 
 async function handler(request, _context, session) {
   try {
-    enforceRateLimit(`identify-card:${session.tenantId}:${session.userId}`);
+    enforceCardScanRateLimit(`identify-card:${session.tenantId}:${session.userId}`);
     const contentType = request.headers.get("content-type") || "";
     if (!contentType.toLowerCase().startsWith("multipart/form-data;") || !contentType.toLowerCase().includes("boundary=")) {
       return json({ ok: false, error: "Upload must use multipart/form-data." }, 415);
