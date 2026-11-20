@@ -7,6 +7,7 @@ on:
       - "app/api/commercials/callback/route.js"
       - "scripts/test-commercial-webhook.js"
       - "scripts/test-commercial-callback.js"
+      - "docs/commercial-webhook-configuration.md"
       - "lib/supabaseAuth.js"
       - "lib/supabaseRest.js"
       - "package.json"
