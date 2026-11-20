@@ -12,11 +12,37 @@ if ($WorkspaceId -notmatch "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[
 }
 
 $envFiles = @(".env.local", ".env.production.local", ".env") | ForEach-Object { Join-Path $repoRoot $_ } | Where-Object { Test-Path $_ }
-$envText = ($envFiles | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
-$hasSupabaseUrl = -not [string]::IsNullOrWhiteSpace($env:SUPABASE_URL) -or $envText -match "(?m)^\s*SUPABASE_URL\s*="
-$hasSupabaseAnon = -not [string]::IsNullOrWhiteSpace($env:SUPABASE_ANON_KEY) -or $envText -match "(?m)^\s*SUPABASE_ANON_KEY\s*="
-if (-not $hasSupabaseUrl -or -not $hasSupabaseAnon) {
-  throw "Desktop authentication requires SUPABASE_URL and SUPABASE_ANON_KEY in .env.local (or the process environment). Do not use a service-role key."
+function Get-ConfiguredValue([string]$Name) {
+  $current = [Environment]::GetEnvironmentVariable($Name)
+  if (-not [string]::IsNullOrWhiteSpace($current)) { return $current }
+  foreach ($file in $envFiles) {
+    $match = Select-String -Path $file -Pattern "^\s*$([regex]::Escape($Name))\s*=(.*)$" | Select-Object -First 1
+    if ($match) {
+      $value = $match.Matches[0].Groups[1].Value.Trim()
+      if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+        $value = $value.Substring(1, $value.Length - 2)
+      }
+      return $value
+    }
+  }
+  return $null
+}
+
+$supabaseUrl = Get-ConfiguredValue "SUPABASE_URL"
+$supabaseAnon = Get-ConfiguredValue "SUPABASE_ANON_KEY"
+if ([string]::IsNullOrWhiteSpace($supabaseUrl) -or [string]::IsNullOrWhiteSpace($supabaseAnon)) {
+  throw "Desktop authentication requires SUPABASE_URL and SUPABASE_ANON_KEY. Use the publishable/anon key only, never a service-role key."
+}
+$env:SUPABASE_URL = $supabaseUrl
+$env:SUPABASE_ANON_KEY = $supabaseAnon
+$env:NEXT_PUBLIC_SUPABASE_URL = $supabaseUrl
+$env:NEXT_PUBLIC_SUPABASE_ANON_KEY = $supabaseAnon
+
+$requiredSettings = @("APP_BASIC_AUTH_USER", "APP_BASIC_AUTH_PASS", "GEMINI_API_KEY")
+foreach ($setting in $requiredSettings) {
+  if ([string]::IsNullOrWhiteSpace((Get-ConfiguredValue $setting))) {
+    throw "Desktop production mode requires $setting in .env.local (or the process environment). The value is not displayed."
+  }
 }
 
 $nodeVersionText = & node -p "process.versions.node"
