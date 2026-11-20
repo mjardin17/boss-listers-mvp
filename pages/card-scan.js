@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import imageCompression from "browser-image-compression";
 import Link from "next/link";
 import { requireSession, authedFetch, clearSession } from "../lib/clientAuth";
 import { toInventoryCardDetails } from "../lib/cardFields";
@@ -128,6 +129,7 @@ export default function CardScan() {
   const [backPhoto, setBackPhoto] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [photoProcessingSide, setPhotoProcessingSide] = useState(null);
   const [result, setResult] = useState(null); // { identification, valuation, requiresConfirmation }
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(null);
   const [confirming, setConfirming] = useState(false);
@@ -154,11 +156,36 @@ export default function CardScan() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handlePhoto(side, file) {
+  async function handlePhoto(side, file) {
     if (!file) return;
-    const previewUrl = URL.createObjectURL(file);
-    if (side === "front") setFrontPhoto({ file, previewUrl });
-    else setBackPhoto({ file, previewUrl });
+    setPhotoProcessingSide(side);
+    setError("");
+    try {
+      const compressed = await imageCompression(file, {
+        maxSizeMB: 3.5,
+        maxWidthOrHeight: 2000,
+        initialQuality: 0.88,
+        fileType: "image/jpeg",
+        useWebWorker: true,
+      });
+      const safeName = (file.name || side).replace(/\\.[^.]+$/, "") || side;
+      const normalizedFile = new File([compressed], `${safeName}.jpg`, {
+        type: "image/jpeg",
+        lastModified: Date.now(),
+      });
+      const previewUrl = URL.createObjectURL(normalizedFile);
+      if (side === "front") {
+        if (frontPhoto?.previewUrl) URL.revokeObjectURL(frontPhoto.previewUrl);
+        setFrontPhoto({ file: normalizedFile, previewUrl });
+      } else {
+        if (backPhoto?.previewUrl) URL.revokeObjectURL(backPhoto.previewUrl);
+        setBackPhoto({ file: normalizedFile, previewUrl });
+      }
+    } catch (err) {
+      setError("Could not process this photo. Use a clear JPEG, PNG, or WebP image. On iPhone, set Camera > Formats to Most Compatible if the photo is HEIC.");
+    } finally {
+      setPhotoProcessingSide(null);
+    }
   }
 
   async function handleScan() {
@@ -387,7 +414,7 @@ export default function CardScan() {
                   <input
                     ref={ref}
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp"
                     capture="environment"
                     style={{ display: "none" }}
                     onChange={(e) => { handlePhoto(side, e.target.files?.[0]); e.target.value = ""; }}
@@ -403,10 +430,10 @@ export default function CardScan() {
             type="button"
             className="btn-primary"
             style={{ width: "100%", padding: "1rem", fontSize: "1.05rem" }}
-            disabled={busy || !frontPhoto}
+            disabled={busy || !frontPhoto || Boolean(photoProcessingSide)}
             onClick={handleScan}
           >
-            {busy ? "Identifying card..." : "Identify Card"}
+            {photoProcessingSide ? `Processing ${photoProcessingSide} photo...` : busy ? "Identifying card..." : "Identify Card"}
           </button>
 
           <p style={{ marginTop: "1.5rem" }}>
