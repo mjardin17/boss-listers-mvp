@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch } from "../lib/clientAuth";
+import StockAlertsPanel from "../components/StockAlertsPanel";
 
 // In-house stock: everything Josh physically has, listed or not. Same operator console look
 // as Storefronts: deep slate, warm cream type, amber for the one primary action per row.
@@ -202,6 +203,8 @@ export default function StockPage() {
       </header>
 
       <div className="st-body">
+        <StockAlertsPanel />
+
         <form className="st-add" onSubmit={addItem} aria-label="Add an item">
           <label className="st-f">Item name<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} maxLength={255} required /></label>
           <label className="st-f">How many<input type="number" min="0" step="1" value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: e.target.value })} required /></label>
