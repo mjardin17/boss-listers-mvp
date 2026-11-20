@@ -1,7 +1,7 @@
-import { withSession } from "../../../../lib/requireSessionApp";
-import { identifyCard } from "../../../../lib/cardIdentification";
-import { getCardValuation } from "../../../../lib/cardPricing";
-import { enforceRateLimit } from "../../../../lib/apiRuntime";
+import { withSession } from "../../../lib/requireSessionApp";
+import { identifyCard } from "../../../lib/cardIdentification";
+import { getCardValuation } from "../../../lib/cardPricing";
+import { enforceRateLimit } from "../../../lib/apiRuntime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +9,13 @@ export const dynamic = "force-dynamic";
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 9 * 1024 * 1024;
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function hasValidImageSignature(bytes, mime) {
+  if (mime === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mime === "image/png") return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (mime === "image/webp") return bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
+  return false;
+}
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -33,7 +40,11 @@ async function readImage(form, field, required) {
   if (!Number.isFinite(file.size) || file.size < 1 || file.size > MAX_IMAGE_BYTES) {
     throw Object.assign(new Error(`${field} photo must be between 1 byte and 4 MB.`), { status: 413 });
   }
-  return { bytes: Buffer.from(await file.arrayBuffer()), mime: file.type };
+  const bytes = Buffer.from(await file.arrayBuffer());
+  if (!hasValidImageSignature(bytes, file.type)) {
+    throw Object.assign(new Error(`${field} photo content does not match its declared image type.`), { status: 415 });
+  }
+  return { bytes, mime: file.type };
 }
 
 async function readBoundedRequest(request) {
@@ -106,7 +117,9 @@ async function handler(request, _context, session) {
 
     return json({
       ok: true,
-      identification,
+      identification: identification.status === "unknown" && identification.error
+        ? { ...identification, error: "Card identification could not be completed. Check the AI provider configuration and try again." }
+        : identification,
       valuation,
       requiresConfirmation: identification.status === "needs_review",
     });
