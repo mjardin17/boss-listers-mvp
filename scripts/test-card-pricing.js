@@ -16,6 +16,12 @@ const product = {
 
 test("identity matching uses whole tokens, not partial substrings", () => {
   assert.equal(textMatchesIdentity(fields, product), true);
+  assert.equal(textMatchesIdentity({
+    cardNumber: "58", set: "Base Set", player: "Oddish",
+  }, {
+    "product-name": "Oddish Base Set #58",
+    "console-name": "Pokemon Cards",
+  }), true);
   assert.equal(textMatchesIdentity({ ...fields, cardNumber: "12" }, {
     "product-name": "1999 Nintendo Base Set Oddish #123",
     "console-name": "Pokemon Cards",
