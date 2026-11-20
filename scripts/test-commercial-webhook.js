@@ -105,7 +105,7 @@ test("commercial sender signs exact body and uses receiver snake_case contract",
   assert.equal(webhook.options.headers["X-Webhook-Signature"], expected);
   const queuedPatch = calls.find((call) => call.kind === "PATCH");
   assert.ok(queuedPatch);
-  assert.match(queuedPatch.target, /status=eq\\.pending/);
+  assert.ok(queuedPatch.target.includes("status=eq.pending"));
 });
 
 test("commercial sender rejects invalid images and oversized request bodies", async (t) => {
