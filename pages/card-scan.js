@@ -168,7 +168,8 @@ export default function CardScan() {
         fileType: "image/jpeg",
         useWebWorker: true,
       });
-      const safeName = (file.name || side).replace(/\\.[^.]+$/, "") || side;
+      const originalName = String(file.name || side);
+      const safeName = originalName.includes(".") ? originalName.slice(0, originalName.lastIndexOf(".")) || side : originalName;
       const normalizedFile = new File([compressed], `${safeName}.jpg`, {
         type: "image/jpeg",
         lastModified: Date.now(),
