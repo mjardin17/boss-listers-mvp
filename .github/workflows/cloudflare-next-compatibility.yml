@@ -1,0 +1,43 @@
+name: Cloudflare Next.js compatibility audit
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "pages/**"
+      - "middleware.js"
+      - "next.config.js"
+      - "wrangler.toml"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/cloudflare-next-compatibility.yml"
+  push:
+    branches:
+      - audit/cloudflare-next-compatibility
+    paths:
+      - "app/**"
+      - "pages/**"
+      - "middleware.js"
+      - "next.config.js"
+      - "wrangler.toml"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/cloudflare-next-compatibility.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  vinext-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.16.0"
+          cache: "npm"
+      - name: Install locked application dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run Cloudflare's non-destructive Next.js compatibility check
+        run: npx --yes vinext@latest check
