@@ -36,6 +36,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: "service_role_build_check_only"
       VIDEO_PIPELINE_WEBHOOK_URL: "https://video.example.invalid/webhook"
       VIDEO_PIPELINE_WEBHOOK_SECRET: "build-check-secret-value-that-is-at-least-32-bytes"
+      VIDEO_PIPELINE_CALLBACK_SECRET: "callback-build-check-secret-value-that-is-at-least-32-bytes"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
