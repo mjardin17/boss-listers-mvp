@@ -182,10 +182,21 @@ export function createLocalCardFactoryServer({ dataDir, token, workspaceId }) {
           .update(front.bytes).update(Buffer.from([0])).update(back?.bytes || Buffer.alloc(0))
           .digest("hex");
 
+        const reviewStatus = body.reviewStatus === "needs_review" ? "needs_review" : "confirmed_by_user";
         const existingKey = db.prepare(
           "SELECT * FROM staged_cards WHERE workspace_id = ? AND idempotency_key = ?"
         ).get(workspaceId, idempotencyKey);
-        if (existingKey) return json(res, 200, { ok: true, card: publicCard(existingKey), idempotentReplay: true });
+        if (existingKey) {
+          const samePayload =
+            existingKey.image_pair_sha256 === hash &&
+            existingKey.title === title &&
+            existingKey.identification_json === identificationJson &&
+            existingKey.review_status === reviewStatus;
+          if (!samePayload) {
+            return json(res, 409, { ok: false, error: "This idempotency key was already used for a different card payload." });
+          }
+          return json(res, 200, { ok: true, card: publicCard(existingKey), idempotentReplay: true });
+        }
 
         const duplicate = db.prepare(
           "SELECT id FROM staged_cards WHERE workspace_id = ? AND image_pair_sha256 = ?"
@@ -212,11 +223,11 @@ export function createLocalCardFactoryServer({ dataDir, token, workspaceId }) {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             id, workspaceId, title, identificationJson,
-            body.reviewStatus === "needs_review" ? "needs_review" : "confirmed_by_user",
+            reviewStatus,
             frontPath, backPath, hash, idempotencyKey, createdAt
           );
         } catch (insertError) {
-          if (!String(insertError.code || "").includes("CONSTRAINT")) throw insertError;
+          if (!String(insertError.code || "").includes("CONSTRAINT") && !String(insertError.message || "").includes("UNIQUE constraint failed")) throw insertError;
           const sameKey = db.prepare(
             "SELECT * FROM staged_cards WHERE workspace_id = ? AND idempotency_key = ?"
           ).get(workspaceId, idempotencyKey);
