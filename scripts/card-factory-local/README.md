@@ -33,7 +33,7 @@ All records are tied to the server-configured workspace ID. The client cannot ch
 
 ## Desktop launch and phone access
 
-Before launching, install the repository dependencies and create a local `.env.local` containing `SUPABASE_URL` and `SUPABASE_ANON_KEY` for the existing BossListers authentication flow. Use only the publishable/anon key here—never a Supabase service-role key. The launcher checks for both settings without printing their values.
+Before launching, install the repository dependencies and create a local `.env.local` containing `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `APP_BASIC_AUTH_USER`, `APP_BASIC_AUTH_PASS`, and `GEMINI_API_KEY`. The launcher copies the Supabase URL and publishable/anon key into the matching `NEXT_PUBLIC_*` build variables required by the browser login/refresh code. Use only the publishable/anon key here—never a Supabase service-role key. The launcher checks all required settings without printing their values. Production middleware requires the Basic Auth username/password; Gemini is required for card identification.
 
 On Windows, from the repository root, run:
 
