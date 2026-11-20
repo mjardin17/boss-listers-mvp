@@ -12,7 +12,7 @@ test("threshold accepts zero and positive whole numbers", () => {
 });
 
 test("threshold rejects fractions, negatives, non-numbers and excessive values", () => {
-  for (const value of [-1, 1.5, "abc", "", 10001, null]) {
+  for (const value of [-1, 1.5, "abc", "", "   ", 10001, null, false]) {
     assert.equal(validateThreshold(value).ok, false, String(value));
   }
 });
