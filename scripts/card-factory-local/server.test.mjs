@@ -167,3 +167,43 @@ test("workspace isolation prevents another workspace from listing staged cards",
   });
   assert.deepEqual((await listed.json()).cards, []);
 });
+
+test("reusing an idempotency key with changed content returns conflict", async (t) => {
+  const { base } = await fixture(t);
+  const send = (body) => fetch(`${base}/api/cards`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  assert.equal((await send(payload())).status, 201);
+  const changed = await send(payload({ title: "Different card title" }));
+  assert.equal(changed.status, 409);
+});
+
+test("concurrent identical retries create one row and return an idempotent replay", async (t) => {
+  const { base } = await fixture(t);
+  const send = () => fetch(`${base}/api/cards`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify(payload({ idempotencyKey: "concurrent-retry" })),
+  });
+  const responses = await Promise.all([send(), send()]);
+  const statuses = responses.map((response) => response.status).sort();
+  assert.deepEqual(statuses, [200, 201]);
+  const list = await fetch(`${base}/api/cards`, { headers: { authorization: `Bearer ${TOKEN}` } });
+  assert.equal((await list.json()).cards.length, 1);
+});
+
+test("concurrent duplicate photos with different keys return one success and one conflict", async (t) => {
+  const { base } = await fixture(t);
+  const send = (idempotencyKey) => fetch(`${base}/api/cards`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify(payload({ idempotencyKey })),
+  });
+  const responses = await Promise.all([send("race-a"), send("race-b")]);
+  const statuses = responses.map((response) => response.status).sort();
+  assert.deepEqual(statuses, [201, 409]);
+  const list = await fetch(`${base}/api/cards`, { headers: { authorization: `Bearer ${TOKEN}` } });
+  assert.equal((await list.json()).cards.length, 1);
+});
