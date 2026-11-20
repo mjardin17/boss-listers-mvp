@@ -220,8 +220,8 @@ export async function POST(request) {
 async function queueVideoGeneration(jobId, data) {
   const webhookUrl = process.env.VIDEO_PIPELINE_WEBHOOK_URL;
   const webhookSecret = process.env.VIDEO_PIPELINE_WEBHOOK_SECRET;
-  if (!webhookUrl || !webhookSecret) {
-    throw new Error("Video pipeline webhook is not configured");
+  if (!webhookUrl || !webhookSecret || webhookSecret.length < 32) {
+    throw new Error("Video pipeline webhook is not configured with a strong secret");
   }
 
   let parsedUrl;
