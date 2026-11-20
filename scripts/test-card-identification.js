@@ -46,8 +46,12 @@ test("Gemini key is sent in header, not URL; unsafe field types are discarded", 
       return {
         ok: true,
         json: async () => ({
-          candidates: [{ ...fields, player: { injected: true }, graded: "false", year: 1999 }],
-          frontOcrText: "x".repeat(5000),
+          candidates: [{
+            content: { parts: [{ text: JSON.stringify({
+              candidates: [{ ...fields, player: { injected: true }, graded: "false", year: 1999 }],
+              frontOcrText: "x".repeat(5000),
+            }) }] },
+          }],
         }),
       };
     },
