@@ -72,6 +72,10 @@ async function readBoundedRequest(request) {
 async function handler(request, _context, session) {
   try {
     enforceRateLimit(`identify-card:${session.tenantId}:${session.userId}`);
+    const contentType = request.headers.get("content-type") || "";
+    if (!/^multipart\\/form-data;\\s*boundary=/i.test(contentType)) {
+      return json({ ok: false, error: "Upload must use multipart/form-data." }, 415);
+    }
     const bounded = await readBoundedRequest(request);
     const form = await bounded.formData();
     const front = await readImage(form, "front", true);
