@@ -111,7 +111,8 @@ test("PriceCharting token is not exposed to other tenants without a commercial l
       return Response.json({
         candidates: [{
           cardNumber: "58", set: "Base Set", manufacturer: "Nintendo",
-          year: "1999", player: "Oddish",
+          year: "1999", player: "Oddish", cardGame: "Pokemon",
+          sport: "TCG", team: "Pokemon", edition: "Unlimited",
         }],
         frontOcrText: "Oddish",
         backOcrText: "Base Set 58",
@@ -133,7 +134,7 @@ test("PriceCharting token is not exposed to other tenants without a commercial l
   const response = await POST(makeRequest(form));
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.identification.status, "likely");
+  assert.equal(body.identification.status, "confirmed");
   assert.equal(body.valuation.status, "insufficient");
   assert.match(body.valuation.explanation, /disabled/i);
 });
