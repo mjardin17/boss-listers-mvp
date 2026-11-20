@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { Readable } from "node:stream";
 
 const require = createRequire(import.meta.url);
-const handler = require("../../pages/api/card-factory-local.js");
+const handler = require("../../lib/cardFactoryLocalBridge.js");
 
 const envNames = [
   "SUPABASE_URL",
