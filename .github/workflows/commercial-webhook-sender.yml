@@ -1,0 +1,48 @@
+name: Commercial webhook sender
+
+on:
+  pull_request:
+    paths:
+      - "app/api/commercials/route.js"
+      - "scripts/test-commercial-webhook.js"
+      - "lib/supabaseAuth.js"
+      - "lib/supabaseRest.js"
+      - "package.json"
+      - ".github/workflows/commercial-webhook-sender.yml"
+  push:
+    branches:
+      - recovery/webhook-delivery-hardening
+    paths:
+      - "app/api/commercials/route.js"
+      - "scripts/test-commercial-webhook.js"
+      - "lib/supabaseAuth.js"
+      - "lib/supabaseRest.js"
+      - "package.json"
+      - ".github/workflows/commercial-webhook-sender.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  commercial-webhook-sender:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      SUPABASE_URL: "https://build-check.invalid"
+      SUPABASE_ANON_KEY: "sb_publishable_build_check_only"
+      SUPABASE_SERVICE_ROLE_KEY: "service_role_build_check_only"
+      VIDEO_PIPELINE_WEBHOOK_URL: "https://video.example.invalid/webhook"
+      VIDEO_PIPELINE_WEBHOOK_SECRET: "build-check-secret-value-that-is-at-least-32-bytes"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.16.0"
+          cache: "npm"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run webhook sender tests
+        run: node --test scripts/test-commercial-webhook.js
+      - name: Build Next.js application
+        run: npm run build
