@@ -6,7 +6,7 @@
 
 - JPEG, PNG, and WebP only; file signatures are checked, not just browser MIME labels.
 - 4 MB maximum per image and 9 MB maximum combined request.
-- Gemini identification uses evidence-weighted fields; the model's self-reported confidence is not trusted.
+- Gemini identification uses evidence-weighted fields; the model's self-reported confidence is not trusted. The endpoint applies a 12-per-minute per-process limit keyed by authenticated tenant and user. This is a local-instance guard, not a distributed rate limiter; a horizontally scaled deployment needs a shared limiter.
 - Ambiguous identities remain `needs_review`; unknown identities are not priced.
 - Provider errors are sanitized before returning them to the scanner.
 
