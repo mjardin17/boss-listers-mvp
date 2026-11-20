@@ -109,14 +109,29 @@ async function handler(request, _context, session) {
     // Never price an ambiguous or unknown identity. The identification
     // module computes confidence from extracted evidence, not model claims.
     if (["confirmed", "likely"].includes(identification.status)) {
-      valuation = await getCardValuation({
-        fields: identification.fields,
-        apiToken: process.env.PRICECHARTING_API_TOKEN,
-        fetchImpl: (url, options) => fetch(url, {
-          ...options,
-          signal: AbortSignal.timeout(15000),
-        }),
-      });
+      const allowedTenant = String(process.env.PRICECHARTING_ALLOWED_TENANT_ID || "").trim().toLowerCase();
+      const tenantMatches = Boolean(allowedTenant && allowedTenant === String(session.tenantId || "").trim().toLowerCase());
+      const commercialLicenseConfirmed = process.env.PRICECHARTING_COMMERCIAL_LICENSE_CONFIRMED === "true";
+      const priceChartingEnabled =
+        process.env.PRICECHARTING_API_ENABLED === "true" &&
+        Boolean(process.env.PRICECHARTING_API_TOKEN) &&
+        (tenantMatches || commercialLicenseConfirmed);
+
+      if (priceChartingEnabled) {
+        valuation = await getCardValuation({
+          fields: identification.fields,
+          apiToken: process.env.PRICECHARTING_API_TOKEN,
+          fetchImpl: (url, options) => fetch(url, {
+            ...options,
+            signal: AbortSignal.timeout(15000),
+          }),
+        });
+      } else if (process.env.PRICECHARTING_API_TOKEN) {
+        valuation = {
+          ...valuation,
+          explanation: "PriceCharting lookup is disabled. Enable it only for an authorized internal-use tenant or after obtaining written commercial licensing.",
+        };
+      }
     }
 
     return json({
