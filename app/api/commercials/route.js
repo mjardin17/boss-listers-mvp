@@ -132,7 +132,7 @@ export async function GET(request) {
     const rows = await rest(
       process.env,
       "GET",
-      `commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
+      `/commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
     );
     if (!rows.length) {
       return jsonResponse({ ok: false, error: "Not found" }, 404);
@@ -160,7 +160,7 @@ export async function POST(request) {
     const owned = await rest(
       process.env,
       "GET",
-      `listings?id=eq.${encodeURIComponent(listingId)}&tenant_id=eq.${encodeURIComponent(tenantId)}&select=id`,
+      `/listings?id=eq.${encodeURIComponent(listingId)}&tenant_id=eq.${encodeURIComponent(tenantId)}&select=id`,
     );
     if (!owned.length) {
       return jsonResponse({ ok: false, error: "Listing not found" }, 404);
@@ -168,7 +168,7 @@ export async function POST(request) {
 
     const jobId = `commercial_${randomUUID()}`;
 
-    await rest(process.env, "POST", "commercial_jobs", {
+    await rest(process.env, "POST", "/commercial_jobs", {
       id: jobId,
       tenant_id: tenantId,
       listing_id: listingId,
@@ -186,7 +186,7 @@ export async function POST(request) {
       await rest(
         process.env,
         "PATCH",
-        `commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
+        `/commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
         { status: "queued" },
         { Prefer: "return=minimal" },
       );
@@ -196,7 +196,7 @@ export async function POST(request) {
         await rest(
           process.env,
           "PATCH",
-          `commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
+          `/commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
           { status: "failed" },
           { Prefer: "return=minimal" },
         );
