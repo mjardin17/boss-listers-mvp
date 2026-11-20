@@ -119,10 +119,14 @@ test("commercial sender rejects invalid images and oversized request bodies", as
 });
 
 test("commercial sender requires a positive receiver acknowledgement", async (t) => {
-  setup({ ack: Response.json({ ok: false, status: "rejected" }, { status: 200 }) });
+  const { calls } = setup({ ack: Response.json({ ok: false, status: "rejected" }, { status: 200 }) });
   t.after(restore);
   const response = await POST(request(validBody()));
   assert.equal(response.status, 502);
+  const failedPatch = calls.find((call) => call.kind === "PATCH");
+  assert.ok(failedPatch);
+  assert.ok(failedPatch.target.includes("status=eq.pending"));
+  assert.deepEqual(JSON.parse(failedPatch.options.body), { status: "failed" });
 });
 
 test("commercial sender rate-limits generation per tenant", async (t) => {
