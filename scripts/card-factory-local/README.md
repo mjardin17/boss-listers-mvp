@@ -33,13 +33,15 @@ All records are tied to the server-configured workspace ID. The client cannot ch
 
 ## Desktop launch and phone access
 
+Before launching, install the repository dependencies and create a local `.env.local` containing `SUPABASE_URL` and `SUPABASE_ANON_KEY` for the existing BossListers authentication flow. Use only the publishable/anon key here—never a Supabase service-role key. The launcher checks for both settings without printing their values.
+
 On Windows, from the repository root, run:
 
 ```powershell
 .\scripts\card-factory-local\start.ps1 -WorkspaceId "<your BossListers tenant UUID>"
 ```
 
-The launcher generates a fresh random bearer token in process memory, starts the local SQLite service on loopback, builds BossListers, and starts its Next.js production server on loopback port 3001. It does not print or persist the token. The workspace ID must match the authenticated user's BossListers tenant ID.
+The launcher generates a fresh random bearer token in process memory, starts the local SQLite service on loopback, builds BossListers, and starts its Next.js production server on loopback port 3001. It does not print or persist the token. The workspace ID must be the UUID of the tenant you intend to use and must match the authenticated user's BossListers tenant ID. The launcher restricts the local data folder to the current Windows account using an explicit NTFS ACL.
 
 The scanner now has a separate **Stage locally** action after the user confirms the identified card. It calls `/api/card-factory-local`; that server-side bridge validates the existing BossListers session, checks the tenant ID against `CARD_FACTORY_LOCAL_WORKSPACE_ID`, and forwards the request to loopback while injecting the token server-side. The token is never sent to the browser. The existing **Save to inventory** action remains separate and unchanged.
 
