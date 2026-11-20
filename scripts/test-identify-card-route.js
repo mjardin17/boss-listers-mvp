@@ -110,13 +110,17 @@ test("PriceCharting token is not exposed to other tenants without a commercial l
       assert.equal(String(url).includes("test-gemini-key"), false);
       return Response.json({
         candidates: [{
-          cardNumber: "58", set: "Base Set", manufacturer: "Nintendo",
-          year: "1999", player: "Oddish", cardGame: "Pokemon",
-          sport: "TCG", team: "Pokemon", edition: "Unlimited",
+          content: { parts: [{ text: JSON.stringify({
+            candidates: [{
+              cardNumber: "58", set: "Base Set", manufacturer: "Nintendo",
+              year: "1999", player: "Oddish", cardGame: "Pokemon",
+              sport: "TCG", team: "Pokemon", edition: "Unlimited",
+            }],
+            frontOcrText: "Oddish",
+            backOcrText: "Base Set 58",
+            frontBackTextConflict: false,
+          }) }] },
         }],
-        frontOcrText: "Oddish",
-        backOcrText: "Base Set 58",
-        frontBackTextConflict: false,
       });
     }
     throw new Error("PriceCharting must not be called for an unauthorized tenant.");
