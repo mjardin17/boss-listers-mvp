@@ -48,9 +48,18 @@ if ($LASTEXITCODE -ne 0) { throw "Could not restrict Card Factory data-folder pe
 $service = $null
 try {
   $service = Start-Process -FilePath "node" -ArgumentList "scripts/card-factory-local/server.mjs" -WorkingDirectory $repoRoot -NoNewWindow -PassThru
-  Start-Sleep -Seconds 1
-  if ($service.HasExited) {
-    throw "The local Card Factory service stopped during startup. Review the error above."
+  $serviceReady = $false
+  for ($attempt = 0; $attempt -lt 10; $attempt++) {
+    if ($service.HasExited) { break }
+    try {
+      $health = Invoke-RestMethod -Uri "http://127.0.0.1:8787/health" -TimeoutSec 2
+      if ($health.ok -eq $true) { $serviceReady = $true; break }
+    } catch {
+      Start-Sleep -Seconds 1
+    }
+  }
+  if (-not $serviceReady) {
+    throw "The local Card Factory service did not become healthy on 127.0.0.1:8787. Check whether the port is already in use and review the service error above."
   }
 
   Write-Host "Local Card Factory is running on loopback port 8787."
