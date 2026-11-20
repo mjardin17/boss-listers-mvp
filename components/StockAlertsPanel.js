@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { authedFetch } from "../lib/clientAuth";
 
 const CSS = `
@@ -52,11 +52,11 @@ export default function StockAlertsPanel() {
   const [thresholdInput, setThresholdInput] = useState("2");
   const [emailAvailable, setEmailAvailable] = useState(false);
   const [tab, setTab] = useState("open");
+  const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
-  const emailAttempted = useRef(false);
 
   const refresh = useCallback(async () => {
     const [alertData, settingsData] = await Promise.all([
@@ -85,13 +85,17 @@ export default function StockAlertsPanel() {
   }, []);
 
   useEffect(() => {
-    if (!settings.email_enabled || !emailAvailable || emailAttempted.current) return;
-    emailAttempted.current = true;
-    api("/api/stock-alerts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "send_pending_email" }),
-    }).catch((err) => console.error("[StockAlertsPanel] pending email delivery:", err.message));
+    if (!settings.email_enabled || !emailAvailable) return;
+    const deliverPending = () => {
+      api("/api/stock-alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send_pending_email" }),
+      }).catch((err) => console.error("[StockAlertsPanel] pending email delivery:", err.message));
+    };
+    deliverPending();
+    const interval = setInterval(deliverPending, 60000);
+    return () => clearInterval(interval);
   }, [settings.email_enabled, emailAvailable]);
 
   const act = async (action, alert) => {
@@ -150,9 +154,16 @@ export default function StockAlertsPanel() {
           <h2>Stock alerts</h2>
           <p>One alert per item per low-stock cycle. Restocks are recorded automatically.</p>
         </div>
-        <span className="sa-count" aria-label={`${unread} unread alerts`}>{unread} unread</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="sa-count" aria-label={`${unread} unread alerts`}>{unread} unread</span>
+          <button type="button" className="sa-btn" aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}>
+            🔔 {expanded ? "Hide inbox" : "Open inbox"}
+          </button>
+        </div>
       </header>
 
+      {expanded && <>
       <div className="sa-settings">
         <label className="sa-field">
           Alert when quantity is at or below
@@ -224,6 +235,7 @@ export default function StockAlertsPanel() {
           </div>
         )}
       </div>
+      </>}
     </section>
   );
 }
