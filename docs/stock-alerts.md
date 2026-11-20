@@ -26,7 +26,7 @@ Set these as server-side secrets only:
 - `RESEND_API_KEY`
 - `STOCK_ALERT_FROM_EMAIL` (a sender address verified in Resend)
 
-Email alerts are opt-in per tenant. The settings UI will keep the email checkbox disabled until both values are present. Do not put these values in browser-visible environment variables or commit them to Git.
+Email alerts are opt-in per tenant. The settings UI will keep the email checkbox disabled until both values are present. Delivery is polled every 60 seconds while the authenticated Stock workspace is open; this first integration does not claim always-on background email delivery. A scheduled worker is a separate production-hardening step. Do not put these values in browser-visible environment variables or commit them to Git.
 
 ## API
 
