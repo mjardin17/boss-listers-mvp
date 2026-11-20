@@ -68,7 +68,7 @@ test("valid signed callback updates only the matching tenant's job", async (t) =
   assert.equal(calls.length, 1);
   assert.match(calls[0].url, /\/commercial_jobs\?id=eq\.commercial_callback_001&tenant_id=eq\.11111111-1111-4111-8111-111111111111/);
   assert.equal(calls[0].options.method, "PATCH");
-  assert.deepEqual(JSON.parse(calls[0].options.body), { status: "completed" });
+  assert.deepEqual(JSON.parse(calls[0].options.body), { status: "completed", error_message: null });
 });
 
 test("callback rejects invalid signatures and expired timestamps", async (t) => {
