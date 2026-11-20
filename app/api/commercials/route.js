@@ -18,10 +18,91 @@
 // (empire_server, added 2026-08-18) but the two have not been tested
 // together since this port. Verify before relying on it.
 
+import { createHmac, randomUUID } from "node:crypto";
 import { rest } from "../../../lib/supabaseRest";
 import { resolveSession } from "../../../lib/supabaseAuth";
 
 export const runtime = "nodejs";
+const MAX_COMMERCIAL_REQUEST_BYTES = 256 * 1024;
+const COMMERCIAL_RATE_WINDOW_MS = 10 * 60 * 1000;
+const COMMERCIAL_RATE_MAX = 5;
+const commercialRateBuckets = new Map();
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function enforceCommercialRateLimit(tenantId) {
+  const now = Date.now();
+  if (commercialRateBuckets.size > 1000) {
+    for (const [key, bucket] of commercialRateBuckets.entries()) {
+      if (bucket.resetAt <= now) commercialRateBuckets.delete(key);
+    }
+  }
+  const bucket = commercialRateBuckets.get(tenantId);
+  if (!bucket || bucket.resetAt <= now) {
+    commercialRateBuckets.set(tenantId, { count: 1, resetAt: now + COMMERCIAL_RATE_WINDOW_MS });
+    return;
+  }
+  bucket.count += 1;
+  if (bucket.count > COMMERCIAL_RATE_MAX) {
+    throw Object.assign(new Error("Commercial generation limit reached. Try again later."), { status: 429 });
+  }
+}
+
+async function readBoundedJson(request) {
+  const reader = request.body?.getReader();
+  if (!reader) throw Object.assign(new Error("Request body is required."), { status: 400 });
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_COMMERCIAL_REQUEST_BYTES) {
+      await reader.cancel().catch(() => {});
+      throw Object.assign(new Error("Commercial request body exceeds 256 KB."), { status: 413 });
+    }
+    chunks.push(Buffer.from(value));
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw Object.assign(new Error("Request body must be valid JSON."), { status: 400 });
+  }
+}
+
+function validateCommercialInput(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw Object.assign(new Error("Request body must be a JSON object."), { status: 400 });
+  }
+  const { listingId, images, productName, description = "", price, sessionId } = body;
+  if (typeof listingId !== "string" || !SAFE_ID.test(listingId)) {
+    throw Object.assign(new Error("A valid listingId is required."), { status: 400 });
+  }
+  if (!Array.isArray(images) || images.length < 1 || images.length > 6 ||
+      images.some((url) => typeof url !== "string" || url.length > 2048 || !/^https:\/\//i.test(url))) {
+    throw Object.assign(new Error("Provide 1–6 HTTPS image URLs, each no longer than 2048 characters."), { status: 400 });
+  }
+  if (typeof productName !== "string" || !productName.trim() || productName.length > 200) {
+    throw Object.assign(new Error("productName must be a non-empty string of at most 200 characters."), { status: 400 });
+  }
+  if (typeof description !== "string" || description.length > 2000) {
+    throw Object.assign(new Error("description must be a string of at most 2000 characters."), { status: 400 });
+  }
+  if (!["string", "number"].includes(typeof price) || !String(price).trim() || String(price).length > 50) {
+    throw Object.assign(new Error("price must be a short non-empty string or number."), { status: 400 });
+  }
+  if (sessionId !== undefined && (typeof sessionId !== "string" || sessionId.length > 128)) {
+    throw Object.assign(new Error("sessionId must be a string of at most 128 characters."), { status: 400 });
+  }
+  return {
+    listingId,
+    images,
+    productName: productName.trim(),
+    description: description.trim(),
+    price: String(price),
+    sessionId: sessionId || null,
+  };
+}
+
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -69,12 +150,9 @@ export async function POST(request) {
     const tenantId = await requireTenant(request);
     if (!tenantId) return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
 
-    const body = await request.json();
-    const { listingId, images, productName, description, price, sessionId } = body;
-
-    if (!listingId || !images || images.length === 0) {
-      return jsonResponse({ ok: false, error: "Missing required fields" }, 400);
-    }
+    enforceCommercialRateLimit(tenantId);
+    const body = await readBoundedJson(request);
+    const { listingId, images, productName, description, price, sessionId } = validateCommercialInput(body);
 
     // Verify the listing being turned into a commercial actually belongs
     // to the caller's tenant before creating anything or spending on the
@@ -88,7 +166,7 @@ export async function POST(request) {
       return jsonResponse({ ok: false, error: "Listing not found" }, 404);
     }
 
-    const jobId = `commercial_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const jobId = `commercial_${randomUUID()}`;
 
     await rest(process.env, "POST", "commercial_jobs", {
       id: jobId,
@@ -130,8 +208,12 @@ export async function POST(request) {
 
     return jsonResponse({ ok: true, jobId, status: "queued" }, 201);
   } catch (err) {
-    console.error("[commercials POST]", err.message);
-    return jsonResponse({ ok: false, error: err.message }, 500);
+    const status = Number(err.status) || 500;
+    console.error("[commercials POST]", status >= 500 ? "request failed" : err.message);
+    return jsonResponse(
+      { ok: false, error: status >= 500 ? "Commercial request failed" : err.message },
+      status,
+    );
   }
 }
 
@@ -142,18 +224,54 @@ async function queueVideoGeneration(jobId, data) {
     throw new Error("Video pipeline webhook is not configured");
   }
 
-  const payload = { type: "generate_commercial", job_id: jobId, ...data };
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(webhookUrl);
+  } catch {
+    throw new Error("Video pipeline webhook URL is invalid");
+  }
+  const isLocalDevelopment =
+    process.env.NODE_ENV !== "production" &&
+    ["localhost", "127.0.0.1", "::1"].includes(parsedUrl.hostname);
+  if (parsedUrl.protocol !== "https:" && !(isLocalDevelopment && parsedUrl.protocol === "http:")) {
+    throw new Error("Video pipeline webhook must use HTTPS outside local development");
+  }
+  if (parsedUrl.username || parsedUrl.password) {
+    throw new Error("Video pipeline webhook URL must not contain embedded credentials");
+  }
+
+  const payload = {
+    type: "generate_commercial",
+    job_id: jobId,
+    listing_id: data.listingId,
+    product_name: data.productName,
+    images: data.images,
+    description: data.description,
+    price: data.price,
+  };
+  const body = JSON.stringify(payload);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = createHmac("sha256", webhookSecret)
+    .update(`${timestamp}.${body}`)
+    .digest("hex");
   const response = await fetch(webhookUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Webhook-Secret": webhookSecret,
+      "X-Webhook-Timestamp": timestamp,
+      "X-Webhook-Signature": signature,
     },
-    body: JSON.stringify(payload),
+    body,
     signal: AbortSignal.timeout(15000),
   });
 
-  if (!response.ok) {
-    throw new Error(`Video pipeline rejected the job (HTTP ${response.status})`);
+  const acknowledgement = await response.json().catch(() => null);
+  const accepted =
+    acknowledgement &&
+    acknowledgement.ok === true &&
+    acknowledgement.job_id === jobId &&
+    ["queued", "already_queued"].includes(acknowledgement.status);
+  if (!response.ok || !accepted) {
+    throw new Error(`Video pipeline did not confirm job acceptance (HTTP ${response.status})`);
   }
 }
