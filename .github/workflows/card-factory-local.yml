@@ -30,6 +30,17 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22.16.0"
+      - name: Validate Windows launcher syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("scripts/card-factory-local/start.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List
+            exit 1
+          }
       - name: Run isolated local staging tests
         run: npm run test:card-factory-local
 
