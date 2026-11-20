@@ -88,7 +88,10 @@ export async function POST(request) {
       process.env,
       "PATCH",
       `/commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
-      { status },
+      {
+        status,
+        error_message: status === "failed" ? String(error || "Render failed").slice(0, 500) : null,
+      },
       { Prefer: "return=representation" },
     );
     if (!Array.isArray(rows) || rows.length === 0) {
