@@ -41,7 +41,7 @@ function setup({ tenantId = `11111111-1111-4111-8111-${Date.now().toString(16).p
     }
     if (target.includes("/rest/v1/listings")) {
       calls.push({ kind: "listing-check", target, options });
-      return Response.json([{ id: "listing_123" }]);
+      return Response.json([{ id: "11111111-1111-4111-8111-111111111111" }]);
     }
     if (target.includes("/rest/v1/commercial_jobs")) {
       calls.push({ kind: options.method, target, options });
@@ -73,7 +73,7 @@ function request(body, token = "test-access-token") {
 
 function validBody() {
   return {
-    listingId: "listing_123",
+    listingId: "11111111-1111-4111-8111-111111111111",
     images: ["https://images.example.test/oddish.jpg"],
     productName: "Oddish Pokémon Card",
     description: "Vintage card",
@@ -95,8 +95,11 @@ test("commercial sender signs exact body and uses receiver snake_case contract",
   assert.equal(webhook.options.headers["X-Webhook-Secret"], undefined);
   const body = JSON.parse(webhook.options.body);
   assert.equal(body.type, "generate_commercial");
-  assert.equal(body.listing_id, "listing_123");
+  assert.equal(body.listing_id, "11111111-1111-4111-8111-111111111111");
   assert.equal(body.product_name, "Oddish Pokémon Card");
+  const insertedJob = calls.find((call) => call.kind === "POST");
+  assert.ok(insertedJob);
+  assert.equal(JSON.parse(insertedJob.options.body).price, 12.5);
   assert.equal(body.tenant_id, tenantId);
   const timestamp = webhook.options.headers["X-Webhook-Timestamp"];
   const expected = createHmac("sha256", process.env.VIDEO_PIPELINE_WEBHOOK_SECRET)
@@ -133,7 +136,7 @@ test("commercial sender rate-limits generation per tenant", async (t) => {
   setup();
   t.after(restore);
   for (let i = 0; i < 5; i += 1) {
-    const response = await POST(request({ ...validBody(), listingId: `listing_${i}` }));
+    const response = await POST(request(validBody()));
     assert.equal(response.status, 201);
   }
   const limited = await POST(request(validBody()));
