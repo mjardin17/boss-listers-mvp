@@ -108,7 +108,7 @@ async function handler(request, _context, session) {
 
     // Never price an ambiguous or unknown identity. The identification
     // module computes confidence from extracted evidence, not model claims.
-    if (["confirmed", "likely"].includes(identification.status)) {
+    if (identification.status === "confirmed") {
       const allowedTenant = String(process.env.PRICECHARTING_ALLOWED_TENANT_ID || "").trim().toLowerCase();
       const tenantMatches = Boolean(allowedTenant && allowedTenant === String(session.tenantId || "").trim().toLowerCase());
       const commercialLicenseConfirmed = process.env.PRICECHARTING_COMMERCIAL_LICENSE_CONFIRMED === "true";
@@ -132,6 +132,11 @@ async function handler(request, _context, session) {
           explanation: "PriceCharting lookup is disabled. Enable it only for an authorized internal-use tenant or after obtaining written commercial licensing.",
         };
       }
+    } else if (identification.status === "likely") {
+      valuation = {
+        ...valuation,
+        explanation: "Identification is likely but not confirmed. Review the card details before requesting a price.",
+      };
     }
 
     return json({
