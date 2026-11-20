@@ -22,7 +22,7 @@ function restore() {
   }
 }
 
-function setup({ tenantId = `tenant-${Date.now()}`, ack = null } = {}) {
+function setup({ tenantId = "11111111-1111-4111-8111-111111111111", ack = null } = {}) {
   process.env.SUPABASE_URL = "https://supabase.invalid";
   process.env.SUPABASE_ANON_KEY = "sb_publishable_test";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-test-only";
@@ -103,6 +103,9 @@ test("commercial sender signs exact body and uses receiver snake_case contract",
     .update(`${timestamp}.${webhook.options.body}`)
     .digest("hex");
   assert.equal(webhook.options.headers["X-Webhook-Signature"], expected);
+  const queuedPatch = calls.find((call) => call.kind === "PATCH");
+  assert.ok(queuedPatch);
+  assert.match(queuedPatch.target, /status=eq\\.pending/);
 });
 
 test("commercial sender rejects invalid images and oversized request bodies", async (t) => {
