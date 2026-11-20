@@ -41,3 +41,6 @@ create policy commercial_jobs_read_tenant
 
 comment on column public.commercial_jobs.tenant_id is
   'Tenant that owns the source listing; used for all commercial job reads and signed status callbacks.';
+
+comment on column public.commercial_jobs.status is
+  'Job lifecycle: pending, queued, completed, failed.';
