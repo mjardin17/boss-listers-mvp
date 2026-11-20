@@ -8,7 +8,7 @@ This feature ports the useful low-stock workflow from the supplied Syncr project
 - Database-triggered alert creation whenever a tracked product is inserted or its title, SKU, quantity, status, or tracking flag changes.
 - One open alert per product per low-stock cycle; repeated quantity changes update the existing alert instead of creating duplicates.
 - Automatic transition to Restocked when inventory rises above the tenant threshold.
-- Inbox, Restocked, and Archived folders with read/unread, mark-all-read, archive, restore, and archive-read actions.
+- Inbox, Restocked, and Archived folders with read/unread, mark-all-read, archive, restore, and archive-read actions. The inbox refreshes every 30 seconds while the Stock workspace is open.
 - Optional email delivery through Resend, disabled by default and available only when server-side `RESEND_API_KEY` and `STOCK_ALERT_FROM_EMAIL` are configured.
 - Email claims are atomic in Postgres to avoid concurrent page loads sending the same notification twice.
 - Digital ebook SKUs already listed in `config/inventory-sync.json` are excluded from physical stock alerts.
