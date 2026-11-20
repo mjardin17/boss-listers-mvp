@@ -32,7 +32,7 @@ test("unknown graded state never defaults to ungraded pricing", async () => {
       return { ok: true, json: async () => ({ products: [product] }) };
     },
   });
-  assert.equal(calls, 1);
+  assert.equal(calls, 0);
   assert.equal(result.status, "insufficient");
   assert.equal(result.market, null);
 });
@@ -72,4 +72,23 @@ test("no token or no matching product never fabricates a price", async () => {
     fetchImpl: async () => ({ ok: true, json: async () => ({ products: [] }) }),
   });
   assert.equal(noMatch.market, null);
+});
+
+test("identical PriceCharting lookups are cached within the process", async () => {
+  let calls = 0;
+  const token = "unique-cache-test-token";
+  const args = {
+    fields,
+    apiToken: token,
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, json: async () => ({ products: [product] }) };
+    },
+  };
+  const first = await getCardValuation(args);
+  const second = await getCardValuation(args);
+  assert.equal(first.market, 12.5);
+  assert.equal(second.market, 12.5);
+  assert.equal(second.cached, true);
+  assert.equal(calls, 1);
 });
