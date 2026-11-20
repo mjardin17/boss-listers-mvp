@@ -1,7 +1,7 @@
-import { withSession } from "../../../lib/requireSessionApp";
-import { identifyCard } from "../../../lib/cardIdentification";
-import { getCardValuation } from "../../../lib/cardPricing";
-import { enforceRateLimit } from "../../../lib/apiRuntime";
+import { withSession } from "../../../lib/requireSessionApp.js";
+import { identifyCard } from "../../../lib/cardIdentification.js";
+import { getCardValuation } from "../../../lib/cardPricing.js";
+import { enforceRateLimit } from "../../../lib/apiRuntime.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
