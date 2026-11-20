@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - "app/api/commercials/route.js"
+      - "app/api/commercials/callback/route.js"
       - "scripts/test-commercial-webhook.js"
+      - "scripts/test-commercial-callback.js"
       - "lib/supabaseAuth.js"
       - "lib/supabaseRest.js"
       - "package.json"
@@ -43,6 +45,6 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
       - name: Run webhook sender tests
-        run: node --test scripts/test-commercial-webhook.js
+        run: node --test scripts/test-commercial-webhook.js scripts/test-commercial-callback.js
       - name: Build Next.js application
         run: npm run build
