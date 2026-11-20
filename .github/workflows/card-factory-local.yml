@@ -1,0 +1,63 @@
+name: Card Factory local staging
+
+on:
+  pull_request:
+    paths:
+      - "scripts/card-factory-local/**"
+      - "package.json"
+      - ".github/workflows/card-factory-local.yml"
+  push:
+    branches:
+      - recovery/card-factory-desktop-companion
+    paths:
+      - "scripts/card-factory-local/**"
+      - "package.json"
+      - ".github/workflows/card-factory-local.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  local-staging-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.16.0"
+      - name: Validate Windows launcher syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("scripts/card-factory-local/start.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List
+            exit 1
+          }
+      - name: Run isolated local staging tests
+        run: npm run test:card-factory-local
+
+  next-build-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      SUPABASE_URL: "https://build-check.invalid"
+      SUPABASE_ANON_KEY: "sb_publishable_build_check_only"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.16.0"
+          cache: "npm"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build Next.js application
+        run: npm run build

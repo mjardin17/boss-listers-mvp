@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import imageCompression from "browser-image-compression";
 import Link from "next/link";
 import { requireSession, authedFetch, clearSession } from "../lib/clientAuth";
 import { toInventoryCardDetails } from "../lib/cardFields";
@@ -128,6 +129,7 @@ export default function CardScan() {
   const [backPhoto, setBackPhoto] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [photoProcessingSide, setPhotoProcessingSide] = useState(null);
   const [result, setResult] = useState(null); // { identification, valuation, requiresConfirmation }
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(null);
   const [confirming, setConfirming] = useState(false);
@@ -135,11 +137,15 @@ export default function CardScan() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [savedProduct, setSavedProduct] = useState(null);
+  const [stageBusy, setStageBusy] = useState(false);
+  const [stageError, setStageError] = useState("");
+  const [stagedCard, setStagedCard] = useState(null);
   const [savePrice, setSavePrice] = useState("");
   const [saveQuantity, setSaveQuantity] = useState(1);
 
   const frontInputRef = useRef(null);
   const backInputRef = useRef(null);
+  const stageIdempotencyKeyRef = useRef(null);
 
   useEffect(() => {
     if (requireSession()) setReady(true);
@@ -150,11 +156,37 @@ export default function CardScan() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handlePhoto(side, file) {
+  async function handlePhoto(side, file) {
     if (!file) return;
-    const previewUrl = URL.createObjectURL(file);
-    if (side === "front") setFrontPhoto({ file, previewUrl });
-    else setBackPhoto({ file, previewUrl });
+    setPhotoProcessingSide(side);
+    setError("");
+    try {
+      const compressed = await imageCompression(file, {
+        maxSizeMB: 3.5,
+        maxWidthOrHeight: 2000,
+        initialQuality: 0.88,
+        fileType: "image/jpeg",
+        useWebWorker: true,
+      });
+      const originalName = String(file.name || side);
+      const safeName = originalName.includes(".") ? originalName.slice(0, originalName.lastIndexOf(".")) || side : originalName;
+      const normalizedFile = new File([compressed], `${safeName}.jpg`, {
+        type: "image/jpeg",
+        lastModified: Date.now(),
+      });
+      const previewUrl = URL.createObjectURL(normalizedFile);
+      if (side === "front") {
+        if (frontPhoto?.previewUrl) URL.revokeObjectURL(frontPhoto.previewUrl);
+        setFrontPhoto({ file: normalizedFile, previewUrl });
+      } else {
+        if (backPhoto?.previewUrl) URL.revokeObjectURL(backPhoto.previewUrl);
+        setBackPhoto({ file: normalizedFile, previewUrl });
+      }
+    } catch (err) {
+      setError("Could not process this photo. Use a clear JPEG, PNG, or WebP image. On iPhone, set Camera > Formats to Most Compatible if the photo is HEIC.");
+    } finally {
+      setPhotoProcessingSide(null);
+    }
   }
 
   async function handleScan() {
@@ -167,6 +199,9 @@ export default function CardScan() {
     setResult(null);
     setSelectedCandidateIndex(null);
     setConfirmedValuation(null);
+    setStageError("");
+    setStagedCard(null);
+    stageIdempotencyKeyRef.current = globalThis.crypto?.randomUUID?.() || `card-scan-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     try {
       const formData = new FormData();
@@ -220,6 +255,10 @@ export default function CardScan() {
     setSaving(false);
     setSaveError("");
     setSavedProduct(null);
+    setStageBusy(false);
+    setStageError("");
+    setStagedCard(null);
+    stageIdempotencyKeyRef.current = null;
     setSavePrice("");
     setSaveQuantity(1);
   }
@@ -236,6 +275,59 @@ export default function CardScan() {
     (result.identification.status === "confirmed" ||
       result.identification.status === "likely" ||
       (result.identification.status === "needs_review" && selectedCandidateIndex !== null));
+  const stageActionLabel =
+    result?.identification.status === "likely"
+      ? "Confirm details & stage locally"
+      : result?.identification.status === "needs_review"
+        ? "Confirm selected card & stage locally"
+        : "Stage locally";
+
+  async function handleStageLocally() {
+    if (!canSave || !finalFields || !frontPhoto?.file) return;
+    setStageBusy(true);
+    setStageError("");
+    try {
+      const frontMediaType = frontPhoto.file.type;
+      if (!frontMediaType) throw new Error("The front photo has no supported image type. Retake the photo.");
+      const frontBase64 = await fileToBase64(frontPhoto.file);
+      let back = undefined;
+      if (backPhoto?.file) {
+        if (!backPhoto.file.type) throw new Error("The back photo has no supported image type. Retake the photo.");
+        back = {
+          mediaType: backPhoto.file.type,
+          base64: await fileToBase64(backPhoto.file),
+        };
+      }
+
+      const payload = {
+        userConfirmed: true,
+        idempotencyKey: stageIdempotencyKeyRef.current || `card-scan-${Date.now()}`,
+        title: buildCardTitle(finalFields),
+        identification: {
+          ...finalFields,
+          sourceIdentificationStatus: result.identification.status,
+          confidenceScore: finalFields.confidenceScore ?? result.identification.confidenceScore ?? null,
+        },
+        reviewStatus: "confirmed_by_user",
+        front: { mediaType: frontMediaType, base64: frontBase64 },
+        ...(back ? { back } : {}),
+      };
+      const res = await authedFetch("/api/card-factory-local", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Local staging failed.");
+      }
+      setStagedCard(data.card || null);
+    } catch (err) {
+      setStageError(err.message || "Could not stage this card locally.");
+    } finally {
+      setStageBusy(false);
+    }
+  }
 
   async function handleSaveToInventory() {
     if (!canSave || !finalFields) return;
@@ -310,6 +402,7 @@ export default function CardScan() {
                   <button
                     type="button"
                     onClick={() => ref.current?.click()}
+                    disabled={Boolean(photoProcessingSide)}
                     style={{
                       width: "100%",
                       aspectRatio: "0.7",
@@ -329,7 +422,8 @@ export default function CardScan() {
                   <input
                     ref={ref}
                     type="file"
-                    accept="image/*"
+                    disabled={Boolean(photoProcessingSide)}
+                    accept="image/jpeg,image/png,image/webp"
                     capture="environment"
                     style={{ display: "none" }}
                     onChange={(e) => { handlePhoto(side, e.target.files?.[0]); e.target.value = ""; }}
@@ -345,10 +439,10 @@ export default function CardScan() {
             type="button"
             className="btn-primary"
             style={{ width: "100%", padding: "1rem", fontSize: "1.05rem" }}
-            disabled={busy || !frontPhoto}
+            disabled={busy || !frontPhoto || Boolean(photoProcessingSide)}
             onClick={handleScan}
           >
-            {busy ? "Identifying card..." : "Identify Card"}
+            {photoProcessingSide ? `Processing ${photoProcessingSide} photo...` : busy ? "Identifying card..." : "Identify Card"}
           </button>
 
           <p style={{ marginTop: "1.5rem" }}>
@@ -438,7 +532,29 @@ export default function CardScan() {
           )}
 
           {canSave && (
-            <div style={{ marginTop: "1.5rem", padding: "1rem", border: "1px solid var(--border, #2a3142)", borderRadius: "var(--radius, 10px)" }}>
+            <>
+              <div style={{ marginTop: "1.5rem", padding: "1rem", border: "1px solid var(--border, #2a3142)", borderRadius: "var(--radius, 10px)" }}>
+                <h3 style={{ marginTop: 0, fontSize: "1rem" }}>Stage in local Card Factory</h3>
+                <p style={{ fontSize: "0.75rem", color: "var(--muted, #9aa3b5)" }}>
+                  Saves this confirmed card and its photos on the connected desktop only. It does not publish or sync to online inventory.
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ width: "100%" }}
+                  disabled={stageBusy || Boolean(stagedCard)}
+                  onClick={handleStageLocally}
+                >
+                  {stageBusy ? "Staging locally…" : stagedCard ? "Staged locally" : stageActionLabel}
+                </button>
+                {stageError && <p style={{ color: "var(--danger, #f87171)", fontSize: "0.8rem", marginTop: "0.75rem" }}>{stageError}</p>}
+                {stagedCard && (
+                  <p style={{ color: "var(--accent-strong, #34d399)", fontSize: "0.8rem", marginTop: "0.75rem" }}>
+                    Staged: {stagedCard.title}. Local only — not synced or published.
+                  </p>
+                )}
+              </div>
+              <div style={{ marginTop: "1.5rem", padding: "1rem", border: "1px solid var(--border, #2a3142)", borderRadius: "var(--radius, 10px)" }}>
               <h3 style={{ marginTop: 0, fontSize: "1rem" }}>Save to inventory</h3>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
                 <label style={{ fontSize: "0.8rem" }}>
@@ -479,7 +595,8 @@ export default function CardScan() {
                   )}
                 </p>
               )}
-            </div>
+              </div>
+            </>
           )}
 
           <button type="button" className="btn-secondary" style={{ width: "100%", marginTop: "1.5rem" }} onClick={startOver}>
