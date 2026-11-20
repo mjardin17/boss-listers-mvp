@@ -68,8 +68,12 @@ test("ambiguous candidates and conflicting front/back text require review", asyn
   const fetchImpl = async () => ({
     ok: true,
     json: async () => ({
-      candidates: [fields, { ...fields, parallel: "Holo" }],
-      frontBackTextConflict: false,
+      candidates: [{
+        content: { parts: [{ text: JSON.stringify({
+          candidates: [fields, { ...fields, parallel: "Holo" }],
+          frontBackTextConflict: false,
+        }) }] },
+      }],
     }),
   });
   const result = await identifyCard({
