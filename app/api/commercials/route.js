@@ -89,8 +89,8 @@ function validateCommercialInput(body) {
     throw Object.assign(new Error("description must be a string of at most 2000 characters."), { status: 400 });
   }
   const rawPrice = String(price ?? "").trim();
-  const numericPriceText = rawPrice.replace(/[,$\\s]/g, "");
-  if (!rawPrice || rawPrice.length > 50 || !/^\\d+(?:\\.\\d{1,2})?$/.test(numericPriceText)) {
+  const numericPriceText = rawPrice.replace(/[,$\s]/g, "");
+  if (!rawPrice || rawPrice.length > 50 || !/^\d+(?:\.\d{1,2})?$/.test(numericPriceText)) {
     throw Object.assign(new Error("price must be a non-negative amount with at most two decimal places."), { status: 400 });
   }
   const numericPrice = Number(numericPriceText);
