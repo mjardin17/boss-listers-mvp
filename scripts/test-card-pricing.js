@@ -26,7 +26,7 @@ test("unknown graded state never defaults to ungraded pricing", async () => {
   let calls = 0;
   const result = await getCardValuation({
     fields: { ...fields, graded: null },
-    apiToken: "test-token",
+    apiToken: "test-token-unknown-grade",
     fetchImpl: async () => {
       calls += 1;
       return { ok: true, json: async () => ({ products: [product] }) };
@@ -40,7 +40,7 @@ test("unknown graded state never defaults to ungraded pricing", async () => {
 test("ungraded card can use a matching positive provider price", async () => {
   const result = await getCardValuation({
     fields,
-    apiToken: "test-token",
+    apiToken: "test-token-ungraded",
     fetchImpl: async () => ({ ok: true, json: async () => ({ products: [product] }) }),
   });
   assert.equal(result.status, "provider_estimate");
@@ -52,7 +52,7 @@ test("ungraded card can use a matching positive provider price", async () => {
 test("conflicting prices across exact matches return insufficient", async () => {
   const result = await getCardValuation({
     fields,
-    apiToken: "test-token",
+    apiToken: "test-token-conflicting",
     fetchImpl: async () => ({
       ok: true,
       json: async () => ({ products: [product, { ...product, id: "pc-2", "loose-price": 1999 }] }),
@@ -68,7 +68,7 @@ test("no token or no matching product never fabricates a price", async () => {
   assert.equal(noToken.market, null);
   const noMatch = await getCardValuation({
     fields,
-    apiToken: "test-token",
+    apiToken: "test-token-no-match",
     fetchImpl: async () => ({ ok: true, json: async () => ({ products: [] }) }),
   });
   assert.equal(noMatch.market, null);
