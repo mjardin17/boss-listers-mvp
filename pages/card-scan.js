@@ -396,6 +396,7 @@ export default function CardScan() {
                   <button
                     type="button"
                     onClick={() => ref.current?.click()}
+                    disabled={Boolean(photoProcessingSide)}
                     style={{
                       width: "100%",
                       aspectRatio: "0.7",
@@ -415,6 +416,7 @@ export default function CardScan() {
                   <input
                     ref={ref}
                     type="file"
+                    disabled={Boolean(photoProcessingSide)}
                     accept="image/jpeg,image/png,image/webp"
                     capture="environment"
                     style={{ display: "none" }}
