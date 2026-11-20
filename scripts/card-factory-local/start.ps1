@@ -6,6 +6,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$managedEnvNames = @("SUPABASE_URL", "SUPABASE_ANON_KEY", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY")
+$previousEnv = @{}
+foreach ($name in $managedEnvNames) { $previousEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
 
 if ($WorkspaceId -notmatch "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$") {
   throw "WorkspaceId must be the UUID of the BossListers tenant that owns this local Card Factory."
@@ -30,6 +33,11 @@ function Get-ConfiguredValue([string]$Name) {
 
 $supabaseUrl = Get-ConfiguredValue "SUPABASE_URL"
 $supabaseAnon = Get-ConfiguredValue "SUPABASE_ANON_KEY"
+$publicSupabaseUrl = Get-ConfiguredValue "NEXT_PUBLIC_SUPABASE_URL"
+$publicSupabaseAnon = Get-ConfiguredValue "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+if (($publicSupabaseUrl -and $publicSupabaseUrl -ne $supabaseUrl) -or ($publicSupabaseAnon -and $publicSupabaseAnon -ne $supabaseAnon)) {
+  throw "NEXT_PUBLIC Supabase settings must match SUPABASE_URL and SUPABASE_ANON_KEY."
+}
 if ([string]::IsNullOrWhiteSpace($supabaseUrl) -or [string]::IsNullOrWhiteSpace($supabaseAnon)) {
   throw "Desktop authentication requires SUPABASE_URL and SUPABASE_ANON_KEY. Use the publishable/anon key only, never a service-role key."
 }
@@ -106,4 +114,11 @@ finally {
   Remove-Item Env:CARD_FACTORY_LOCAL_HOST -ErrorAction SilentlyContinue
   Remove-Item Env:CARD_FACTORY_LOCAL_PORT -ErrorAction SilentlyContinue
   Remove-Item Env:CARD_FACTORY_LOCAL_BRIDGE_ENABLED -ErrorAction SilentlyContinue
+  foreach ($name in $managedEnvNames) {
+    if ($null -eq $previousEnv[$name]) {
+      Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+    } else {
+      [Environment]::SetEnvironmentVariable($name, $previousEnv[$name], "Process")
+    }
+  }
 }
