@@ -196,7 +196,7 @@ export async function POST(request) {
         await rest(
           process.env,
           "PATCH",
-          `/commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
+          `/commercial_jobs?id=eq.${encodeURIComponent(jobId)}&tenant_id=eq.${encodeURIComponent(tenantId)}&status=eq.pending`,
           { status: "failed" },
           { Prefer: "return=minimal" },
         );
