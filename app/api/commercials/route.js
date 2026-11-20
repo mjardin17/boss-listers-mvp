@@ -19,8 +19,8 @@
 // together since this port. Verify before relying on it.
 
 import { createHmac, randomUUID } from "node:crypto";
-import { rest } from "../../../lib/supabaseRest";
-import { resolveSession } from "../../../lib/supabaseAuth";
+import { rest } from "../../../lib/supabaseRest.js";
+import { resolveSession } from "../../../lib/supabaseAuth.js";
 
 export const runtime = "nodejs";
 const MAX_COMMERCIAL_REQUEST_BYTES = 256 * 1024;
