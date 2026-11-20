@@ -28,6 +28,7 @@ const COMMERCIAL_RATE_WINDOW_MS = 10 * 60 * 1000;
 const COMMERCIAL_RATE_MAX = 5;
 const commercialRateBuckets = new Map();
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 
 function enforceCommercialRateLimit(tenantId) {
   const now = Date.now();
@@ -74,8 +75,8 @@ function validateCommercialInput(body) {
     throw Object.assign(new Error("Request body must be a JSON object."), { status: 400 });
   }
   const { listingId, images, productName, description = "", price, sessionId } = body;
-  if (typeof listingId !== "string" || !SAFE_ID.test(listingId)) {
-    throw Object.assign(new Error("A valid listingId is required."), { status: 400 });
+  if (typeof listingId !== "string" || !UUID_RE.test(listingId)) {
+    throw Object.assign(new Error("listingId must be a valid UUID."), { status: 400 });
   }
   if (!Array.isArray(images) || images.length < 1 || images.length > 6 ||
       images.some((url) => typeof url !== "string" || url.length > 2048 || !/^https:\/\//i.test(url))) {
@@ -87,8 +88,14 @@ function validateCommercialInput(body) {
   if (typeof description !== "string" || description.length > 2000) {
     throw Object.assign(new Error("description must be a string of at most 2000 characters."), { status: 400 });
   }
-  if (!["string", "number"].includes(typeof price) || !String(price).trim() || String(price).length > 50) {
-    throw Object.assign(new Error("price must be a short non-empty string or number."), { status: 400 });
+  const rawPrice = String(price ?? "").trim();
+  const numericPriceText = rawPrice.replace(/[,$\\s]/g, "");
+  if (!rawPrice || rawPrice.length > 50 || !/^\\d+(?:\\.\\d{1,2})?$/.test(numericPriceText)) {
+    throw Object.assign(new Error("price must be a non-negative amount with at most two decimal places."), { status: 400 });
+  }
+  const numericPrice = Number(numericPriceText);
+  if (!Number.isFinite(numericPrice) || numericPrice > 1_000_000_000) {
+    throw Object.assign(new Error("price is outside the supported range."), { status: 400 });
   }
   if (sessionId !== undefined && (typeof sessionId !== "string" || sessionId.length > 128)) {
     throw Object.assign(new Error("sessionId must be a string of at most 128 characters."), { status: 400 });
@@ -98,7 +105,8 @@ function validateCommercialInput(body) {
     images,
     productName: productName.trim(),
     description: description.trim(),
-    price: String(price),
+    price: numericPrice,
+    displayPrice: `${numericPrice.toFixed(2)}`,
     sessionId: sessionId || null,
   };
 }
@@ -152,7 +160,7 @@ export async function POST(request) {
 
     enforceCommercialRateLimit(tenantId);
     const body = await readBoundedJson(request);
-    const { listingId, images, productName, description, price, sessionId } = validateCommercialInput(body);
+    const { listingId, images, productName, description, price, displayPrice, sessionId } = validateCommercialInput(body);
 
     // Verify the listing being turned into a commercial actually belongs
     // to the caller's tenant before creating anything or spending on the
@@ -182,7 +190,7 @@ export async function POST(request) {
     });
 
     try {
-      await queueVideoGeneration(jobId, { tenantId, listingId, images, productName, description, price });
+      await queueVideoGeneration(jobId, { tenantId, listingId, images, productName, description, price: displayPrice });
       await rest(
         process.env,
         "PATCH",
