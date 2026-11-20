@@ -182,7 +182,7 @@ export async function POST(request) {
     });
 
     try {
-      await queueVideoGeneration(jobId, { listingId, images, productName, description, price });
+      await queueVideoGeneration(jobId, { tenantId, listingId, images, productName, description, price });
       await rest(
         process.env,
         "PATCH",
@@ -243,6 +243,7 @@ async function queueVideoGeneration(jobId, data) {
   const payload = {
     type: "generate_commercial",
     job_id: jobId,
+    tenant_id: data.tenantId,
     listing_id: data.listingId,
     product_name: data.productName,
     images: data.images,
