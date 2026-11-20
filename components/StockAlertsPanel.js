@@ -85,6 +85,15 @@ export default function StockAlertsPanel() {
   }, []);
 
   useEffect(() => {
+    const interval = setInterval(() => {
+      api("/api/stock-alerts")
+        .then((data) => setAlerts(data.alerts || []))
+        .catch((err) => console.error("[StockAlertsPanel] alert refresh:", err.message));
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     if (!settings.email_enabled || !emailAvailable) return;
     const deliverPending = () => {
       api("/api/stock-alerts", {
