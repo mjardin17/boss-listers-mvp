@@ -85,71 +85,45 @@ if (!card.frontImage) {
 console.log(`\n📦  Card selected: ${card.id}`);
 console.log(`    ${card.fields?.player ?? "?"} | ${card.fields?.set ?? "?"} | ${card.fields?.year ?? "?"} | ${card.fields?.cardNumber ?? "?"}`);
 
-// ── Resolve photo path → file:// URL ──────────────────────────────────────────
-// frontImage is stored as "/uploads/filename.jpg" (a Next.js public path)
-// In a Remotion renderMedia context, we can't serve via localhost without the
-// dev server running. We use the absolute local file:// path instead.
+// ── Resolve photo path & encode as base64 Data URI ─────────────────────────
+// Remotion renders inside Chrome headless. Local file:// URLs are blocked by Chrome security,
+// and localhost:3000 only serves the webpack bundle.
+// Converting the image to a base64 data URI allows Chrome to load the image directly
+// with zero network requests and no security blocks.
 
-function frontImageToFileUrl(frontImage) {
-  // e.g. "/uploads/1788198862494-....jpg"
+function frontImageToAbsPath(frontImage) {
   const relative = frontImage.startsWith("/")
     ? frontImage.slice(1)
     : frontImage;
-  const abs = path.join(ROOT, "public", relative);
-  return { abs, fileUrl: `file:///${abs.replace(/\\/g, "/")}` };
+  return path.join(ROOT, "public", relative);
 }
 
-const { abs: photoAbsPath, fileUrl: rawPhotoUrl } = frontImageToFileUrl(card.frontImage);
+const photoAbsPath = frontImageToAbsPath(card.frontImage);
 
 if (!fs.existsSync(photoAbsPath)) {
   console.error(`\n❌ Photo not found on disk: ${photoAbsPath}\n`);
   process.exit(1);
 }
 
-// ── EXIF auto-rotation ────────────────────────────────────────────────────────
-// The Oddish photo has EXIF orientation=6 (90° CW rotation).
-// Remotion's browser renderer blocks file:// URLs for security reasons.
-// Strategy: rotate the image into public/uploads/ (already gitignored) and
-// reference it as a public-dir path so Remotion can serve it over localhost.
-
-// publicDir that Remotion will serve (same as Next.js public folder)
-const publicDir = path.join(ROOT, "public");
-
-let photoPublicRelPath = null; // e.g. "/uploads/rotated-....jpg"
-let tempRotatedPath = null;    // absolute path of the temp file (for cleanup)
-
-// Raw public path from the vault (e.g. "/uploads/original.jpg")
-const rawPublicRelPath = card.frontImage; // "/uploads/..."
+// ── EXIF auto-rotation & base64 Data URL ──────────────────────────────────────
+let photoUrl = "";
 
 try {
   const sharp = require("sharp");
-  const rotatedFilename = `showcase-rotated-${Date.now()}.jpg`;
-  tempRotatedPath = path.join(publicDir, "uploads", rotatedFilename);
-
-  console.log(`\n🔄  Auto-rotating photo (sharp, EXIF-aware) → ${tempRotatedPath}`);
-  await sharp(photoAbsPath)
+  console.log(`\n🔄  Auto-rotating and encoding photo (sharp, EXIF-aware) …`);
+  const rotatedBuffer = await sharp(photoAbsPath)
     .rotate() // auto-rotate based on EXIF orientation
-    .jpeg({ quality: 95 })
-    .toFile(tempRotatedPath);
+    .resize({ width: 1200, withoutEnlargement: true }) // optimize size for reel
+    .jpeg({ quality: 90 })
+    .toBuffer();
 
-  photoPublicRelPath = `/uploads/${rotatedFilename}`;
-  console.log(`    ✅ Rotation applied. Public path: ${photoPublicRelPath}`);
+  photoUrl = `data:image/jpeg;base64,${rotatedBuffer.toString("base64")}`;
+  console.log(`    ✅ Image encoded as Data URI (${Math.round(photoUrl.length / 1024)} KB)`);
 } catch (err) {
-  if (err.code === "MODULE_NOT_FOUND") {
-    console.warn(
-      `\n⚠️  sharp not found — using raw photo (EXIF rotation NOT applied).\n` +
-        `   Install with: pnpm add sharp\n`
-    );
-  } else {
-    console.warn(`\n⚠️  sharp auto-rotate failed: ${err.message}\n   Using raw photo.\n`);
-  }
-  // Fall back to original (may be sideways for Oddish)
-  photoPublicRelPath = rawPublicRelPath;
+  console.warn(`\n⚠️  sharp processing failed: ${err.message}\n   Falling back to raw file buffer.\n`);
+  const rawBuffer = fs.readFileSync(photoAbsPath);
+  photoUrl = `data:image/jpeg;base64,${rawBuffer.toString("base64")}`;
 }
-
-// Remotion serves publicDir at the bundle root; paths are accessed as "/" + relative
-// The <Img> src in the composition will be e.g. "/uploads/showcase-rotated-....jpg"
-const photoFileUrl = photoPublicRelPath;
 
 // ── Build CardShowcaseProps ───────────────────────────────────────────────────
 const f = card.fields ?? {};
@@ -170,7 +144,7 @@ const cardShowcaseProps = {
   setName,
   year,
   cardNumber,
-  photoUrl: photoFileUrl,
+  photoUrl,
   suggestedPrice,
   brandName: "JARDIN'S OUTPOST",
   subBrand: "BOSSLISTERS",
@@ -246,10 +220,7 @@ await renderMedia({
 process.stdout.write("\n");
 console.log(`\n✅  Render complete!`);
 
-// ── Cleanup temp file ─────────────────────────────────────────────────────────
-if (tempRotatedPath && fs.existsSync(tempRotatedPath)) {
-  fs.unlinkSync(tempRotatedPath);
-}
+
 
 // ── Report ────────────────────────────────────────────────────────────────────
 const stat = fs.statSync(outputFile);
