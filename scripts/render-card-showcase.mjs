@@ -12,7 +12,7 @@
  * Requirements:
  *   - data/card-vault.json must exist (not committed — personal data)
  *   - Remotion + bundler + renderer installed (pnpm)
- *   - sharp installed for EXIF auto-rotation
+ *   - python + opencv-python-headless, numpy, pillow (scripts/crop_card.py isolates the card)
  */
 
 import { bundle } from "@remotion/bundler";
@@ -22,6 +22,7 @@ import { fileURLToPath } from "url";
 import { createRequire } from "module";
 import os from "os";
 import fs from "fs";
+import { spawnSync } from "child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -105,25 +106,40 @@ if (!fs.existsSync(photoAbsPath)) {
   process.exit(1);
 }
 
-// ── EXIF auto-rotation & base64 Data URL ──────────────────────────────────────
-let photoUrl = "";
+// ── Card-only crop (no hands, no room) & base64 Data URL ─────────────────────
+// The reel must show ONLY the card. scripts/crop_card.py finds the card,
+// flattens it and cuts it out with rounded corners. Results are cached in
+// public/uploads/cards-cropped/. If the crop fails we STOP: rendering the raw
+// phone photo is never an acceptable fallback.
+const croppedDir = path.join(ROOT, "public", "uploads", "cards-cropped");
+const croppedPath = path.join(
+  croppedDir,
+  path.basename(photoAbsPath).replace(/\.[^.]+$/, "") + ".png"
+);
 
-try {
-  const sharp = require("sharp");
-  console.log(`\n🔄  Auto-rotating and encoding photo (sharp, EXIF-aware) …`);
-  const rotatedBuffer = await sharp(photoAbsPath)
-    .rotate() // auto-rotate based on EXIF orientation
-    .resize({ width: 1200, withoutEnlargement: true }) // optimize size for reel
-    .jpeg({ quality: 90 })
-    .toBuffer();
-
-  photoUrl = `data:image/jpeg;base64,${rotatedBuffer.toString("base64")}`;
-  console.log(`    ✅ Image encoded as Data URI (${Math.round(photoUrl.length / 1024)} KB)`);
-} catch (err) {
-  console.warn(`\n⚠️  sharp processing failed: ${err.message}\n   Falling back to raw file buffer.\n`);
-  const rawBuffer = fs.readFileSync(photoAbsPath);
-  photoUrl = `data:image/jpeg;base64,${rawBuffer.toString("base64")}`;
+if (!fs.existsSync(croppedPath)) {
+  fs.mkdirSync(croppedDir, { recursive: true });
+  console.log(`\n✂️  Cropping card out of photo …`);
+  const py = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
+  const res = spawnSync(py, [path.join(ROOT, "scripts", "crop_card.py"), photoAbsPath, croppedPath], {
+    encoding: "utf8",
+  });
+  if (res.error || res.status !== 0) {
+    const reason = res.error?.message || (res.stderr || "").trim() || `exit ${res.status}`;
+    console.error(
+      `\n❌ Could not isolate the card from the photo: ${reason}\n` +
+        (res.status === 3
+          ? `   Install deps: ${py} -m pip install opencv-python-headless numpy pillow\n`
+          : `   Retake the photo with the card flat on a plain surface, then re-run.\n`) +
+        `   Not rendering — the raw photo (hand/background) is never used.\n`
+    );
+    process.exit(1);
+  }
 }
+
+const croppedBuffer = fs.readFileSync(croppedPath);
+const photoUrl = `data:image/png;base64,${croppedBuffer.toString("base64")}`;
+console.log(`    ✅ Card-only image: ${path.relative(ROOT, croppedPath)} (${Math.round(croppedBuffer.length / 1024)} KB)`);
 
 // ── Build CardShowcaseProps ───────────────────────────────────────────────────
 const f = card.fields ?? {};
@@ -162,7 +178,7 @@ console.log(`    Card #     : ${cardShowcaseProps.cardNumber}`);
 console.log(
   `    Price      : ${cardShowcaseProps.suggestedPrice !== null ? `$${cardShowcaseProps.suggestedPrice.toFixed(2)}` : "(none — not stored in vault)"}`
 );
-console.log(`    Photo URL  : ${cardShowcaseProps.photoUrl}`);
+console.log(`    Card image : ${path.relative(ROOT, croppedPath)}`);
 
 // ── Output path ───────────────────────────────────────────────────────────────
 const slug = card.id.replace(/[^a-z0-9-]/gi, "-").toLowerCase();

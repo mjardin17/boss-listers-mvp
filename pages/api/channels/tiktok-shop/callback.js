@@ -12,7 +12,11 @@
 // signals success via a JSON body with code === 0 — NOT via HTTP status,
 // which is 200 for most auth failures too. grant_type must be exactly
 // "authorized_code" (TikTok's own non-standard spelling), not the usual
-// OAuth "authorization_code".
+// OAuth "authorization_code". Token host is shared for US and ROW and
+// resolves from TIKTOK_SHOP_REGION / TIKTOK_SHOP_AUTH_HOST (default US).
+// See lib/tiktokShopHosts.js.
+
+import { getTikTokShopHosts } from "../../../../lib/tiktokShopHosts";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -46,7 +50,7 @@ export default async function handler(req, res) {
       auth_code: code,
       grant_type: "authorized_code",
     });
-    const tokenRes = await fetch(`https://auth.tiktok-shops.com/api/v2/token/get?${params.toString()}`, {
+    const tokenRes = await fetch(`${getTikTokShopHosts().tokenGetUrl}?${params.toString()}`, {
       signal: AbortSignal.timeout(15_000),
     });
     tokenBody = await tokenRes.json().catch(() => null);
