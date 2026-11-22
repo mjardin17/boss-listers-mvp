@@ -34,11 +34,17 @@ export default function OmniLister() {
   const [commercialError, setCommercialError] = useState(null);
 
   const handleCutCommercials = async () => {
-    const rawPrice = result?.price || result?.price_recommendation;
-    if (!rawPrice) {
-      alert("CRITICAL: Product record has no price set. STOPPING — never invent one.");
+    const savedProductId = saveStatus?.product?.id;
+    const savedPrice = Number(saveStatus?.product?.price);
+    if (!savedProductId) {
+      alert("Save this product to inventory first. The commercial generator uses the saved inventory record.");
       return;
     }
+    if (!Number.isFinite(savedPrice) || savedPrice <= 0) {
+      alert("The saved inventory record has no valid price. Update the product price before generating a commercial.");
+      return;
+    }
+
     setCuttingCommercials(true);
     setCommercialError(null);
     try {
@@ -46,13 +52,7 @@ export default function OmniLister() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          productId: saveStatus?.id || null,
-          title: result?.title || result?.name || "Product",
-          brand: result?.brand || "Brand",
-          condition: result?.condition || "new",
-          price: rawPrice,
-          freeShipping: true,
-          slug: result?.sku?.toLowerCase() || "commercial",
+          productId: savedProductId,
           stills: [
             "/styleframes/wc-shorts/styleframe_amazon_white_front_0deg.png",
             "/styleframes/wc-shorts/styleframe_amazon_white_angle_45deg.png",
