@@ -8,10 +8,12 @@
 //   - hidden "website" honeypot field: bots that fill it get a fake success
 //   - consent is required; the page must belong to an ACTIVE campaign
 //   - Idempotency-Key header replays the first result instead of duplicating
-// It only writes a lead into the CRM. It never sends, posts or contacts anyone.
+// It writes a lead into the CRM and an alert into the owner's inbox. The only
+// outbound call is the optional owner alert (LEAD_ALERT_WEBHOOK_URL), with no
+// personal details. It never contacts the visitor.
 
 const { enforceRateLimit } = require("../../../lib/rateLimit");
-const { captureLead } = require("../../../lib/universal-creative/business-center.js");
+const { captureLead, pushLeadAlert } = require("../../../lib/universal-creative/business-center.js");
 const { ZodError } = require("zod");
 
 const MAX_BODY_KEYS = 10;
@@ -38,7 +40,11 @@ export default async function handler(req, res) {
 
   try {
     const { website, ...fields } = body;
-    captureLead(slug, fields, idempotencyKey);
+    const result = captureLead(slug, fields, idempotencyKey);
+    if (!result.replayed && result.alertId) {
+      const push = await pushLeadAlert(result.alertId);
+      if (!push.sent && push.reason !== "not configured") console.warn("[lead-capture] alert push:", push.reason);
+    }
     // Do not echo CRM ids to the public.
     return res.status(200).json({ ok: true });
   } catch (err) {

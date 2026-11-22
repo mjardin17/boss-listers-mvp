@@ -95,3 +95,46 @@ test("lead capture rejects pages whose campaign is not active", () => {
     /Page not found/
   );
 });
+
+test("each new lead adds one unread alert; replays do not", () => {
+  const before = bc.listAlerts().length;
+  const r = bc.captureLead("summer", { firstName: "D", lastName: "E", email: "d@example.com", consent: true }, "alert-k");
+  bc.captureLead("summer", { firstName: "D", lastName: "E", email: "d@example.com", consent: true }, "alert-k");
+  const alerts = bc.listAlerts();
+  assert.equal(alerts.length, before + 1);
+  assert.equal(alerts[0].id, r.alertId);
+  assert.equal(alerts[0].type, "new-lead");
+  assert.equal(alerts[0].read, false);
+  assert.ok(!("email" in alerts[0]) && !("firstName" in alerts[0]), "alerts hold no personal details");
+});
+
+test("alerts can be marked read one at a time or all at once", () => {
+  const unread = bc.unreadAlertCount();
+  assert.ok(unread >= 1);
+  const first = bc.listAlerts({ unreadOnly: true })[0];
+  bc.markAlertRead(first.id);
+  assert.equal(bc.unreadAlertCount(), unread - 1);
+  assert.throws(() => bc.markAlertRead("missing"), /Alert not found/);
+  bc.markAllAlertsRead();
+  assert.equal(bc.unreadAlertCount(), 0);
+});
+
+test("phone push is off by default and never leaks personal details", async () => {
+  delete process.env.LEAD_ALERT_WEBHOOK_URL;
+  const id = bc.listAlerts()[0].id;
+  assert.deepEqual(await bc.pushLeadAlert(id), { sent: false, reason: "not configured" });
+
+  process.env.LEAD_ALERT_WEBHOOK_URL = "http://insecure.example.com/x";
+  assert.equal((await bc.pushLeadAlert(id)).reason, "webhook must be https");
+
+  process.env.LEAD_ALERT_WEBHOOK_URL = "https://push.example.com/topic";
+  let sentBody = "";
+  const ok = await bc.pushLeadAlert(id, async (_url, opts) => { sentBody = opts.body; return { ok: true, status: 200 }; });
+  assert.equal(ok.sent, true);
+  assert.match(sentBody, /New lead on \/p\/summer/);
+  assert.doesNotMatch(sentBody, /@|example\.com|\bD\b/);
+
+  const failed = await bc.pushLeadAlert(id, async () => { throw new Error("down"); });
+  assert.deepEqual(failed, { sent: false, reason: "webhook failed" });
+  delete process.env.LEAD_ALERT_WEBHOOK_URL;
+});

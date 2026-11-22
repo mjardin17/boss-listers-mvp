@@ -15,6 +15,10 @@ import {
   listOpportunities,
   listLandingPages,
   createLandingPage,
+  listAlerts,
+  unreadAlertCount,
+  markAlertRead,
+  markAllAlertsRead,
 } from "../../../lib/universal-creative/business-center.js";
 import { ZodError } from "zod";
 
@@ -51,6 +55,10 @@ export async function GET(request) {
       return jsonResponse({ ok: true, opportunities: listOpportunities() });
     case "landing-pages":
       return jsonResponse({ ok: true, landingPages: listLandingPages() });
+    case "alerts": {
+      const unreadOnly = new URL(request.url).searchParams.get("unread") === "1";
+      return jsonResponse({ ok: true, unread: unreadAlertCount(), alerts: listAlerts({ unreadOnly }) });
+    }
     default:
       return jsonResponse({ ok: false, error: `Unknown action: ${action}` }, 400);
   }
@@ -71,6 +79,12 @@ export async function POST(request) {
       }
       case "run-audit":
         return jsonResponse({ ok: true, opportunities: runGrowthAudit() });
+      case "mark-alert-read": {
+        const body = await request.json();
+        return jsonResponse(markAlertRead(String(body?.alertId || "")));
+      }
+      case "mark-all-alerts-read":
+        return jsonResponse(markAllAlertsRead());
       case "create-landing-page":
         return jsonResponse({ ok: true, landingPage: createLandingPage(await request.json()) }, 201);
       default:
