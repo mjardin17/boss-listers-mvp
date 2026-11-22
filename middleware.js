@@ -104,7 +104,8 @@ export const config = {
   // before reaching the route's own auth check).
   // empire/* is the Empire OS contract (rewritten to api/empire/*): server-to-server calls that
   // authenticate with X-Empire-Key, so the Basic Auth prompt must not block them either.
+  // p/* are public Business Center landing pages (only active campaigns render; see pages/p/[slug].js).
   // PWA files must load without the Basic Auth prompt: browsers fetch the
   // manifest and icons without credentials, and a 401 there breaks installing.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|apple-touch-icon.png|api/|empire/).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|apple-touch-icon.png|p/|api/|empire/).*)'],
 };

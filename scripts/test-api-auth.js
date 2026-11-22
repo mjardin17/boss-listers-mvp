@@ -26,6 +26,7 @@ const PUBLIC_ALLOWLIST = new Set([
   "channels/amazon/callback.js",
   "channels/tiktok-shop/callback.js",
   "oauth/[platform]/callback.js",
+  "lead/[slug].js", // landing-page lead form: rate limit, honeypot, consent, active campaign only
 ]);
 
 // Reviewed: reject a missing token, then forward the caller's own bearer token
