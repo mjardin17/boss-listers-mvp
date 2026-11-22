@@ -142,7 +142,7 @@ function CapturePanel({ busy, onSaved }) {
         price: d.price || (Number(prod.price) > 0 ? String(prod.price) : ""),
         condition: d.condition || (CONDITIONS.includes(pick(prod.condition)) ? pick(prod.condition) : ""),
       }));
-      setMsg("Filled in from the photo. Check it and fix anything wrong.");
+      setMsg(j.lookedUp ? "Identified from the photo and checked online. Check it and fix anything wrong." : "Filled in from the photo. Check it and fix anything wrong.");
     } catch {
       setMsg("AI could not read it. Type the details below.");
     } finally {
