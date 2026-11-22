@@ -301,7 +301,7 @@ const E2E_TAG = `e2e-${Date.now()}`;
 function makeImageFile(dir, name, width, height) {
   const file = path.join(dir, name);
   const { spawnSync } = require("node:child_process");
-  const result = spawnSync("convert", [
+  const result = spawnSync(process.env.IMAGEMAGICK_PATH || "magick", [
     "-size", `${width}x${height}`,
     "xc:blue",
     file,
