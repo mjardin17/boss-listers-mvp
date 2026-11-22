@@ -102,7 +102,9 @@ export const config = {
   // with Bearer auth anyway (one Authorization header can't carry both
   // schemes, so a Bearer-authenticated fetch always got rejected here
   // before reaching the route's own auth check).
+  // empire/* is the Empire OS contract (rewritten to api/empire/*): server-to-server calls that
+  // authenticate with X-Empire-Key, so the Basic Auth prompt must not block them either.
   // PWA files must load without the Basic Auth prompt: browsers fetch the
   // manifest and icons without credentials, and a 401 there breaks installing.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|apple-touch-icon.png|api/).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon-192.png|icon-512.png|apple-touch-icon.png|api/|empire/).*)'],
 };

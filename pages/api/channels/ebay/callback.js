@@ -29,6 +29,9 @@ export default async function handler(req, res) {
   if (!code) {
     return res.status(400).json({ ok: false, error: "Missing authorization code" });
   }
+  if (!RUNAME) {
+    return res.status(500).json({ ok: false, error: "eBay redirect name is not configured." });
+  }
 
   // 1. Exchange the code for a refresh token using the APP's shared eBay
   // credentials (never per-tenant — one app registration serves every
