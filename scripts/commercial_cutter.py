@@ -17,9 +17,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from scripts.voice_music_factory import generate_4beat_narration
 
-FFMPEG_PATH = r"C:\Users\jjard\claude\viral-engine\ffmpeg_bin\ffmpeg.exe"
-FFPROBE_PATH = r"C:\Users\jjard\claude\viral-engine\ffmpeg_bin\ffprobe.exe"
-FONT_PATH = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "arialbd.ttf")
+FFMPEG_PATH = os.environ.get("FFMPEG_PATH", None)
+FFPROBE_PATH = os.environ.get("FFPROBE_PATH", None)
+FONT_PATH = os.environ.get("FONT_PATH", None)
 DEFAULT_MUSIC_PROMPT = "upbeat cheerful commercial background music, no vocals"
 
 TOTAL_FRAMES = 360  # 15.0s at 24fps

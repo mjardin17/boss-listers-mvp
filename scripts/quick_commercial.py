@@ -27,8 +27,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-FFMPEG = os.environ.get("FFMPEG_PATH", r"C:\Users\jjard\claude\viral-engine\ffmpeg_bin\ffmpeg.exe")
-FONT = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "arialbd.ttf")
+FFMPEG = os.environ.get("FFMPEG_PATH", None)
+FONT = os.environ.get("FONT_PATH", None)
 GOLD = (255, 215, 90)
 BEAT_SECONDS = 3.75
 FPS = 24

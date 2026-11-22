@@ -22,7 +22,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # Add commercial-maker-v6 to path to import v6's exact bg_remove engine when present;
 # otherwise fall back cleanly to local scripts/card_prep.py (OpenCV GrabCut / Card Cutout).
-v6_dir = Path(os.environ.get("COMMERCIAL_MAKER_V6_DIR", r"C:\Users\jjard\claude\commercial-maker-v6"))
+v6_dir = Path(os.environ.get("COMMERCIAL_MAKER_V6_DIR", ""))
 _HAS_V6_RMBG = False
 if (v6_dir / "lib" / "bg_remove.py").exists():
     sys.path.insert(0, str(v6_dir))

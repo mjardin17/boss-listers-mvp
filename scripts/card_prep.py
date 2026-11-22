@@ -406,7 +406,7 @@ def try_rmbg_sidecar(input_path, output_path):
 
 def try_v6_rmbg_module(input_path, output_path):
     """Try Commercial Maker v6's local RMBG-1.4 module when present on Windows PC."""
-    v6_dir = Path(os.environ.get("COMMERCIAL_MAKER_V6_DIR", r"C:\Users\jjard\claude\commercial-maker-v6"))
+    v6_dir = Path(os.environ.get("COMMERCIAL_MAKER_V6_DIR", ""))
     if not (v6_dir / "lib" / "bg_remove.py").exists():
         return None
     try:
