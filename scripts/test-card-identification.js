@@ -103,3 +103,39 @@ test("card scan rate limiter allows 12 requests and blocks the 13th per tenant/u
   for (let i = 0; i < 12; i += 1) enforceCardScanRateLimit(key);
   assert.throws(() => enforceCardScanRateLimit(key), (error) => error.status === 429);
 });
+
+test("with no Gemini key, Claude reads the card and fenced JSON is accepted", async () => {
+  let captured;
+  const result = await identifyCard({
+    frontBytes: Buffer.from("fake"),
+    frontMime: "image/jpeg",
+    apiKey: "",
+    anthropicApiKey: "test-anthropic-key",
+    claudeModel: "claude-test",
+    fetchImpl: async (url, options) => {
+      captured = { url, options };
+      const text = "```json\n" + JSON.stringify({ candidates: [fields], frontOcrText: "Oddish 58/102" }) + "\n```";
+      return { ok: true, json: async () => ({ content: [{ type: "text", text }] }) };
+    },
+  });
+  assert.equal(captured.url, "https://api.anthropic.com/v1/messages");
+  assert.equal(captured.options.headers["x-api-key"], "test-anthropic-key");
+  assert.equal(JSON.parse(captured.options.body).model, "claude-test");
+  assert.equal(result.fields.player, "Oddish");
+  assert.notEqual(result.status, "unknown");
+});
+
+test("Gemini is preferred when both keys are set", async () => {
+  let url;
+  await identifyCard({
+    frontBytes: Buffer.from("fake"),
+    frontMime: "image/jpeg",
+    apiKey: "gemini-key",
+    anthropicApiKey: "anthropic-key",
+    fetchImpl: async (u) => {
+      url = u;
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ candidates: [fields] }) }] } }] }) };
+    },
+  });
+  assert.match(url, /generativelanguage\.googleapis\.com/);
+});

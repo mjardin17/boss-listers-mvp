@@ -7,6 +7,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const { requireSession } = require("../../../lib/requireSession");
 const { enforceTenantRateLimit } = require("../../../lib/rateLimit");
+const { extractJsonObject } = require("../../../lib/openaiVision");
 
 const ALLOWED_MEDIA_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
@@ -48,7 +49,7 @@ export default async function handler(req, res) {
     // Call Claude with vision to analyze product image
     const response = await client.messages.create({
       model: process.env.ANTHROPIC_VISION_MODEL || "claude-sonnet-5-5",
-      max_tokens: 1024,
+      max_tokens: 2048,
       messages: [
         {
           role: "user",
@@ -106,9 +107,10 @@ IMPORTANT: Return ONLY the JSON object, no other text.`,
     // Parse the JSON response
     let productData;
     try {
-      productData = JSON.parse(textContent.text);
+      // Models often wrap JSON in ```json fences or add a sentence; take the object itself.
+      productData = JSON.parse(extractJsonObject(textContent.text));
     } catch (err) {
-      console.error("Failed to parse Claude response:", textContent.text.slice(0, 500));
+      console.error("Failed to parse Claude response (stop_reason=%s):", response.stop_reason, textContent.text.slice(0, 500));
       return res.status(502).json({
         ok: false,
         error: "Could not read product data from the image. Please try again.",

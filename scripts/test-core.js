@@ -342,3 +342,10 @@ test("cross-list titles still prepend a brand the title is missing", () => {
 
   assert.equal(draft.title.startsWith("Hot Wheels 2023 Treasure Hunt"), true);
 });
+
+test("product photo analysis accepts AI JSON wrapped in code fences or chatter", () => {
+  const { extractJsonObject } = require("../lib/openaiVision");
+  assert.equal(JSON.parse(extractJsonObject("```json\n{\"title\":\"Oddish\"}\n```")).title, "Oddish");
+  assert.equal(JSON.parse(extractJsonObject("Here it is: {\"sku\":\"001/196\"} done")).sku, "001/196");
+  assert.equal(JSON.parse(extractJsonObject("{\"a\":1}")).a, 1);
+});

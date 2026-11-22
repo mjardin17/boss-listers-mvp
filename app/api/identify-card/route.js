@@ -88,6 +88,8 @@ async function handler(request, _context, session) {
       backMime: back?.mime,
       apiKey: process.env.GEMINI_API_KEY,
       model: process.env.GEMINI_CARD_MODEL || "gemini-2.0-flash",
+      anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+      claudeModel: process.env.ANTHROPIC_CARD_MODEL || process.env.ANTHROPIC_VISION_MODEL || "claude-sonnet-5-5",
       fetchImpl: (url, options) => fetch(url, {
         ...options,
         signal: AbortSignal.timeout(45000),
