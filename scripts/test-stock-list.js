@@ -41,7 +41,7 @@ test("a new item is saved as an unlisted draft that the store and the sync both 
   assert.strictEqual(out.ok, true);
   assert.deepStrictEqual(out.row, {
     tenant_id: "t1", sku: "IH-" + (1700000000000).toString(36).toUpperCase(), title: "Canvas tote bag", description: null,
-    price: 0, quantity: 2, condition: "used", location: "Shelf A3", image_url: null,
+    price: 0, cost: null, quantity: 2, condition: "used", location: "Shelf A3", image_url: null, image_urls: null,
     status: "draft", source: "manual", published: false, approved_at: null,
   });
 });
@@ -97,4 +97,49 @@ test("only an in-house item that was put away can be brought back; an ended eBay
   assert.strictEqual(canBringBack(item({ status: "ended", source: "ebay", ebay_listing_id: "5" })), false);
   assert.strictEqual(canBringBack(item({ status: "ended", ebay_listing_id: "5" })), false);
   assert.strictEqual(canBringBack(item()), false);
+});
+
+const { parseCost, profitPerUnit, photoChanges, MAX_PHOTOS } = require("../lib/stockList");
+
+test("what Josh paid: blank is not recorded, numbers round to the cent, bad values are refused", () => {
+  assert.deepStrictEqual(parseCost(""), { ok: true, cost: null });
+  assert.deepStrictEqual(parseCost(undefined), { ok: true, cost: null });
+  assert.deepStrictEqual(parseCost("3.456"), { ok: true, cost: 3.46 });
+  assert.deepStrictEqual(parseCost(0), { ok: true, cost: 0 });
+  assert.strictEqual(parseCost("-1").ok, false);
+  assert.strictEqual(parseCost("abc").ok, false);
+});
+
+test("a new item keeps what Josh paid and its description", () => {
+  const out = newItemRow({ title: "Funko Pop", cost: "4.50", price: "20", description: "  boxed  " }, { tenantId: "t1", now: 1 });
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.row.cost, 4.5);
+  assert.strictEqual(out.row.description, "boxed");
+  assert.strictEqual(out.row.image_urls, null);
+  assert.strictEqual(newItemRow({ title: "x", cost: "-2" }, { tenantId: "t1" }).ok, false);
+});
+
+test("profit per unit needs both a price and what was paid", () => {
+  assert.strictEqual(profitPerUnit({ price: 20, cost: 4.5 }), 15.5);
+  assert.strictEqual(profitPerUnit({ price: 3, cost: 5 }), -2);
+  assert.strictEqual(profitPerUnit({ price: 20, cost: null }), null);
+  assert.strictEqual(profitPerUnit({ price: 0, cost: 2 }), null);
+});
+
+test("editing can change what was paid and the description, without un-approving", () => {
+  const approved = item({ approved_at: "2026-11-12T10:00:00Z", cost: 1 });
+  const out = editableFields(approved, { cost: "2.5", description: "new words" });
+  assert.deepStrictEqual(out, { ok: true, changes: { cost: 2.5, description: "new words" } });
+  assert.strictEqual(editableFields(approved, { cost: "x" }).ok, false);
+});
+
+test("photos: the first is the main one, more are added after it, replace swaps only the main", () => {
+  const none = item({ image_url: null, image_urls: null });
+  assert.deepStrictEqual(photoChanges(none, "u1").changes, { image_url: "u1", image_urls: ["u1"] });
+  const one = item({ image_url: "u1", image_urls: null });
+  assert.deepStrictEqual(photoChanges(one, "u2").changes, { image_url: "u1", image_urls: ["u1", "u2"] });
+  const two = item({ image_url: "u1", image_urls: ["u1", "u2"] });
+  assert.deepStrictEqual(photoChanges(two, "u9", { replace: true }).changes, { image_url: "u9", image_urls: ["u9", "u2"] });
+  const full = item({ image_url: "a", image_urls: Array.from({ length: MAX_PHOTOS }, (_, i) => `u${i}`) });
+  assert.strictEqual(photoChanges(full, "x").ok, false);
 });

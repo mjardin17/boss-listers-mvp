@@ -2,6 +2,7 @@
 // The in-house stock list: everything Josh physically has, listed or not. Owner session only.
 //   GET  → { items: [...with stage and what is missing], summary, stages }
 //   POST → { action: "add" | "update" | "approve" | "unapprove" | "archive" | "restore" | "photo", ... }
+//          "photo" adds one more photo (up to 9); with replace: true it swaps the main photo.
 // Nothing here lists, posts or changes any selling site. The count of an item that is live on
 // a selling site is kept by the automatic sync and cannot be typed in here.
 
@@ -9,7 +10,7 @@ const { loadEnvConfig } = require("@next/env");
 const { requireOwnerSession } = require("../../lib/requireSession");
 const { listStock, getStockItem, insertStockItem, updateStockItem } = require("../../lib/supabaseInventory");
 const { uploadPublicImage } = require("../../lib/supabaseStorage");
-const { STAGES, stockStage, missingForApproval, newItemRow, editableFields, summarize, canBringBack, isDigital } = require("../../lib/stockList");
+const { STAGES, stockStage, missingForApproval, newItemRow, editableFields, summarize, canBringBack, isDigital, profitPerUnit, photoChanges } = require("../../lib/stockList");
 const { digitalSkus: DIGITAL_SKUS = [] } = require("../../config/inventory-sync.json");
 
 const SKU_RULE = /^[A-Za-z0-9._-]{1,80}$/;
@@ -19,15 +20,15 @@ const PHOTO_EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp
 
 export const config = { api: { bodyParser: { sizeLimit: "12mb" } } };
 
-const present = (p) => ({ ...p, stage: stockStage(p), missing: missingForApproval(p), digital: isDigital(p, DIGITAL_SKUS), canBringBack: canBringBack(p) });
+const present = (p) => ({ ...p, stage: stockStage(p), missing: missingForApproval(p), digital: isDigital(p, DIGITAL_SKUS), canBringBack: canBringBack(p), profit: profitPerUnit(p) });
 const bad = (res, error, status = 400) => res.status(status).json({ ok: false, error });
 
-async function savePhoto(sku, dataUrl) {
+async function savePhoto(sku, dataUrl, index) {
   const m = PHOTO_RULE.exec(String(dataUrl || ""));
   if (!m) return { error: "The photo must be a JPEG, PNG or WebP image" };
   const buffer = Buffer.from(m[2], "base64");
   if (!buffer.length || buffer.length > MAX_PHOTO_BYTES) return { error: "The photo is too large (8 MB at most)" };
-  return { url: await uploadPublicImage(buffer, `${sku}.${PHOTO_EXT[m[1]]}`, m[1]) };
+  return { url: await uploadPublicImage(buffer, `${sku}-${index}-${Date.now().toString(36)}.${PHOTO_EXT[m[1]]}`, m[1]) };
 }
 
 async function act(session, body) {
@@ -64,9 +65,12 @@ async function act(session, body) {
     changes = { status: "draft", approved_at: null };
   } else if (action === "photo") {
     if (stage === "listed" || stage === "sold") return { status: 400, error: "The photo of a listed item is managed on its selling site" };
-    const photo = await savePhoto(sku, body.photo);
+    const count = Array.isArray(current.image_urls) ? current.image_urls.length : current.image_url ? 1 : 0;
+    const photo = await savePhoto(sku, body.photo, count + 1);
     if (photo.error) return { status: 400, error: photo.error };
-    changes = { image_url: photo.url, approved_at: null };
+    const next = photoChanges(current, photo.url, { replace: body.replace === true });
+    if (!next.ok) return { status: 400, error: next.error };
+    changes = { ...next.changes, approved_at: null };
   } else {
     return { status: 400, error: "Unknown action" };
   }
