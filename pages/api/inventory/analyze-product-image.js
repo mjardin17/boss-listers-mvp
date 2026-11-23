@@ -8,7 +8,7 @@ import Anthropic from "@anthropic-ai/sdk";
 const { requireSession } = require("../../../lib/requireSession");
 const { enforceTenantRateLimit } = require("../../../lib/rateLimit");
 const { extractJsonObject } = require("../../../lib/openaiVision");
-const { needsLookup, searchItem } = require("../../../lib/firecrawlLookup");
+const { needsLookup, searchItem, soldPrices } = require("../../../lib/firecrawlLookup");
 
 const ALLOWED_MEDIA_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
@@ -160,10 +160,13 @@ Using the photo and only results that match it, correct the identification, titl
       }
     }
 
+    const sold = await soldPrices(productData.title || productData.identified_as);
+
     return res.status(200).json({
       ok: true,
       product: productData,
       lookedUp,
+      sold,
       message: "Product information extracted successfully",
     });
   } catch (err) {

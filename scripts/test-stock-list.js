@@ -143,3 +143,13 @@ test("photos: the first is the main one, more are added after it, replace swaps 
   const full = item({ image_url: "a", image_urls: Array.from({ length: MAX_PHOTOS }, (_, i) => `u${i}`) });
   assert.strictEqual(photoChanges(full, "x").ok, false);
 });
+
+const { pickSold } = require("../lib/firecrawlLookup");
+
+test("sold prices: keeps real numbers and safe links, drops empty or broken replies", () => {
+  const out = pickSold({ low: 2.391, median: 41.02, high: 113.67, count: 4, sourceUrls: ["https://a.b/x", "javascript:alert(1)"] });
+  assert.deepStrictEqual(out, { low: 2.39, median: 41.02, high: 113.67, count: 4, sourceUrls: ["https://a.b/x"] });
+  assert.strictEqual(pickSold({ low: null, median: null, high: null, count: 0 }), null);
+  assert.strictEqual(pickSold({ low: 1, median: "x", high: 3, count: 2 }), null);
+  assert.strictEqual(pickSold(null), null);
+});
