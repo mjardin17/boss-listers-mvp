@@ -153,3 +153,22 @@ test("sold prices: keeps real numbers and safe links, drops empty or broken repl
   assert.strictEqual(pickSold({ low: 1, median: "x", high: 3, count: 2 }), null);
   assert.strictEqual(pickSold(null), null);
 });
+
+const { summarizeEbayListings, shortQuery } = require("../lib/itemPriceSearch");
+
+test("eBay asking prices: fixed-price US listings only, middle price, clean eBay links", () => {
+  const out = summarizeEbayListings({ itemSummaries: [
+    { price: { value: "3.00", currency: "USD" }, buyingOptions: ["FIXED_PRICE"], itemWebUrl: "https://www.ebay.com/itm/1?x=y" },
+    { price: { value: "1.00", currency: "USD" }, buyingOptions: ["FIXED_PRICE", "BEST_OFFER"], itemWebUrl: "https://www.ebay.com/itm/2" },
+    { price: { value: "50", currency: "USD" }, buyingOptions: ["AUCTION"] },
+    { price: { value: "9", currency: "GBP" }, buyingOptions: ["FIXED_PRICE"] },
+  ] });
+  assert.deepStrictEqual(out, { low: 1, median: 2, high: 3, count: 2, sourceUrls: ["https://www.ebay.com/itm/1", "https://www.ebay.com/itm/2"] });
+  assert.strictEqual(summarizeEbayListings({ itemSummaries: [] }), null);
+  assert.strictEqual(summarizeEbayListings(null), null);
+});
+
+test("search words: long AI titles are cut to the first few words", () => {
+  assert.strictEqual(shortQuery("Pokémon TCG Oddish 001/196 Lost Origin Common Grass Basic Card 2022"), "Pokémon TCG Oddish 001/196 Lost Origin Common");
+  assert.strictEqual(shortQuery(""), "");
+});

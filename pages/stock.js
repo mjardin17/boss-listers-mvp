@@ -118,6 +118,7 @@ function CapturePanel({ busy, onSaved }) {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [sold, setSold] = useState(null); // real sold prices for similar items
+  const [listed, setListed] = useState(null); // eBay asking prices right now
   const set =(k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const full = pics.length >= MAX_PHOTOS;
   const locked = busy || saving || full;
@@ -140,10 +141,11 @@ function CapturePanel({ busy, onSaved }) {
         ...d,
         title: d.title || pick(prod.title).slice(0, 255),
         description: d.description || pick(prod.description),
-        price: d.price || (j.sold ? String(j.sold.median) : Number(prod.price) > 0 ? String(prod.price) : ""),
+        price: d.price || (j.sold ? String(j.sold.median) : j.listed ? String(j.listed.median) : Number(prod.price) > 0 ? String(prod.price) : ""),
         condition: d.condition || (CONDITIONS.includes(pick(prod.condition)) ? pick(prod.condition) : ""),
       }));
       setSold(j.sold || null);
+      setListed(j.listed || null);
       setMsg(j.lookedUp ? "Identified from the photo and checked online. Check it and fix anything wrong." : "Filled in from the photo. Check it and fix anything wrong.");
     } catch {
       setMsg("AI could not read it. Type the details below.");
@@ -191,6 +193,7 @@ function CapturePanel({ busy, onSaved }) {
     setDraft(BLANK);
     setPics([]);
     setSold(null);
+    setListed(null);
     setMsg(failed.length ? `Saved ${item.title}, but photo ${failed.join(", ")} did not upload. Add it from the item.` : `Saved ${item.title}. Take the next one.`);
     onSaved(item);
   }
@@ -237,6 +240,12 @@ function CapturePanel({ busy, onSaved }) {
         <p className="st-note">
           Similar items sold for {money(sold.low)} to {money(sold.high)}, middle {money(sold.median)} ({sold.count} sales).{" "}
           {sold.sourceUrls[0] && <a href={sold.sourceUrls[0]} target="_blank" rel="noopener noreferrer">See sales</a>}
+        </p>
+      )}
+      {listed && (
+        <p className="st-note">
+          On eBay now it is listed for {money(listed.low)} to {money(listed.high)}, middle {money(listed.median)} ({listed.count} listings, asking prices, not sales).{" "}
+          {listed.sourceUrls[0] && <a href={listed.sourceUrls[0]} target="_blank" rel="noopener noreferrer">See one</a>}
         </p>
       )}
       <p className="st-profit">{profit === null ? "Profit shows when you fill in what you paid and your price." : <>Profit per unit: <b className={profit < 0 ? "neg" : ""}>{money(profit)}</b></>}</p>
