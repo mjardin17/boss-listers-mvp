@@ -172,3 +172,12 @@ test("search words: long AI titles are cut to the first few words", () => {
   assert.strictEqual(shortQuery("Pokémon TCG Oddish 001/196 Lost Origin Common Grass Basic Card 2022"), "Pokémon TCG Oddish 001/196 Lost Origin Common");
   assert.strictEqual(shortQuery(""), "");
 });
+
+const { readGrounded } = require("../lib/itemPriceSearch");
+
+test("Google (through Gemini): keeps the summary and https sources, drops replies with no sources", () => {
+  const reply = { candidates: [{ content: { parts: [{ text: " Oddish card, about $0.30. " }] }, groundingMetadata: { groundingChunks: [{ web: { title: "a.com", uri: "https://x.y/1" } }, { web: { title: "bad", uri: "javascript:1" } }] } }] };
+  assert.deepStrictEqual(readGrounded(reply), { summary: "Oddish card, about $0.30.", sources: [{ title: "a.com", url: "https://x.y/1" }] });
+  assert.strictEqual(readGrounded({ candidates: [{ content: { parts: [{ text: "no sources" }] } }] }), null);
+  assert.strictEqual(readGrounded(null), null);
+});

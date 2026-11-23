@@ -119,6 +119,7 @@ function CapturePanel({ busy, onSaved }) {
   const [err, setErr] = useState("");
   const [sold, setSold] = useState(null); // real sold prices for similar items
   const [listed, setListed] = useState(null); // eBay asking prices right now
+  const [google, setGoogle] = useState(null); // Google search summary and sources
   const set =(k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const full = pics.length >= MAX_PHOTOS;
   const locked = busy || saving || full;
@@ -146,6 +147,7 @@ function CapturePanel({ busy, onSaved }) {
       }));
       setSold(j.sold || null);
       setListed(j.listed || null);
+      setGoogle(j.google || null);
       setMsg(j.lookedUp ? "Identified from the photo and checked online. Check it and fix anything wrong." : "Filled in from the photo. Check it and fix anything wrong.");
     } catch {
       setMsg("AI could not read it. Type the details below.");
@@ -194,6 +196,7 @@ function CapturePanel({ busy, onSaved }) {
     setPics([]);
     setSold(null);
     setListed(null);
+    setGoogle(null);
     setMsg(failed.length ? `Saved ${item.title}, but photo ${failed.join(", ")} did not upload. Add it from the item.` : `Saved ${item.title}. Take the next one.`);
     onSaved(item);
   }
@@ -246,6 +249,12 @@ function CapturePanel({ busy, onSaved }) {
         <p className="st-note">
           On eBay now it is listed for {money(listed.low)} to {money(listed.high)}, middle {money(listed.median)} ({listed.count} listings, asking prices, not sales).{" "}
           {listed.sourceUrls[0] && <a href={listed.sourceUrls[0]} target="_blank" rel="noopener noreferrer">See one</a>}
+        </p>
+      )}
+      {google && (
+        <p className="st-note">
+          Google: {google.summary}{" "}
+          <a href={google.sources[0].url} target="_blank" rel="noopener noreferrer">Source ({google.sources[0].title})</a>
         </p>
       )}
       <p className="st-profit">{profit === null ? "Profit shows when you fill in what you paid and your price." : <>Profit per unit: <b className={profit < 0 ? "neg" : ""}>{money(profit)}</b></>}</p>

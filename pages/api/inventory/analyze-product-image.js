@@ -129,7 +129,8 @@ IMPORTANT: Return ONLY the JSON object, no other text.`,
     if (needsLookup(productData)) {
       const what = productData.identified_as || productData.title;
       const [web, google] = await Promise.all([searchItem(what), googleSearch(what)]);
-      const hits = [...google, ...web].slice(0, 8);
+      const googleHit = google ? [{ title: "Google search summary", url: google.sources[0].url, text: google.summary }] : [];
+      const hits = [...googleHit, ...web].slice(0, 6);
       if (hits.length) {
         try {
           const second = await client.messages.create({
@@ -155,7 +156,7 @@ IMPORTANT: Return ONLY the JSON object, no other text.`,
     }
 
     const name = productData.title || productData.identified_as;
-    const [sold, listed] = await Promise.all([soldPrices(shortQuery(name)), ebayListedPrices(name)]);
+    const [sold, listed, google] = await Promise.all([soldPrices(shortQuery(name)), ebayListedPrices(name), googleSearch(name)]);
 
     return res.status(200).json({
       ok: true,
@@ -163,6 +164,7 @@ IMPORTANT: Return ONLY the JSON object, no other text.`,
       lookedUp,
       sold,
       listed,
+      google,
       message: "Product information extracted successfully",
     });
   } catch (err) {
