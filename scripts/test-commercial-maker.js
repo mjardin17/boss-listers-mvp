@@ -64,9 +64,11 @@ test("makeCommercial: runs the maker with a product file and an output path, and
     fs.writeFileSync(args[args.indexOf("--out") + 1], Buffer.alloc(4096, 1));
     return { code: 0, stderr: "" };
   };
-  const out = await makeCommercial(PRODUCT, { dir, run, pipelineDir: "C:/pipeline" });
-  assert.deepStrictEqual(out, { ok: true, name: "orion-pax-figure-965925_reel_9_16.mp4", bytes: 4096 });
+  let seenThumb = null;
+  const out = await makeCommercial(PRODUCT, { dir, run, pipelineDir: "C:/pipeline", thumbnail: async (video, title) => { seenThumb = [path.basename(video), title]; return "orion-pax-figure-965925_reel_9_16_thumb.png"; } });
+  assert.deepStrictEqual(out, { ok: true, name: "orion-pax-figure-965925_reel_9_16.mp4", bytes: 4096, thumbnail: "orion-pax-figure-965925_reel_9_16_thumb.png" });
   assert.strictEqual(calls.length, 1);
+  assert.deepStrictEqual(seenThumb, ["orion-pax-figure-965925_reel_9_16.mp4", PRODUCT.title]);
   assert.strictEqual(calls[0][0], path.join("C:/pipeline", "make_commercial.py"));
   assert.ok(fs.existsSync(path.join(dir, out.name)));
 });
@@ -96,4 +98,17 @@ test("makeCommercial: a failed remake leaves the earlier good file alone", async
   const out = await makeCommercial(PRODUCT, { dir, run: async () => ({ code: 1, stderr: "x" }), pipelineDir: "C:/p" });
   assert.strictEqual(out.ok, false);
   assert.strictEqual(fs.statSync(path.join(dir, name)).size, 100);
+});
+
+test("a commercial is still made when the thumbnail maker fails", async () => {
+  const dir = tempDir();
+  const run = async (args) => { fs.writeFileSync(args[args.indexOf("--out") + 1], Buffer.alloc(4096)); return { code: 0, stderr: "" }; };
+  const out = await makeCommercial(PRODUCT, { dir, run, pipelineDir: "C:/p", thumbnail: async () => { throw new Error("toolbox off"); } });
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.thumbnail, null);
+});
+
+const { thumbnailNameFor } = require("../lib/creativeToolbox");
+test("the thumbnail sits next to its commercial with a _thumb.png name", () => {
+  assert.strictEqual(thumbnailNameFor("item_reel_9_16.mp4"), "item_reel_9_16_thumb.png");
 });
