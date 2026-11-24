@@ -9,6 +9,7 @@ real authenticated API call succeeded.
 | Etsy | Official API (Open API v3, OAuth) | Structure ready — needs credentials |
 | Shopify | Official API (GraphQL Admin) | Optional — not configured |
 | WooCommerce | Official API (REST v3) | Optional — not configured |
+| Whatnot | Official API (Seller API REST v2) | Personal access token in `WHATNOT_API_TOKEN` — live probe is `GET /users/me` |
 | Facebook Marketplace | **Manual listing package** | Working now |
 | OfferUp | Manual listing package | Working now |
 | Craigslist | Manual listing package | Working now |
@@ -206,6 +207,14 @@ order tracking.
 ### WooCommerce (only if you run a WooCommerce site)
 WooCommerce → Settings → Advanced → REST API → Add key (Read/Write).
 Env vars: `WOOCOMMERCE_STORE_URL`, `WOOCOMMERCE_CONSUMER_KEY`, `WOOCOMMERCE_CONSUMER_SECRET`.
+
+
+### Whatnot
+Whatnot's official Seller API is REST v2 (`https://api.whatnot.com/seller-api/rest/v2`). Every seller approved to sell live can generate a personal access token in Seller Hub → Seller API. There is no monthly API fee and no OAuth Connect button in this app — paste the token into `.env.local` as `WHATNOT_API_TOKEN`. Tokens start with `wn_pat_tk_` and are shown only once when created. Never paste the token into chat.
+
+Required scopes for listing: `read:inventory`, `write:inventory`, and `write:merchandising` (plus whatever the dashboard lists for `GET /users/me`). Docs: https://developers.whatnot.com/getting-started/authentication
+
+`createListing()` follows the official flow: `POST /products`, `GET /products/{id}/variants`, `PATCH /products/{id}/variants` (price), `POST /inventory/set`, `POST /merchandising/products/{id}`. Live publish requires `confirm: "PUBLISH_LIVE"` and a Whatnot `category_id` (https://developers.whatnot.com/taxonomy). Dry-run is the default.
 
 ### Manual channels (Facebook, OfferUp, Craigslist, Mercari, Poshmark)
 Nothing to register. `/channels` → enter SKU → Generate package → copy fields

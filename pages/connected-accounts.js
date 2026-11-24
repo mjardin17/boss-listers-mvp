@@ -28,7 +28,9 @@ import { TENANT_OAUTH_CHANNELS } from "../lib/clientOAuthConnect";
 // into .env.local (see docs/CHANNEL_SETUP.md#facebook), there's no URL to
 // send a click to. Its status below is a real live check, not a static
 // claim. Bonanza's API has no OAuth at all either, only static developer
-// keys pasted into .env.local.
+// keys pasted into .env.local. Whatnot is the same kind of shared token
+// (WHATNOT_API_TOKEN from Seller Hub → Seller API); this page runs a live
+// /users/me check and has no Connect button.
 
 // Shopify is retired (the jardins-outpost website replaced it); its OAuth code stays for history.
 const MARKETPLACE_IDS = ["ebay", "etsy", "amazon", "tiktok-shop"];
@@ -41,6 +43,7 @@ const LABELS = {
   shopify: "Shopify",
   facebook: "Facebook Marketplace",
   bonanza: "Bonanza",
+  whatnot: "Whatnot",
   pinterest: "Pinterest",
 };
 
@@ -106,6 +109,22 @@ function toFacebookRow(data) {
   };
 }
 
+function toWhatnotRow(data) {
+  if (!data.ok) {
+    return { label: "Whatnot", status: "error", detail: data.error, canConnect: false, canDisconnect: false };
+  }
+  if (data.status === "connected") {
+    return { label: "Whatnot", status: "connected", detail: data.detail, canConnect: false, canDisconnect: false };
+  }
+  return {
+    label: "Whatnot",
+    status: data.status === "not_connected" ? "needs_login" : "error",
+    detail: data.detail,
+    canConnect: false,
+    canDisconnect: false,
+  };
+}
+
 function toPinterestRow(p) {
   if (!p) return { label: "Pinterest", status: "error", detail: "Could not load status.", canConnect: true, canDisconnect: false };
   if (p.live?.status === "connected") {
@@ -143,6 +162,10 @@ export default function ConnectedAccountsPage() {
         setRows((prev) => ({ ...prev, facebook: toFacebookRow(data) }));
       } else if (id === "bonanza") {
         setRows((prev) => ({ ...prev, bonanza: BONANZA_ROW }));
+      } else if (id === "whatnot") {
+        const res = await authedFetch("/api/channels/whatnot/status?live=true");
+        const data = await res.json();
+        setRows((prev) => ({ ...prev, whatnot: toWhatnotRow(data) }));
       } else {
         const res = await authedFetch(`/api/channels/${id}/status?live=true`);
         const data = await res.json();
@@ -158,7 +181,7 @@ export default function ConnectedAccountsPage() {
   const checkAll = useCallback(async () => {
     setLoading(true);
     setError("");
-    await Promise.all([...MARKETPLACE_IDS, "facebook", "bonanza", "pinterest"].map(checkOne));
+    await Promise.all([...MARKETPLACE_IDS, "facebook", "bonanza", "whatnot", "pinterest"].map(checkOne));
     setLoading(false);
   }, [checkOne]);
 
@@ -204,7 +227,7 @@ export default function ConnectedAccountsPage() {
     }
   }
 
-  const orderedIds = [...MARKETPLACE_IDS, "facebook", "bonanza", "pinterest"];
+  const orderedIds = [...MARKETPLACE_IDS, "facebook", "bonanza", "whatnot", "pinterest"];
 
   return (
     <div className="app-shell">
