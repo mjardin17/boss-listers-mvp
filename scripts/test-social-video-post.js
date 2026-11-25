@@ -21,8 +21,8 @@ function fakeFetch(answers) {
   return fn;
 }
 
-test("only Instagram and Facebook are wired for posting by video address", () => {
-  assert.deepStrictEqual(VIDEO_URL_PLATFORMS, ["instagram", "facebook"]);
+test("Instagram, Facebook and TikTok are wired for posting by video address", () => {
+  assert.deepStrictEqual(VIDEO_URL_PLATFORMS, ["instagram", "facebook", "tiktok"]);
 });
 
 test("plan: a good request lists the steps and never contains a token", () => {
@@ -44,7 +44,8 @@ test("plan: refuses a video address that is not public https", () => {
 });
 
 test("plan: refuses an unknown platform and a missing token, and says which", () => {
-  assert.match(planVideoPost("tiktok", { videoUrl: VIDEO }, ENV).errors[0], /not wired/);
+  assert.match(planVideoPost("youtube", { videoUrl: VIDEO }, ENV).errors[0], /not wired/);
+  assert.match(planVideoPost("tiktok", { videoUrl: VIDEO }, ENV).errors[0], /Connect TikTok first/);
   assert.match(planVideoPost("instagram", { videoUrl: VIDEO }, {}).errors[0], /IG_ACCESS_TOKEN/);
   assert.match(planVideoPost("facebook", { videoUrl: VIDEO }, { FB_ACCESS_TOKEN: "t" }).errors[0], /FB_PAGE_ID/);
 });

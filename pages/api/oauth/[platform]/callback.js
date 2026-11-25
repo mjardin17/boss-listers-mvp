@@ -12,6 +12,24 @@ const { rest } = require('../../../../lib/supabaseRest');
 // this used to duplicate all 8 of these locally.
 const { PROFILE_FETCHERS } = socialMediaAuth;
 
+// The platform sends the browser here after consent. A browser navigation goes back to
+// the Social Connections page with the outcome in the query (never a token or a
+// message from the platform); API callers keep the JSON answer.
+function wantsPage(req) {
+  return String(req.headers.accept || '').includes('text/html');
+}
+
+function finish(req, res, status, body) {
+  if (wantsPage(req) && body.platform) {
+    const q = body.ok
+      ? `connected=${encodeURIComponent(body.platform)}`
+      : `connect_error=${encodeURIComponent(body.platform)}&reason=${encodeURIComponent(body.errorType || 'failed')}`;
+    res.setHeader('Cache-Control', 'no-store');
+    return res.redirect(302, `/social?${q}`);
+  }
+  return res.status(status).json(body);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
@@ -35,7 +53,7 @@ export default async function handler(req, res) {
   const normalizedPlatform = platform.toLowerCase();
 
   if (!socialMediaAuth.OAUTH_CONFIGS[normalizedPlatform]) {
-    return res.status(400).json({
+    return finish(req, res, 400, {
       ok: false,
       error: `Unsupported platform: ${platform}`,
     });
@@ -46,16 +64,17 @@ export default async function handler(req, res) {
     const errorMsg = error_description || error;
     console.error(`[OAuth] ${platform} authorization error:`, errorMsg);
 
-    return res.status(400).json({
+    return finish(req, res, 400, {
       ok: false,
       error: `Authorization failed: ${errorMsg}`,
+      errorType: error === 'access_denied' ? 'access_denied' : 'provider_error',
       platform: normalizedPlatform,
     });
   }
 
   // Validate code and state
   if (!code || typeof code !== 'string') {
-    return res.status(400).json({
+    return finish(req, res, 400, {
       ok: false,
       error: 'Missing authorization code',
       platform: normalizedPlatform,
@@ -63,7 +82,7 @@ export default async function handler(req, res) {
   }
 
   if (!state || typeof state !== 'string') {
-    return res.status(400).json({
+    return finish(req, res, 400, {
       ok: false,
       error: 'Missing state parameter (CSRF protection)',
       platform: normalizedPlatform,
@@ -76,7 +95,7 @@ export default async function handler(req, res) {
 
   const stateUserId = state.includes('.') ? state.split('.').pop() : null;
   if (!userAccessToken && !stateUserId) {
-    return res.status(401).json({
+    return finish(req, res, 401, {
       ok: false,
       error: 'Authentication required',
       platform: normalizedPlatform,
@@ -99,7 +118,7 @@ export default async function handler(req, res) {
 
     if (!tokenData || !tokenData.accessToken) {
       console.error(`[OAuth] ${platform} token exchange returned no access token`);
-      return res.status(502).json({
+      return finish(req, res, 502, {
         ok: false,
         error: 'Token exchange failed: no access token received',
         platform: normalizedPlatform,
@@ -122,6 +141,8 @@ export default async function handler(req, res) {
       }
     }
 
+    if (tokenData.openId) additionalData = { openId: tokenData.openId, ...additionalData };
+
     // 4. Get user ID from Supabase auth token
     let userId = stateUserId;
     try {
@@ -135,7 +156,7 @@ export default async function handler(req, res) {
 
       if (!meRes.ok) {
         console.error(`[OAuth] Failed to resolve user ID:`, meRes.statusText);
-        return res.status(401).json({
+        return finish(req, res, 401, {
           ok: false,
           error: 'Invalid session',
           platform: normalizedPlatform,
@@ -147,7 +168,7 @@ export default async function handler(req, res) {
       }
     } catch (err) {
       console.error(`[OAuth] User resolution failed:`, err.message);
-      return res.status(500).json({
+      return finish(req, res, 500, {
         ok: false,
         error: 'Failed to resolve user',
         platform: normalizedPlatform,
@@ -181,7 +202,7 @@ export default async function handler(req, res) {
     }
 
     // 7. Return success response
-    return res.status(200).json({
+    return finish(req, res, 200, {
       ok: true,
       platform: normalizedPlatform,
       accountIdentifier,
@@ -200,7 +221,7 @@ export default async function handler(req, res) {
       errorType = 'session_invalid';
     }
 
-    return res.status(500).json({
+    return finish(req, res, 500, {
       ok: false,
       error: 'OAuth callback failed',
       errorType,

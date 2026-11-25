@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { authedFetch } from "../lib/clientAuth";
+import TikTokPostSettings, { EMPTY_TIKTOK_SETTINGS, tiktokBlocker } from "../components/TikTokPostSettings";
 
 // Operator console. Deep slate surfaces, warm cream type, amber for the one primary
 // action per row. Green and red appear only as status dots and error text.
@@ -198,7 +199,7 @@ function ExternalPanel({ id, data }) {
   );
 }
 
-const VIDEO_PLATFORM_LABEL = { instagram: "Instagram Reel", facebook: "Facebook Page video" };
+const VIDEO_PLATFORM_LABEL = { instagram: "Instagram Reel", facebook: "Facebook Page video", tiktok: "TikTok" };
 
 function megabytes(bytes) {
   return `${(bytes / 1048576).toFixed(1)} MB`;
@@ -256,7 +257,7 @@ function MakeCommercial({ onMade }) {
   );
 }
 
-/** Send one finished commercial to Instagram and the Facebook Page. Preview first, then a typed confirm. */
+/** Send one finished commercial to Instagram, the Facebook Page and TikTok. Preview first, then a typed confirm. */
 function VideoPanel() {
   const [info, setInfo] = useState(null);
   const [loadError, setLoadError] = useState("");
@@ -266,6 +267,9 @@ function VideoPanel() {
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState(null);
+  const [tiktok, setTiktok] = useState(EMPTY_TIKTOK_SETTINGS);
+  const [tiktokCreator, setTiktokCreator] = useState(null);
+  const [videoSeconds, setVideoSeconds] = useState(0);
 
   const [version, setVersion] = useState(0);
 
@@ -295,7 +299,8 @@ function VideoPanel() {
   }
 
   const toggle = (platform) => setChosen((cur) => (cur.includes(platform) ? cur.filter((p) => p !== platform) : [...cur, platform]));
-  const ready = Boolean(commercial) && chosen.length > 0 && !busy;
+  const tiktokProblem = chosen.includes("tiktok") ? tiktokBlocker(tiktok, tiktokCreator, videoSeconds) : "";
+  const ready = Boolean(commercial) && chosen.length > 0 && !busy && !tiktokProblem;
 
   async function send(confirm) {
     setBusy(true);
@@ -304,7 +309,7 @@ function VideoPanel() {
       const r = await authedFetch("/api/social/post-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platforms: chosen, commercial, caption, confirm }),
+        body: JSON.stringify({ platforms: chosen, commercial, caption, confirm, ...(chosen.includes("tiktok") ? { tiktok } : {}) }),
       });
       setReply(await r.json());
     } catch {
@@ -323,7 +328,7 @@ function VideoPanel() {
         <select id="sf-video-file" value={commercial} onChange={(e) => { setCommercial(e.target.value); setReply(null); }}>
           {info.commercials.map((c) => <option key={c.name} value={c.name}>{c.name} ({megabytes(c.bytes)})</option>)}
         </select>
-        {commercial ? <video className="sf-video-player" key={`${commercial}-${version}`} src={`/commercials/${commercial}?v=${version}`} controls preload="metadata" /> : null}
+        {commercial ? <video className="sf-video-player" key={`${commercial}-${version}`} src={`/commercials/${commercial}?v=${version}`} controls preload="metadata" onLoadedMetadata={(e) => setVideoSeconds(e.currentTarget.duration || 0)} /> : null}
       </div>
 
       <fieldset className="sf-field">
@@ -334,6 +339,10 @@ function VideoPanel() {
           </label>
         ))}
       </fieldset>
+
+      {chosen.includes("tiktok") ? (
+        <TikTokPostSettings value={tiktok} onChange={setTiktok} onCreator={setTiktokCreator} videoSeconds={videoSeconds} />
+      ) : null}
 
       <div className="sf-field">
         <label htmlFor="sf-video-caption">Caption</label>
@@ -363,7 +372,7 @@ function VideoPanel() {
               <li key={platform}>
                 <strong>{VIDEO_PLATFORM_LABEL[platform] || platform}:</strong>{" "}
                 {r.success
-                  ? <>posted. {r.url ? <a className="sf-link" href={r.url} target="_blank" rel="noreferrer">Open</a> : null}</>
+                  ? <>posted. {r.url ? <a className="sf-link" href={r.url} target="_blank" rel="noreferrer">Open</a> : r.note || null}</>
                   : r.dryRun
                     ? `ready. A live post would: ${r.steps.map((s) => s.what).join(", then ")}.`
                     : <span className="sf-err">not posted. {r.error}</span>}
