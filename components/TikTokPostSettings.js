@@ -102,6 +102,13 @@ export default function TikTokPostSettings({ value, onChange, onCreator, videoSe
         {c.maxVideoPostDurationSec ? ` Videos up to ${c.maxVideoPostDurationSec} seconds.` : ""}
       </p>
 
+      <label htmlFor="sf-tt-mode">How to send it</label>
+      <select id="sf-tt-mode" value={value.mode || "post"} onChange={(e) => set({ mode: e.target.value })}>
+        <option value="post">Post it now</option>
+        <option value="draft">Send to my TikTok drafts</option>
+      </select>
+      {value.mode === "draft" ? <p className="sf-sub">The video goes to your TikTok inbox. Open TikTok to add sounds, edit and post it.</p> : null}
+
       <label htmlFor="sf-tt-privacy">Who can see this post</label>
       <select id="sf-tt-privacy" value={value.privacyLevel} onChange={(e) => set({ privacyLevel: e.target.value })}>
         <option value="" disabled>Choose…</option>
