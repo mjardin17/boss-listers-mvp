@@ -34,7 +34,10 @@ export async function middleware(request) {
   // testing. NODE_ENV is "production" for `next build && next start` and
   // any real deployment, so this only skips the gate under `next dev`.
   // Re-enable for local testing by removing this block if ever needed.
-  if (process.env.NODE_ENV !== 'production') {
+  // Turned off 2026-11-25 at Josh's request: the app's own login guards every
+  // API route, and this extra prompt can't be answered in the built-in browser.
+  // Set APP_BASIC_AUTH_ENABLED=1 to bring the gate back.
+  if (process.env.NODE_ENV !== 'production' || process.env.APP_BASIC_AUTH_ENABLED !== '1') {
     return NextResponse.next();
   }
 
