@@ -13,7 +13,7 @@ const CSS = `
 .sf-top h1{margin:0;font-size:20px;font-weight:650;letter-spacing:-.01em}
 .sf-top p{margin:0;color:#8e9db3;font-size:13px}
 .sf-grid{display:grid;grid-template-columns:240px 1fr;min-height:calc(100vh - 69px)}
-.sf-nav{border-right:1px solid #1f2a3b;padding:12px 8px;position:sticky;top:0;align-self:start}
+.sf-nav{border-right:1px solid #1f2a3b;padding:12px 8px;position:sticky;top:0;align-self:start;display:flex;flex-direction:column;gap:2px}
 .sf-nav button{all:unset;display:flex;width:100%;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;color:#c9d2e0}
 .sf-nav button:hover{background:#151e2d}
 .sf-nav button[aria-current="true"]{background:#182235;color:#f1e9d6}
@@ -74,7 +74,7 @@ dialog.sf-dlg input:focus-visible{outline:2px solid #e0a84a;outline-offset:1px}
 .sf-video-live{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;width:100%}
 .sf-video-live label{grid-column:1/-1}
 .sf-video-result{list-style:none;margin:0;padding:12px 14px;display:grid;gap:8px;background:#151e2d;border:1px solid #1f2a3b;border-radius:10px;font-size:14px}
-@media (max-width:760px){.sf-grid{grid-template-columns:1fr}.sf-nav{position:static;border-right:0;border-bottom:1px solid #1f2a3b;display:flex;overflow-x:auto;gap:4px}.sf-nav button{width:auto;white-space:nowrap}.sf-main{padding:18px 16px}.sf-row{grid-template-columns:1fr auto}.sf-row .sf-pill{display:none}.sf-top{padding:16px}}
+@media (max-width:760px){.sf-grid{grid-template-columns:1fr}.sf-nav{position:static;border-right:0;border-bottom:1px solid #1f2a3b;display:flex;flex-direction:row;overflow-x:auto;gap:4px}.sf-nav button{width:auto;white-space:nowrap}.sf-main{padding:18px 16px}.sf-row{grid-template-columns:1fr auto}.sf-row .sf-pill{display:none}.sf-top{padding:16px}}
 `;
 
 const CHANNELS = [
