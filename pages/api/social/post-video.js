@@ -16,7 +16,7 @@ const { listCommercials, resolveVideoAddress } = require("../../../lib/commercia
 const { uploadPublicImage } = require("../../../lib/supabaseStorage");
 const { getTikTokAccessToken } = require("../../../lib/tiktokAccount");
 
-const TIKTOK_SETTING_KEYS = ["privacyLevel", "allowComment", "allowDuet", "allowStitch", "discloseContent", "yourBrand", "brandedContent", "aiGenerated"];
+const TIKTOK_SETTING_KEYS = ["mode", "privacyLevel", "allowComment", "allowDuet", "allowStitch", "discloseContent", "yourBrand", "brandedContent", "aiGenerated"];
 
 /** Keeps only the known TikTok settings, with the right types. */
 function readTikTokSettings(raw) {
@@ -24,6 +24,7 @@ function readTikTokSettings(raw) {
   if (!raw || typeof raw !== "object") return out;
   for (const key of TIKTOK_SETTING_KEYS) {
     if (key === "privacyLevel") { if (typeof raw.privacyLevel === "string") out.privacyLevel = raw.privacyLevel; }
+    else if (key === "mode") { if (raw.mode === "draft") out.mode = "draft"; }
     else if (raw[key] === true) out[key] = true;
   }
   return out;

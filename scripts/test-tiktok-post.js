@@ -142,3 +142,17 @@ test("live: an API error is reported, never thrown", async () => {
   assert.strictEqual(r.success, false);
   assert.match(r.error, /access token is invalid/);
 });
+
+test("draft mode: uploads to the creator's TikTok inbox, no audience needed", async () => {
+  const bytes = Buffer.from("mp4");
+  const f = fakeFetch([
+    { status: 200, headers: {}, bytes },
+    ok({ publish_id: "inbox~1", upload_url: "https://open-upload.tiktokapis.com/video/?upload_id=9" }),
+    { status: 201, body: {} },
+    ok({ status: "SEND_TO_USER_INBOX" }),
+  ]);
+  const r = await postVideoByUrl("tiktok", { videoUrl: VIDEO, tiktok: { mode: "draft" } }, { ...LIVE, fetchImpl: f });
+  assert.strictEqual(r.success, true, r.error);
+  assert.strictEqual(f.calls[1].url, "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/");
+  assert.strictEqual(f.calls[1].body.post_info, undefined);
+});
