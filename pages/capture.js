@@ -150,7 +150,7 @@ function listingSummary(result) {
 const money = (n) => `$${Number(n).toFixed(2).replace(/\.00$/, "")}`;
 
 /** Asking prices and sold prices, each labelled for what it is. Never called "value". */
-function PriceLines({ comps }) {
+function PriceLines({ comps, signals }) {
   const active = comps?.active;
   const sold = comps?.sold;
   const hasActive = active?.range?.low && active?.range?.high;
@@ -169,6 +169,22 @@ function PriceLines({ comps }) {
           ? `${money(active.range.low)} – ${money(active.range.high)}, middle ${money(active.range.midpoint || active.range.low)} (${active.count} listings)`
           : "no listings found"}
       </p>
+      <p style={{ margin: 0 }}>
+        <strong>You sold this before: </strong>
+        {!signals ? "checking your eBay sales…"
+          : signals.ownSales?.matches?.length
+            ? signals.ownSales.matches.slice(0, 3).map((s) => `${money(s.price)} on ${String(s.soldAt).slice(0, 10)}`).join(", ")
+            : signals.ownSales?.note || "not in your last 60 days of eBay sales"}
+      </p>
+      {signals?.web?.summary && (
+        <details style={{ margin: "0.25rem 0" }}>
+          <summary><strong>What the web says</strong> (Google results, not exact sales)</summary>
+          <p style={{ margin: "0.25rem 0" }}>{signals.web.summary}</p>
+          {(signals.web.sources || []).slice(0, 4).map((src) => (
+            <a key={src.url || src} href={src.url || src} target="_blank" rel="noreferrer" style={{ display: "block" }}>{src.title || src.url || src}</a>
+          ))}
+        </details>
+      )}
       <p style={{ margin: "0.25rem 0 0" }}>Asking prices are what other sellers want, not what items sold for. You set your price.</p>
     </div>
   );
@@ -182,6 +198,18 @@ export default function Capture() {
   const [error, setError] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [result, setResult] = useState(null);
+  const [priceSignals, setPriceSignals] = useState(null);
+  useEffect(() => {
+    const title = result ? listingTitle(result) : "";
+    setPriceSignals(null);
+    if (!title || title === "Item identified") return undefined;
+    let live = true;
+    authedFetch("/api/price-signals?title=" + encodeURIComponent(title))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (live) setPriceSignals(j || { failed: true }); })
+      .catch(() => { if (live) setPriceSignals({ failed: true }); });
+    return () => { live = false; };
+  }, [result]);
   const [sellerPrice, setSellerPrice] = useState("");
   const cameraInputRef = useRef(null);
   const photosRef = useRef(photos);
@@ -717,7 +745,7 @@ export default function Capture() {
               style={{ display: "block", width: "100%", marginTop: "0.35rem", padding: "0.8rem", fontSize: "1.1rem" }}
             />
           </label>
-          <PriceLines comps={result.comps} />
+          <PriceLines comps={result.comps} signals={priceSignals} />
 
           {listingCards.map((item) => (
             <article key={item.platform || item.title} className="platform-card" data-platform={item.platform}>
