@@ -3,6 +3,12 @@ import Link from "next/link";
 import { requireSession, authedFetch, clearSession } from "../lib/clientAuth";
 import { safeRandomUUID } from "../lib/safeUuid";
 
+const DRAFT_KEY = "boss_capture_draft_v1";
+const MAX_PHOTOS = 8;
+const MAX_EDGE = 1280;
+const JPEG_QUALITY = 0.78;
+const GENERATE_TIMEOUT_MS = 45000;
+
 function getSessionId() {
   if (typeof window === "undefined") return "anon";
   let id = localStorage.getItem("boss_session");
@@ -13,63 +19,344 @@ function getSessionId() {
   return id;
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read this photo."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function dataUrlToFile(dataUrl, name) {
+  const [header, b64] = String(dataUrl).split(",");
+  const mime = (header.match(/data:([^;]+)/) || [])[1] || "image/jpeg";
+  const binary = atob(b64 || "");
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], name || "photo.jpg", { type: mime, lastModified: Date.now() });
+}
+
+async function loadBitmap(file) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch {
+      // Fall through to HTMLImageElement, which iOS can use for HEIC.
+    }
+  }
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not read this photo. Try taking it again."));
+    };
+    img.src = url;
+  });
+}
+
+async function compressPhoto(file) {
+  const source = await loadBitmap(file);
+  const srcW = source.width || 0;
+  const srcH = source.height || 0;
+  if (!srcW || !srcH) {
+    if (source.close) source.close();
+    throw new Error("Could not read this photo. Try taking it again.");
+  }
+  const scale = Math.min(1, MAX_EDGE / Math.max(srcW, srcH));
+  const width = Math.max(1, Math.round(srcW * scale));
+  const height = Math.max(1, Math.round(srcH * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) {
+    if (source.close) source.close();
+    throw new Error("Couldn't process this photo on this device.");
+  }
+  ctx.drawImage(source, 0, 0, width, height);
+  if (source.close) source.close();
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (result) => (result ? resolve(result) : reject(new Error("Could not compress this photo."))),
+      "image/jpeg",
+      JPEG_QUALITY
+    );
+  });
+  const name = String(file.name || "photo").replace(/\.[^.]+$/, "") + ".jpg";
+  const compressed = new File([blob], name, { type: "image/jpeg", lastModified: Date.now() });
+  const dataUrl = await blobToDataUrl(blob);
+  return { file: compressed, previewUrl: dataUrl, dataUrl };
+}
+
+function readDraft() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const draft = JSON.parse(raw);
+    if (!draft || typeof draft !== "object") return null;
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(partial) {
+  if (typeof window === "undefined") return;
+  try {
+    const current = readDraft() || {};
+    const next = { ...current, ...partial, savedAt: Date.now() };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(next));
+  } catch {
+    // Quota or private mode — keep going with in-memory state only.
+  }
+}
+
+function clearDraft() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function listingTitle(result) {
+  return (
+    result?.analysis?.productName ||
+    result?.analysis?.itemTitle ||
+    result?.listing?.title ||
+    result?.primaryDraft?.title ||
+    result?.outputs?.[0]?.title ||
+    "Item identified"
+  );
+}
+
+function listingSummary(result) {
+  return (
+    result?.analysis?.summary ||
+    result?.analysis?.recommendationExplanation ||
+    result?.scanStatus?.warning ||
+    ""
+  );
+}
+
 export default function Capture() {
   const [ready, setReady] = useState(false);
-  const [photos, setPhotos] = useState([]); // { file, previewUrl }
+  const [photos, setPhotos] = useState([]); // { file, previewUrl, dataUrl }
   const [busy, setBusy] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const [error, setError] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [result, setResult] = useState(null);
   const [sellerPrice, setSellerPrice] = useState("");
   const cameraInputRef = useRef(null);
+  const photosRef = useRef(photos);
+  const restoredRef = useRef(false);
+  const generateAbortRef = useRef(null);
+  const generateTimeoutRef = useRef(null);
 
   useEffect(() => {
-    if (requireSession()) setReady(true);
-    return () => photos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    photosRef.current = photos;
+  }, [photos]);
+
+  useEffect(() => {
+    if (!requireSession()) return;
+    if (!restoredRef.current) {
+      restoredRef.current = true;
+      const draft = readDraft();
+      if (draft?.photos?.length) {
+        const restored = draft.photos
+          .filter((item) => item?.dataUrl)
+          .slice(0, MAX_PHOTOS)
+          .map((item) => {
+            const file = dataUrlToFile(item.dataUrl, item.name || "photo.jpg");
+            return { file, previewUrl: item.dataUrl, dataUrl: item.dataUrl };
+          });
+        if (restored.length) setPhotos(restored);
+      }
+      if (draft?.result) setResult(draft.result);
+      if (draft?.sellerPrice) setSellerPrice(String(draft.sellerPrice));
+      // Never restore a stuck "Generating listing..." state. If a previous
+      // attempt was interrupted (iOS reload, dropped LAN request), just
+      // keep the photos and let the seller tap Generate again.
+      if (draft?.pendingGenerate && !draft?.result) {
+        setError("The last generate didn't finish. Your photos are still here — tap Generate listing to try again.");
+        writeDraft({ ...draft, pendingGenerate: false });
+      }
+    }
+    setReady(true);
   }, []);
 
-  function addPhotos(fileList) {
-    const files = Array.from(fileList || []).slice(0, 8 - photos.length);
-    const next = files.map((file) => ({ file, previewUrl: URL.createObjectURL(file) }));
-    setPhotos((prev) => [...prev, ...next].slice(0, 8));
+  useEffect(() => {
+    function clearGenerateTimers() {
+      if (generateTimeoutRef.current) {
+        clearTimeout(generateTimeoutRef.current);
+        generateTimeoutRef.current = null;
+      }
+    }
+    function onPageShow(event) {
+      // iOS can freeze or restore this PWA mid-request. Don't leave the
+      // button stuck on "Generating listing..." after a resume.
+      if (event.persisted || generateAbortRef.current) {
+        generateAbortRef.current?.abort();
+        generateAbortRef.current = null;
+        clearGenerateTimers();
+        setBusy(false);
+        setCompressing(false);
+      }
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+      generateAbortRef.current?.abort();
+      clearGenerateTimers();
+    };
+  }, []);
+
+  function persistPhotos(nextPhotos, extras = {}) {
+    writeDraft({
+      photos: nextPhotos.map((p) => ({ name: p.file?.name || "photo.jpg", dataUrl: p.dataUrl || p.previewUrl })),
+      ...extras
+    });
+  }
+
+  async function addPhotos(fileList) {
+    const incoming = Array.from(fileList || []);
+    if (!incoming.length) return;
+    const remaining = MAX_PHOTOS - photosRef.current.length;
+    if (remaining <= 0) {
+      setError("You can add up to 8 photos.");
+      return;
+    }
+    setCompressing(true);
+    setError("");
+    try {
+      const added = [];
+      for (const file of incoming.slice(0, remaining)) {
+        added.push(await compressPhoto(file));
+      }
+      const next = [...photosRef.current, ...added].slice(0, MAX_PHOTOS);
+      setPhotos(next);
+      persistPhotos(next, { result: null, pendingGenerate: false });
+    } catch (err) {
+      setError(err.message || "Couldn't process that photo. Try taking it again.");
+    } finally {
+      setCompressing(false);
+    }
   }
 
   function removePhoto(index) {
     setPhotos((prev) => {
-      URL.revokeObjectURL(prev[index].previewUrl);
-      return prev.filter((_, i) => i !== index);
+      const next = prev.filter((_, i) => i !== index);
+      persistPhotos(next, { result });
+      return next;
     });
   }
 
+  function clearGenerateTimers() {
+    if (generateTimeoutRef.current) {
+      clearTimeout(generateTimeoutRef.current);
+      generateTimeoutRef.current = null;
+    }
+  }
+
+  function stopGenerateRequest() {
+    generateAbortRef.current?.abort();
+    generateAbortRef.current = null;
+    clearGenerateTimers();
+  }
+
+  function cancelGenerate() {
+    stopGenerateRequest();
+    setBusy(false);
+    persistPhotos(photosRef.current, { result: null, pendingGenerate: false });
+    setError("Cancelled. Your photos are still here — tap Generate listing to try again.");
+  }
+
   async function handleGenerate() {
-    if (!photos.length) {
+    if (!photosRef.current.length) {
       setError("Take at least one photo first.");
       return;
     }
+    stopGenerateRequest();
     setBusy(true);
     setError("");
     setResult(null);
+    writeDraft({
+      photos: photosRef.current.map((p) => ({ name: p.file?.name || "photo.jpg", dataUrl: p.dataUrl || p.previewUrl })),
+      result: null,
+      pendingGenerate: true
+    });
+
+    const controller = new AbortController();
+    generateAbortRef.current = controller;
 
     try {
       const formData = new FormData();
-      photos.forEach((p) => formData.append("photos", p.file, p.file.name || "photo.jpg"));
+      photosRef.current.forEach((p) => formData.append("photos", p.file, p.file.name || "photo.jpg"));
       formData.append("sessionId", getSessionId());
       formData.append("generate", "true");
 
-      const res = await authedFetch("/api/analyze", { method: "POST", body: formData });
-      const data = await res.json();
+      const timeoutError = Object.assign(
+        new Error("Listing generation took too long. Your photos are still here — try again."),
+        { name: "TimeoutError" }
+      );
+      const timeoutPromise = new Promise((_, reject) => {
+        generateTimeoutRef.current = setTimeout(() => {
+          controller.abort();
+          reject(timeoutError);
+        }, GENERATE_TIMEOUT_MS);
+      });
 
-      if (!res.ok || !data.ok) {
-        setError(data.error || "Couldn't generate a listing from these photos.");
+      const res = await Promise.race([
+        authedFetch("/api/analyze", { method: "POST", body: formData, signal: controller.signal }),
+        timeoutPromise
+      ]);
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        setError("The server didn't return listing data. Your photos are still here — try again.");
         return;
       }
+
+      if (!res.ok || !data.ok) {
+        setError(
+          data.error ||
+            data.scanStatus?.warning ||
+            "Couldn't generate a listing from these photos. Your photos are still here — try again."
+        );
+        persistPhotos(photosRef.current, { result: null, pendingGenerate: false });
+        return;
+      }
+
       setResult(data);
       const suggested = Number(data.pricing?.recommendedPrice || data.pricing?.selectedPrice);
-      setSellerPrice(Number.isFinite(suggested) && suggested > 0 ? String(suggested) : "");
+      const price = Number.isFinite(suggested) && suggested > 0 ? String(suggested) : "";
+      setSellerPrice(price);
+      persistPhotos(photosRef.current, { result: data, sellerPrice: price, pendingGenerate: false });
     } catch (err) {
-      setError(err.message || "Upload failed — check your connection and try again.");
+      if (err?.name === "AbortError" && generateAbortRef.current !== controller) {
+        // A newer generate or an explicit cancel already set the message.
+        return;
+      }
+      const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+      setError(
+        timedOut
+          ? "Listing generation took too long. Your photos are still here — try again."
+          : (err.message || "Upload failed — check your connection. Your photos are still here — try again.")
+      );
+      persistPhotos(photosRef.current, { result: null, pendingGenerate: false });
     } finally {
+      clearGenerateTimers();
+      if (generateAbortRef.current === controller) generateAbortRef.current = null;
       setBusy(false);
     }
   }
@@ -102,7 +389,7 @@ export default function Capture() {
     setError("");
 
     try {
-      const ebayListing = result.outputs.find((o) => o.platform === "eBay");
+      const ebayListing = result.outputs.find((o) => o.platform === "eBay") || result.primaryDraft;
       if (!ebayListing) {
         setError("No eBay listing generated. Try regenerating.");
         setPublishing(false);
@@ -210,13 +497,25 @@ export default function Capture() {
   }
 
   function startOver() {
-    photos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+    stopGenerateRequest();
+    setBusy(false);
+    setCompressing(false);
     setPhotos([]);
     setResult(null);
+    setSellerPrice("");
     setError("");
+    clearDraft();
   }
 
   if (!ready) return null;
+
+  const displayTitle = listingTitle(result);
+  const displaySummary = listingSummary(result);
+  const listingCards = result?.outputs?.length
+    ? result.outputs
+    : result?.primaryDraft
+      ? [result.primaryDraft]
+      : [];
 
   return (
     <div className="app-shell" style={{ maxWidth: 480, paddingBottom: "4rem" }}>
@@ -247,7 +546,7 @@ export default function Capture() {
             }}
           >
             {photos.map((p, i) => (
-              <div key={i} style={{ position: "relative", aspectRatio: "1" }}>
+              <div key={p.dataUrl || i} style={{ position: "relative", aspectRatio: "1" }}>
                 <img
                   src={p.previewUrl}
                   alt=""
@@ -272,10 +571,11 @@ export default function Capture() {
                 </button>
               </div>
             ))}
-            {photos.length < 8 && (
+            {photos.length < MAX_PHOTOS && (
               <button
                 type="button"
                 onClick={() => cameraInputRef.current?.click()}
+                disabled={compressing || busy}
                 style={{
                   aspectRatio: "1",
                   border: "2px dashed var(--border)",
@@ -285,7 +585,7 @@ export default function Capture() {
                   fontSize: "2rem",
                 }}
               >
-                +
+                {compressing ? "…" : "+"}
               </button>
             )}
           </div>
@@ -294,7 +594,6 @@ export default function Capture() {
             ref={cameraInputRef}
             type="file"
             accept="image/*"
-            capture="environment"
             multiple
             style={{ display: "none" }}
             onChange={(e) => {
@@ -304,16 +603,37 @@ export default function Capture() {
           />
 
           {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
+          {compressing && <p className="muted">Saving a smaller copy of your photo so the phone doesn't restart…</p>}
 
           <button
             type="button"
             className="btn-primary"
             style={{ width: "100%", padding: "1rem", fontSize: "1.05rem" }}
-            disabled={busy || !photos.length}
+            disabled={busy || compressing || !photos.length}
             onClick={handleGenerate}
           >
             {busy ? "Generating listing..." : "Generate listing"}
           </button>
+          {busy && (
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ width: "100%", padding: "0.85rem", marginTop: "0.5rem" }}
+              onClick={cancelGenerate}
+            >
+              Cancel
+            </button>
+          )}
+          {!!photos.length && (
+            <button
+              type="button"
+              className="btn-ghost"
+              style={{ width: "100%", padding: "0.75rem", marginTop: "0.35rem" }}
+              onClick={startOver}
+            >
+              Reset / Clear photos
+            </button>
+          )}
 
           <p style={{ marginTop: "1.5rem" }}>
             <Link href="/">Full dashboard →</Link>
@@ -325,8 +645,16 @@ export default function Capture() {
 
       {result && (
         <div>
-          <h2 style={{ fontSize: "1.1rem" }}>{result.analysis?.productName || "Item identified"}</h2>
-          <p className="muted">{result.analysis?.summary}</p>
+          <h2 style={{ fontSize: "1.1rem" }}>{displayTitle}</h2>
+          {displaySummary && <p className="muted">{displaySummary}</p>}
+          {result.scanStatus?.warning && result.scanStatus.warning !== displaySummary && (
+            <p style={{ color: "var(--danger)" }}>{result.scanStatus.warning}</p>
+          )}
+          {!listingCards.length && (
+            <p style={{ color: "var(--danger)" }}>
+              The scan finished but didn't produce listing text. Your photos are still saved — try generating again.
+            </p>
+          )}
 
           <div
             style={{
@@ -338,7 +666,7 @@ export default function Capture() {
           >
             {photos.map((p, i) => (
               <img
-                key={i}
+                key={p.dataUrl || i}
                 src={p.previewUrl}
                 alt=""
                 style={{ width: 90, height: 90, objectFit: "cover", borderRadius: "var(--radius)", flexShrink: 0, imageOrientation: "from-image" }}
@@ -355,7 +683,10 @@ export default function Capture() {
               step="0.01"
               placeholder="Enter your price"
               value={sellerPrice}
-              onChange={(e) => setSellerPrice(e.target.value)}
+              onChange={(e) => {
+                setSellerPrice(e.target.value);
+                persistPhotos(photosRef.current, { result, sellerPrice: e.target.value });
+              }}
               style={{ display: "block", width: "100%", marginTop: "0.35rem", padding: "0.8rem", fontSize: "1.1rem" }}
             />
           </label>
@@ -365,10 +696,10 @@ export default function Capture() {
               : "No sold-comp price found for this item, so you set the price."}
           </p>
 
-          {result.outputs?.map((item) => (
-            <article key={item.platform} className="platform-card" data-platform={item.platform}>
+          {listingCards.map((item) => (
+            <article key={item.platform || item.title} className="platform-card" data-platform={item.platform}>
               <header>
-                <span className="platform-name">{item.platform}</span>
+                <span className="platform-name">{item.platform || "Listing"}</span>
               </header>
               <p className="title-line">{item.title}</p>
               <p className="desc">{item.description}</p>
@@ -382,7 +713,7 @@ export default function Capture() {
               type="button"
               className="btn-primary"
               style={{ flex: 1, padding: "1rem" }}
-              disabled={publishing}
+              disabled={publishing || !listingCards.length}
               onClick={handlePublish}
             >
               {publishing ? "Publishing..." : "Publish to eBay →"}
