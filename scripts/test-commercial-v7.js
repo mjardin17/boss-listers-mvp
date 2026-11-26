@@ -5,7 +5,7 @@ const v7 = require("../lib/commercialV7");
 test("local script writer supports all ten truthful styles and judge scores them", () => {
   assert.equal(v7.STYLES.length, 10);
   for (const style of v7.STYLES) {
-    const draft = v7.fallbackScript({ title: "Real item", price: "", description: "Visible cotton fabric" }, style);
+    const draft = v7.fallbackScript({ title: "Test fixture item", price: "", description: "Fixture-only description" }, style);
     const judged = v7.judgeScript(draft);
     assert.ok(judged.script.scenes.length >= 3);
     assert.ok(judged.score.total > 0);
@@ -108,7 +108,7 @@ test("presenter library storage persists only local reference metadata", () => {
 });
 
 test("batch limit, local presenter record and MCP definition are suggestion-only", () => {
-  const products = Array.from({ length: 10 }, (_, i) => ({ id: `real-${i}`, title: `Item ${i}`, price: "" }));
+  const products = Array.from({ length: 10 }, (_, i) => ({ id: `test-fixture-product-${i}`, title: `Test fixture item ${i}`, price: "" }));
   const batch = v7.makeBatch(products);
   assert.equal(batch.length, 10);
   assert.equal(batch[0].postingPlan, "suggestion-only");
