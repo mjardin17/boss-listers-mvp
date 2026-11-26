@@ -94,6 +94,19 @@ test("CLI accepts real source selectors and topic previews without inventing an 
   assert.match(result.note, /Nothing posted/);
 });
 
+test("presenter library storage persists only local reference metadata", () => {
+  const lib = require("../lib/presenterLibrary");
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key) || null, setItem: (key, value) => values.set(key, value) };
+  const presenter = lib.createPresenter({ id: "persona-test", name: "Locally saved", references: { front: "/uploads/front.jpg" } });
+  lib.writePresenters(storage, [presenter]);
+  const read = lib.readPresenters(storage);
+  assert.equal(read[0].name, "Locally saved");
+  assert.equal(read[0].references.front, "/uploads/front.jpg");
+  assert.equal(read[0].generation, "stub-only");
+  assert.equal(lib.readPresenters({ getItem: () => "not-json" }).length, 0);
+});
+
 test("batch limit, local presenter record and MCP definition are suggestion-only", () => {
   const products = Array.from({ length: 10 }, (_, i) => ({ id: `real-${i}`, title: `Item ${i}`, price: "" }));
   const batch = v7.makeBatch(products);
