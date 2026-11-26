@@ -77,8 +77,12 @@ test("a roughly 9% left-edge thumb on a green card with yellow border is removed
   if (!HAVE_PYTHON) return t.skip("python with opencv/numpy/pillow is required");
   const dir = fixtures();
   const out = outDir();
-  const res = runCrop(path.join(dir, "card-green-yellow-left-thumb-9pct.jpg"), path.join(out, "green-thumb.png"));
+  const res = runCrop(path.join(dir, "card-green-yellow-left-thumb-9pct.jpg"), path.join(out, "green-thumb.png"), ["--report"]);
   assert.equal(res.status, 0, `crop failed: ${res.stderr}`);
+  const report = JSON.parse(res.stdout.trim().split(/\r?\n/).at(-1));
+  assert.ok(report.finger_fraction >= 0.06 && report.finger_fraction <= 0.12, `fixture overlap was ${(report.finger_fraction * 100).toFixed(1)}%, not about 9%`);
+  assert.equal(report.action, "crop");
+  assert.equal(report.skin_fraction, 0);
   const png = await readPng(path.join(out, "green-thumb.png"));
   assert.equal(countSkin(png.data, png.width, png.height, png.channels), 0, "thumb skin remains on the card");
 });

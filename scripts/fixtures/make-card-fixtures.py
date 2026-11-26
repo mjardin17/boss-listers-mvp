@@ -141,7 +141,7 @@ def build_green_left_thumb():
     cv2.line(photo, tuple(tl), tuple(bl), (0, 220, 255), 16)
     center = (int((tl[0] + bl[0]) / 2 + 18), int((tl[1] + bl[1]) / 2))
     thumb = np.zeros((PHOTO_H, PHOTO_W), np.uint8)
-    cv2.ellipse(thumb, center, (94, 215), -5, 0, 360, 255, -1)
+    cv2.ellipse(thumb, center, (150, 215), -5, 0, 360, 255, -1)
     shade = cv2.GaussianBlur(photo, (0, 0), 8)
     shaded = cv2.addWeighted(photo, 0.86, shade, 0.14, 0)
     photo[thumb > 0] = SKIN
