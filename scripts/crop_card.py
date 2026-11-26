@@ -60,6 +60,8 @@ SKIN_OPEN = 7
 SKIN_CLOSE = 7
 # A finished crop may keep at most this fraction of skin-looking pixels.
 MAX_SKIN_FRACTION = 0.004
+MAX_EDGE_OVERLAP_FRACTION = 0.15
+MAX_EDGE_CROP_LOSS = 0.20
 # A skin blob smaller than this (px in card space) is noise, not a finger.
 MIN_FINGER_AREA = 100
 # A skin blob this big (px in the small photo) is a hand, not card artwork.
@@ -396,11 +398,26 @@ def remove_fingers(card_bgr, finger):
     when the hand covers so much that the card is not worth publishing.
     """
     h, w = finger.shape[:2]
+    # The projective warp can fragment a thumb at the card boundary. Recover
+    # edge-connected skin in card coordinates before deciding whether it is safe.
+    edge_skin = np.zeros((h, w), np.uint8)
+    skin = skin_mask(card_bgr)
+    n, labels = cv2.connectedComponents(skin, connectivity=8)
+    border = _border_mask(skin.shape) > 0
+    for label in range(1, n):
+        component = labels == label
+        if (component & border).any():
+            edge_skin[component] = 255
+    finger = cv2.bitwise_or(finger, edge_skin)
     count = int(np.count_nonzero(finger))
     frac = count / float(w * h)
     info = {"finger_pixels": count, "finger_fraction": round(frac, 6), "action": "none"}
     if count == 0:
         return card_bgr, info
+    if frac > MAX_EDGE_OVERLAP_FRACTION:
+        info["action"] = "failed"
+        info["kept_fraction"] = round(1.0 - frac, 4)
+        return None, info
     mask = cv2.dilate(finger, np.ones((9, 9), np.uint8))
     ys, xs = np.nonzero(mask)
     # How deep the finger reaches into the card, measured per side: a pixel

@@ -73,6 +73,16 @@ test("a finger on the other edge is gone too", async (t) => {
   assert.equal(countSkin(png.data, png.width, png.height, png.channels), 0, "the crop still shows skin");
 });
 
+test("a roughly 9% left-edge thumb on a green card with yellow border is removed", async (t) => {
+  if (!HAVE_PYTHON) return t.skip("python with opencv/numpy/pillow is required");
+  const dir = fixtures();
+  const out = outDir();
+  const res = runCrop(path.join(dir, "card-green-yellow-left-thumb-9pct.jpg"), path.join(out, "green-thumb.png"));
+  assert.equal(res.status, 0, `crop failed: ${res.stderr}`);
+  const png = await readPng(path.join(out, "green-thumb.png"));
+  assert.equal(countSkin(png.data, png.width, png.height, png.channels), 0, "thumb skin remains on the card");
+});
+
 test("a clean card keeps at least 90% of its area", async (t) => {
   if (!HAVE_PYTHON) return t.skip("python with opencv/numpy/pillow is required");
   const dir = fixtures();

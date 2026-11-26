@@ -132,6 +132,26 @@ def build(with_hand, side="bottom", blob=False):
     return finish(photo)
 
 
+def build_green_left_thumb():
+    """Green card, yellow border, thumb pad across the left edge (~9% area)."""
+    photo = desk()
+    photo, dst = place_card(photo)
+    # Green card field with a bright yellow border, like the real held-card case.
+    tl, tr, br, bl = dst.astype(np.int32)
+    cv2.line(photo, tuple(tl), tuple(bl), (0, 220, 255), 16)
+    center = (int((tl[0] + bl[0]) / 2 + 18), int((tl[1] + bl[1]) / 2))
+    thumb = np.zeros((PHOTO_H, PHOTO_W), np.uint8)
+    cv2.ellipse(thumb, center, (94, 215), -5, 0, 360, 255, -1)
+    shade = cv2.GaussianBlur(photo, (0, 0), 8)
+    shaded = cv2.addWeighted(photo, 0.86, shade, 0.14, 0)
+    photo[thumb > 0] = SKIN
+    # Preserve a natural soft edge without contaminating the card beyond the blob.
+    blurred = cv2.GaussianBlur(thumb, (0, 0), 3)
+    alpha = (blurred.astype(np.float32) / 255.0)[:, :, None]
+    photo = np.clip(photo.astype(np.float32) * alpha + shaded.astype(np.float32) * (1 - alpha), 0, 255).astype(np.uint8)
+    return finish(photo)
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -143,6 +163,7 @@ def main(argv):
         ("card-with-finger.jpg", build(True, "bottom")),
         ("card-with-finger-left.jpg", build(True, "left")),
         ("card-with-skin-blob.jpg", build(False, blob=True)),
+        ("card-green-yellow-left-thumb-9pct.jpg", build_green_left_thumb()),
     ]
     for name, img in jobs:
         path = os.path.join(outdir, name)
