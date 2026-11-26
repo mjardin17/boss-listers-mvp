@@ -80,6 +80,20 @@ test("product lock preserves photo identity; shot chains, reruns and one-second 
   assert.throws(() => shots.makeShot({ id: "x", productPhoto: photo, camera: "warp" }), /camera/);
 });
 
+test("CLI accepts real source selectors and topic previews without inventing an item", async () => {
+  const cli = require("./commercial");
+  assert.deepEqual(cli.parseArgs(["SKU-1", "--format", "3:4", "--style", "unboxing"]).opts, { format: "3:4", style: "unboxing", output: "public/commercials" });
+  let printed = "";
+  const originalWrite = process.stdout.write;
+  process.stdout.write = (text) => { printed += text; return true; };
+  try { assert.equal(await cli.run(["--topic", "how to organize a desk", "--style", "mini-drama"]), 0); }
+  finally { process.stdout.write = originalWrite; }
+  const result = JSON.parse(printed);
+  assert.equal(result.video, null);
+  assert.match(result.script.style, /mini-drama/);
+  assert.match(result.note, /Nothing posted/);
+});
+
 test("batch limit, local presenter record and MCP definition are suggestion-only", () => {
   const products = Array.from({ length: 10 }, (_, i) => ({ id: `real-${i}`, title: `Item ${i}`, price: "" }));
   const batch = v7.makeBatch(products);

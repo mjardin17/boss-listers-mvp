@@ -32,9 +32,11 @@ FONT = os.environ.get("COMMERCIAL_FONT") or (os.path.join(os.environ.get("WINDIR
 GOLD = (255, 215, 90)
 BEAT_SECONDS = 3.75
 FPS = 24
-SIZES = {"tiktok": (1080, 1920, "Shop now on TikTok Shop"),
-         "instagram": (1080, 1920, "Tap to shop"),
-         "facebook": (1080, 1080, "Shop now")}
+SIZES = {"tiktok": (1080, 1920, "Explore listing"),
+         "instagram": (1080, 1920, "Explore listing"),
+         "shorts": (1080, 1920, "Explore listing"),
+         "3:4": (1080, 1440, "Explore listing"),
+         "facebook": (1080, 1080, "Explore listing")}
 
 
 def upgrade_ebay_url(url):
