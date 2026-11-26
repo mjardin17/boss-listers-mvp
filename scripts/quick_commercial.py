@@ -27,8 +27,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-FFMPEG = os.environ.get("FFMPEG_PATH", r"C:\Users\jjard\claude\viral-engine\ffmpeg_bin\ffmpeg.exe")
-FONT = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "arialbd.ttf")
+FFMPEG = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg") or r"C:\Users\jjard\claude\viral-engine\ffmpeg_bin\ffmpeg.exe"
+FONT = os.environ.get("COMMERCIAL_FONT") or (os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "arialbd.ttf") if os.name == "nt" else "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 GOLD = (255, 215, 90)
 BEAT_SECONDS = 3.75
 FPS = 24
@@ -149,21 +149,21 @@ def build_beats(im, product, platform):
     beats.append((c, f"{title}."))
 
     c = backdrop(im, w, h)
-    y = draw_text(c, "Condition: " + cond if cond else "In stock now", int(170 * s), int(70 * s), GOLD)
+    y = draw_text(c, "Condition: " + cond if cond else "Product details", int(170 * s), int(70 * s), GOLD)
     end = place_product(c, im, int(max(y + 50 * s, 440 * s)), int(w * 0.9), pic_h)
-    draw_text(c, "Real photos. Fast shipping.", end + int(70 * s), int(54 * s))
-    beats.append((c, ("It's " + cond.lower() + ". " if cond else "") + "Ready to ship fast."))
+    draw_text(c, "See listing for details", end + int(70 * s), int(54 * s))
+    beats.append((c, ("Condition: " + cond + ". " if cond else "") + "See listing for details."))
 
     c = backdrop(im, w, h)
-    y = draw_text(c, price_txt or "Great price", int(150 * s), int(120 * s), GOLD)
+    y = draw_text(c, price_txt or "Price not set", int(150 * s), int(120 * s), GOLD)
     place_product(c, im, int(max(y + 40 * s, 460 * s)), int(w * 0.9), pic_h)
-    beats.append((c, f"Just {spoken_price(price)}." if price_txt else "A great price."))
+    beats.append((c, f"Seller-set price: {spoken_price(price)}." if price_txt else "Price not set."))
 
     c = backdrop(im, w, h)
     end = place_product(c, im, int(300 * s), int(w * 0.85), int(h * 0.42))
-    y = draw_text(c, "Grab it today", end + int(90 * s), int(96 * s))
+    y = draw_text(c, "Explore the listing", end + int(90 * s), int(96 * s))
     draw_text(c, cta, y + int(20 * s), int(58 * s), GOLD)
-    beats.append((c, "Grab it today before it's gone."))
+    beats.append((c, "Explore the listing for details."))
     return beats
 
 
@@ -178,7 +178,7 @@ def make_voice(lines, pipeline_fn):
     return np.concatenate(parts), sr
 
 
-def render(product, out_dir, platform="tiktok", speech=None, tag=None):
+def render(product, out_dir, platform="tiktok", speech=None, tag=None, music_path=None):
     w, h, _ = SIZES[platform]
     im = load_image(product.get("image_url"), product.get("image_path"))
     beats = build_beats(im, product, platform)
@@ -201,12 +201,26 @@ def render(product, out_dir, platform="tiktok", speech=None, tag=None):
         os.makedirs(out_dir, exist_ok=True)
         name = tag or re.sub(r"[^a-z0-9]+", "-", product["title"].lower())[:40].strip("-")
         out = os.path.join(out_dir, f"{name}_{platform}.mp4")
+        audio_inputs = ["-i", silent]
+        filters = []
+        audio_labels = []
         if speech is not None:
             wav = os.path.join(work, "voice.wav")
             audio, sr = make_voice([t for _, t in beats], speech)
             sf.write(wav, audio, sr)
-            subprocess.run([FFMPEG, "-loglevel", "error", "-y", "-i", silent, "-i", wav, "-c:v", "copy",
-                            "-c:a", "aac", "-b:a", "160k", "-shortest", out], check=True)
+            audio_inputs += ["-i", wav]
+            filters.append("[1:a]volume=1.0[voice]")
+            audio_labels.append("[voice]")
+        chosen_music = music_path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public", "music", "commercial_bed_15s.wav")
+        if chosen_music and os.path.isfile(chosen_music):
+            audio_inputs += ["-stream_loop", "-1", "-i", chosen_music]
+            music_index = 2 if speech is not None else 1
+            filters.append(f"[{music_index}:a]volume=0.18[music]")
+            audio_labels.append("[music]")
+        if audio_labels:
+            filters.append("".join(audio_labels) + f"amix=inputs={len(audio_labels)}:duration=first:dropout_transition=1[aout]")
+            subprocess.run([FFMPEG, "-loglevel", "error", "-y", *audio_inputs, "-filter_complex", ";".join(filters),
+                            "-map", "0:v:0", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", out], check=True)
         else:
             shutil.copy(silent, out)
         return out
@@ -223,6 +237,7 @@ def main():
     ap.add_argument("--image-path")
     ap.add_argument("--platform", default="tiktok", choices=list(SIZES))
     ap.add_argument("--out-dir", default="out/commercials")
+    ap.add_argument("--music-path", default=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public", "music", "commercial_bed_15s.wav"))
     ap.add_argument("--no-voice", action="store_true")
     a = ap.parse_args()
     speech = None
@@ -230,7 +245,7 @@ def main():
         from scripts.voice_music_factory import generate_speech_array
         speech = generate_speech_array
     print(render({"title": a.title, "price": a.price, "condition": a.condition,
-                  "image_url": a.image_url, "image_path": a.image_path}, a.out_dir, a.platform, speech))
+                  "image_url": a.image_url, "image_path": a.image_path}, a.out_dir, a.platform, speech, music_path=a.music_path))
 
 
 if __name__ == "__main__":

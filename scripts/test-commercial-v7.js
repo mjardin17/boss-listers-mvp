@@ -35,6 +35,14 @@ test("Ollama-compatible writer is tested against a stub, never a live endpoint",
   await assert.rejects(() => v7.writeWithOllama({}, "talking-head", { fetch: async () => ({ ok: false, status: 503 }) }), /returned 503/);
 });
 
+test("URL price parsing never fabricates a fallback amount", () => {
+  const { parsePrice } = require("../lib/ads4now/urlIngest");
+  assert.equal(parsePrice(null), null);
+  assert.equal(parsePrice("not listed"), null);
+  assert.equal(parsePrice("$12.50"), 12.5);
+  assert.equal(v7.cleanProduct({ title: "Item", price: null }).price, "");
+});
+
 test("AI film cost is displayed and confirmation stays a no-spend stub", () => {
   const estimate = v7.costEstimate(12, 0.03);
   assert.equal(estimate.total, 0.36);
