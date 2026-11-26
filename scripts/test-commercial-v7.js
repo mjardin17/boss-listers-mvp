@@ -62,6 +62,24 @@ test("captions, formats, compliance and seller price remain explicit", () => {
   assert.equal(v7.complianceCheck("A product spotlight", { aiGeneratedLabel: true }).aiGeneratedLabel, true);
 });
 
+test("product lock preserves photo identity; shot chains, reruns and one-second repairs are isolated", () => {
+  const shots = require("../lib/commercialV7Shots");
+  const photo = "/uploads/seller-photo.jpg";
+  const original = shots.chainShots([
+    shots.makeShot({ id: "a", productPhoto: photo, camera: "soft" }),
+    shots.makeShot({ id: "b", productPhoto: photo, camera: "bold" }),
+  ]);
+  assert.deepEqual(original[1].startKeyframe, original[0].endKeyframe);
+  const rerun = shots.rerunShot(original, "b", { camera: "mid" });
+  assert.equal(rerun[1].productPhoto, photo);
+  assert.equal(rerun[1].redrawProduct, false);
+  assert.deepEqual(rerun[1].startKeyframe, original[1].startKeyframe);
+  const fixed = shots.repairOneSecond(rerun, "b", 1, "Correct one caption");
+  assert.equal(fixed[1].repairs[1], "Correct one caption");
+  assert.equal(fixed[0].repairs, undefined);
+  assert.throws(() => shots.makeShot({ id: "x", productPhoto: photo, camera: "warp" }), /camera/);
+});
+
 test("batch limit, local presenter record and MCP definition are suggestion-only", () => {
   const products = Array.from({ length: 10 }, (_, i) => ({ id: `real-${i}`, title: `Item ${i}`, price: "" }));
   const batch = v7.makeBatch(products);
