@@ -19,13 +19,21 @@ function wantsPage(req) {
   return String(req.headers.accept || '').includes('text/html');
 }
 
+// Only ever returns '' (same host) or http://localhost:PORT — never another site.
+export function localReturnBase(state) {
+  const parts = String(state || '').split('.');
+  const tag = parts.length >= 3 ? parts[parts.length - 2] : '';
+  const m = /^lh(\d{2,5})$/.exec(tag);
+  return m ? `http://localhost:${m[1]}` : '';
+}
+
 function finish(req, res, status, body) {
   if (wantsPage(req) && body.platform) {
     const q = body.ok
       ? `connected=${encodeURIComponent(body.platform)}`
       : `connect_error=${encodeURIComponent(body.platform)}&reason=${encodeURIComponent(body.errorType || 'failed')}`;
     res.setHeader('Cache-Control', 'no-store');
-    return res.redirect(302, `/social?${q}`);
+    return res.redirect(302, `${localReturnBase(req.query.state)}/social?${q}`);
   }
   return res.status(status).json(body);
 }

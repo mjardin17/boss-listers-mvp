@@ -42,7 +42,11 @@ export default async function handler(req, res) {
   // Generate CSRF state token
   // The browser redirect back from the platform carries no sign-in header, so the
   // signed-in user's id travels inside the stored state (exact-match verified in callback).
-  const state = `${tokenManager.generateState()}.${session.userId}`;
+  // When the flow starts on this computer (localhost:PORT), carry the port so the
+  // callback can send the browser back there instead of the public address.
+  const localPort = String(req.headers.host || '').match(/^(?:localhost|127\.0\.0\.1):(\d{2,5})$/);
+  const returnTag = localPort ? `.lh${localPort[1]}` : '';
+  const state = `${tokenManager.generateState()}${returnTag}.${session.userId}`;
 
   try {
     // Store state for verification in callback
