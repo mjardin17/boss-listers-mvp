@@ -295,6 +295,35 @@ def residual_skin(card_bgr):
     return total, border_px
 
 
+SOLID_BLOB_MIN_AREA = 2000
+SOLID_BLOB_MIN_SOLIDITY = 0.85
+
+
+def solid_interior_skin(card_bgr):
+    """Pixels of compact, solid skin blobs that do not touch the card edge.
+
+    A fingertip is a rounded solid blob (solidity near 1). Skin-coloured card
+    artwork such as grass or trim is ragged (solidity well below 0.85).
+    """
+    skin = skin_mask(card_bgr)
+    border = _border_mask(skin.shape)
+    contours, _ = cv2.findContours(skin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    total = 0
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < SOLID_BLOB_MIN_AREA:
+            continue
+        hull = cv2.contourArea(cv2.convexHull(cnt))
+        if hull <= 0 or area / hull < SOLID_BLOB_MIN_SOLIDITY:
+            continue
+        comp = np.zeros(skin.shape, np.uint8)
+        cv2.drawContours(comp, [cnt], -1, 255, -1)
+        if (comp & border).any():
+            continue  # edge skin is already counted as a finger
+        total += int(area)
+    return total
+
+
 # ── Finger mask ─────────────────────────────────────────────────────────────
 
 def hand_from_skin(skin):
@@ -537,7 +566,9 @@ def main(argv):
             file=sys.stderr)
         return 4
     skin_px, border_px = residual_skin(out)
-    frac = skin_px / float(out.shape[0] * out.shape[1])
+    # Skin touching the card edge is a finger. In the middle, only a solid rounded
+    # blob counts as skin: ragged skin-coloured artwork (tan grass, gold trim) does not.
+    frac = (border_px + solid_interior_skin(out)) / float(out.shape[0] * out.shape[1])
     info.update({
         "source": src,
         "output": dst,
