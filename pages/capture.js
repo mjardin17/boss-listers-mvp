@@ -161,7 +161,7 @@ function PriceLines({ comps }) {
         <strong>Sold recently: </strong>
         {hasSold
           ? `${money(sold.range.low)} – ${money(sold.range.high)}, middle ${money(sold.range.midpoint || sold.range.low)} (${sold.count} exact sales)`
-          : "not enough exact sales found"}
+          : "none found on the sold-price sites we can check (eBay does not share its sold prices with apps like this)"}
       </p>
       <p style={{ margin: 0 }}>
         <strong>Listed now on eBay (asking): </strong>
