@@ -147,6 +147,33 @@ function listingSummary(result) {
   );
 }
 
+const money = (n) => `$${Number(n).toFixed(2).replace(/\.00$/, "")}`;
+
+/** Asking prices and sold prices, each labelled for what it is. Never called "value". */
+function PriceLines({ comps }) {
+  const active = comps?.active;
+  const sold = comps?.sold;
+  const hasActive = active?.range?.low && active?.range?.high;
+  const hasSold = sold?.range?.low && sold?.range?.high && sold?.count >= 3;
+  return (
+    <div className="muted" style={{ margin: "0.25rem 0 0.75rem", lineHeight: 1.5 }}>
+      <p style={{ margin: 0 }}>
+        <strong>Sold recently: </strong>
+        {hasSold
+          ? `${money(sold.range.low)} – ${money(sold.range.high)}, middle ${money(sold.range.midpoint || sold.range.low)} (${sold.count} exact sales)`
+          : "not enough exact sales found"}
+      </p>
+      <p style={{ margin: 0 }}>
+        <strong>Listed now on eBay (asking): </strong>
+        {hasActive
+          ? `${money(active.range.low)} – ${money(active.range.high)}, middle ${money(active.range.midpoint || active.range.low)} (${active.count} listings)`
+          : "no listings found"}
+      </p>
+      <p style={{ margin: "0.25rem 0 0" }}>Asking prices are what other sellers want, not what items sold for. You set your price.</p>
+    </div>
+  );
+}
+
 export default function Capture() {
   const [ready, setReady] = useState(false);
   const [photos, setPhotos] = useState([]); // { file, previewUrl, dataUrl }
@@ -338,8 +365,8 @@ export default function Capture() {
       }
 
       setResult(data);
-      const suggested = Number(data.pricing?.recommendedPrice || data.pricing?.selectedPrice);
-      const price = Number.isFinite(suggested) && suggested > 0 ? String(suggested) : "";
+      // The price box stays empty: the seller sets the price, the app only shows comps.
+      const price = "";
       setSellerPrice(price);
       persistPhotos(photosRef.current, { result: data, sellerPrice: price, pendingGenerate: false });
     } catch (err) {
@@ -690,11 +717,7 @@ export default function Capture() {
               style={{ display: "block", width: "100%", marginTop: "0.35rem", padding: "0.8rem", fontSize: "1.1rem" }}
             />
           </label>
-          <p className="muted">
-            {Number(result.pricing?.recommendedPrice) > 0
-              ? `Suggested from sold comps: $${result.pricing.recommendedPrice}`
-              : "No sold-comp price found for this item, so you set the price."}
-          </p>
+          <PriceLines comps={result.comps} />
 
           {listingCards.map((item) => (
             <article key={item.platform || item.title} className="platform-card" data-platform={item.platform}>
