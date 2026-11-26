@@ -12,7 +12,8 @@
  * Requirements:
  *   - data/card-vault.json must exist (not committed — personal data)
  *   - Remotion + bundler + renderer installed (pnpm)
- *   - python + opencv-python-headless, numpy, pillow (scripts/crop_card.py isolates the card)
+ *   - python + opencv-python-headless, numpy, pillow (scripts/crop_card.py isolates the card
+ *     and takes any finger that lies over the card's edge off the result)
  */
 
 import { bundle } from "@remotion/bundler";
@@ -35,6 +36,11 @@ const {
   getFirstCardWithPhoto,
   DEFAULT_VAULT_FILE,
 } = require("../lib/cardVault.js");
+
+// ── Crop cache ────────────────────────────────────────────────────────────────
+// The folder is versioned: a crop made before the finger fix (which kept the
+// seller's hand on the card) must never be reused.
+const { cropCacheDir, cropCachePath } = require("../lib/cardCropCache.js");
 
 // ── Arg parsing ────────────────────────────────────────────────────────────────
 const cardIdArg = process.argv[2] ?? null;
@@ -108,14 +114,12 @@ if (!fs.existsSync(photoAbsPath)) {
 
 // ── Card-only crop (no hands, no room) & base64 Data URL ─────────────────────
 // The reel must show ONLY the card. scripts/crop_card.py finds the card,
-// flattens it and cuts it out with rounded corners. Results are cached in
-// public/uploads/cards-cropped/. If the crop fails we STOP: rendering the raw
-// phone photo is never an acceptable fallback.
-const croppedDir = path.join(ROOT, "public", "uploads", "cards-cropped");
-const croppedPath = path.join(
-  croppedDir,
-  path.basename(photoAbsPath).replace(/\.[^.]+$/, "") + ".png"
-);
+// flattens it, cuts it out with rounded corners and takes any finger that
+// lies over the card's edge off the result. Results are cached in
+// public/uploads/cards-cropped/<version>/. If the crop fails we STOP:
+// rendering the raw phone photo is never an acceptable fallback.
+const croppedDir = cropCacheDir(ROOT);
+const croppedPath = cropCachePath(ROOT, photoAbsPath);
 
 if (!fs.existsSync(croppedPath)) {
   fs.mkdirSync(croppedDir, { recursive: true });
@@ -130,7 +134,10 @@ if (!fs.existsSync(croppedPath)) {
       `\n❌ Could not isolate the card from the photo: ${reason}\n` +
         (res.status === 3
           ? `   Install deps: ${py} -m pip install opencv-python-headless numpy pillow\n`
-          : `   Retake the photo with the card flat on a plain surface, then re-run.\n`) +
+          : res.status === 4
+            ? `   A hand is on the card and could not be removed.\n` +
+              `   Retake the photo with the card flat on a plain surface and no fingers on it, then re-run.\n`
+            : `   Retake the photo with the card flat on a plain surface, then re-run.\n`) +
         `   Not rendering — the raw photo (hand/background) is never used.\n`
     );
     process.exit(1);
