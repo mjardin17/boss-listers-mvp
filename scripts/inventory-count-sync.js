@@ -11,6 +11,15 @@
 // or ended listing goes to 0, a changed eBay quantity is copied. It never writes to a selling
 // site. Anything else is held and reported. Each run adds one line to logs/inventory-sync.log.
 //
+// Whatnot (automatic mode, when WHATNOT_API_TOKEN is set), quantities only:
+//   - a new Whatnot order for an eBay-synced item lowers that eBay listing (config
+//     whatnotSalesLowerEbay), and the count step below then lowers the database to match.
+//     Handled order ids live in data/whatnot-orders-state.json, so no order counts twice.
+//   - every product in data/whatnot-sync-state.json is lowered on Whatnot to the eBay quantity
+//     (0 when the eBay listing sold or ended). Never raised, unless the item is "released": true.
+//   Each Whatnot change adds its own line to logs/inventory-sync.log. A Whatnot error is logged and
+//   the eBay sync carries on.
+//
 //   Shopify is left out: Josh stopped using it on 2026-11-11. --with-shopify turns that leg back on.
 //
 // Live mode works on ONE named SKU at a time and needs migration 0022 applied
@@ -189,12 +198,15 @@ async function main() {
   const listingByProduct = new Map(listings.map((r) => [r.product_id, r]));
   const rows = products.map((p) => ({ ...p, shopify_baseline: listingByProduct.get(p.id)?.listed_quantity ?? null }));
   const config = require("../config/inventory-sync.json");
+  // Whatnot sales first: they lower eBay (and the eBay map), so the plan below lowers the database.
+  const whatnot = args.auto ? await whatnotSalesStep({ ebay, tenantId, products, config }) : null;
   const plan = planCounts({ products: rows, ebay: ebay.map, shopify: shopify.map, digitalSkus: config.digitalSkus || [], acceptGone: args.acceptGone });
 
   console.log(`eBay live listings: ${ebay.map.size} | Shopify products: ${shopify.map.size} | database products: ${products.length}`);
   printPlan(plan, args.sku);
   if (args.auto) {
     const result = await runAuto({ plan, ebay, tenantId, rest, ebayWrites: config.ebayWritesEnabled === true });
+    if (whatnot) result.whatnot = await whatnotQuantityStep({ whatnot, ebay, tenantId, blocked: plan.blocked });
     logRun(result, ebay.map.size);
     if (result.blocked || result.failed.length) process.exitCode = 1;
     return;
@@ -291,18 +303,83 @@ async function runAuto({ plan, ebay, tenantId, rest, ebayWrites = false, changeE
   return result;
 }
 
-/** One line per run, so anyone can see when it last ran and what it did. */
-function logRun(result, ebayLive) {
-  const line = JSON.stringify({ at: new Date().toISOString(), ebayLive, blocked: result.blocked, applied: result.applied, ebayChanged: result.ebayChanged || [], held: result.held, failed: result.failed });
+/**
+ * Whatnot leg, part 1 (before the plan): new Whatnot orders lower eBay. Never throws: a Whatnot
+ * problem is reported and the eBay sync carries on. Returns null when Whatnot isn't set up.
+ */
+async function whatnotSalesStep({ ebay, tenantId, products, config, deps = {} }) {
+  if (!deps.whatnot && !process.env.WHATNOT_API_TOKEN) return null;
+  const ws = require("../lib/whatnotSync");
+  const ctx = {
+    whatnot: deps.whatnot || new (require("../lib/channels/WhatnotConnector").WhatnotConnector)(),
+    syncState: deps.syncState || ws.loadState(),
+    listingIdFor: ws.listingIdFinder(products),
+    sales: { ordersRead: 0, ebayLowered: [], held: [], failed: [] },
+  };
+  try {
+    ctx.sales = await ws.applyWhatnotOrders({
+      whatnot: ctx.whatnot,
+      syncState: ctx.syncState,
+      ordersState: deps.ordersState || ws.loadOrdersState(),
+      saveOrders: deps.saveOrders || ws.saveOrdersState,
+      ebayMap: ebay.map,
+      listingIdFor: ctx.listingIdFor,
+      enabled: config.whatnotSalesLowerEbay === true,
+      changeEbay: deps.changeEbay || { set: (id, qty) => setEbay(ebay.fetcher, tenantId, id, qty), end: (id) => endEbay(ebay.fetcher, tenantId, id) },
+      logChange: deps.logChange || logWhatnotChange,
+    });
+  } catch (err) {
+    ctx.sales.failed.push({ reason: `Whatnot orders: ${String(err.message).slice(0, 200)}` });
+  }
+  for (const c of ctx.sales.ebayLowered) console.log(`  Whatnot sale ${c.order}: eBay ${c.sku} ${c.from} -> ${c.to}${c.ended ? " (listing ended)" : ""}`);
+  return ctx;
+}
+
+/** Whatnot leg, part 2 (after the plan): Whatnot quantities follow eBay down. Never throws. */
+async function whatnotQuantityStep({ whatnot, ebay, tenantId, blocked, deps = {} }) {
+  const ws = require("../lib/whatnotSync");
+  let qty = { lowered: [], raised: [], held: [], failed: [] };
+  try {
+    qty = await ws.pushWhatnotQuantities({
+      whatnot: whatnot.whatnot,
+      syncState: whatnot.syncState,
+      ebayMap: ebay.map,
+      listingIdFor: whatnot.listingIdFor,
+      blocked,
+      whyGone: deps.whyGone || ((id) => whyGone(ebay.fetcher, tenantId, id)),
+      saveSync: deps.saveSync || ws.saveState,
+      logChange: deps.logChange || logWhatnotChange,
+    });
+  } catch (err) {
+    qty.failed.push({ reason: `Whatnot quantities: ${String(err.message).slice(0, 200)}` });
+  }
+  const s = whatnot.sales;
+  for (const h of [...s.held, ...qty.held]) console.log(`  WHATNOT HELD ${h.sku}: ${h.reason}`);
+  for (const f of [...s.failed, ...qty.failed]) console.log(`  WHATNOT FAILED ${f.sku || f.order || ""}: ${f.reason}`);
+  console.log(`WHATNOT: orders read ${s.ordersRead}, eBay lowered ${s.ebayLowered.length}, Whatnot lowered ${qty.lowered.length}, raised ${qty.raised.length}, held ${s.held.length + qty.held.length}, failed ${s.failed.length + qty.failed.length}.`);
+  return { ordersRead: s.ordersRead, ebayLowered: s.ebayLowered, lowered: qty.lowered, raised: qty.raised, held: [...s.held, ...qty.held], failed: [...s.failed, ...qty.failed] };
+}
+
+function appendLog(entry) {
   try {
     fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
-    fs.appendFileSync(LOG_FILE, line + "\n", "utf8");
+    fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + "\n", "utf8");
   } catch (err) {
     console.error(`Could not write the run log: ${err.message}`);
   }
 }
 
-module.exports = { parseArgs, readShopify, setShopify, whyGone, runAuto, CONFIRM_WORD, AUTO_CONFIRM_WORD };
+/** One line for every Whatnot change, in the same JSON-per-line style as the run line. */
+function logWhatnotChange(change) {
+  appendLog({ at: new Date().toISOString(), ...change });
+}
+
+/** One line per run, so anyone can see when it last ran and what it did. */
+function logRun(result, ebayLive) {
+  appendLog({ at: new Date().toISOString(), ebayLive, blocked: result.blocked, applied: result.applied, ebayChanged: result.ebayChanged || [], held: result.held, failed: result.failed, ...(result.whatnot ? { whatnot: result.whatnot } : {}) });
+}
+
+module.exports = { parseArgs, readShopify, setShopify, whyGone, runAuto, whatnotSalesStep, whatnotQuantityStep, CONFIRM_WORD, AUTO_CONFIRM_WORD };
 
 if (require.main === module) {
   main().catch((err) => {
