@@ -12,7 +12,11 @@
 // signals success via a JSON body with code === 0 — NOT via HTTP status,
 // which is 200 for most auth failures too. grant_type must be exactly
 // "authorized_code" (TikTok's own non-standard spelling), not the usual
-// OAuth "authorization_code".
+// OAuth "authorization_code". Token host is shared for US and ROW and
+// resolves from TIKTOK_SHOP_REGION / TIKTOK_SHOP_AUTH_HOST (default US).
+// See lib/tiktokShopHosts.js.
+
+const { TikTokShopConnector } = require("../../../../lib/channels/TikTokShopConnector");
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -37,30 +41,24 @@ export default async function handler(req, res) {
     return res.status(503).json({ ok: false, error: "TikTok Shop credentials not configured on server" });
   }
 
-  // 1. Exchange the auth code for a refresh token.
-  let tokenBody;
+  // 1. Exchange the auth code for access + refresh tokens, then read the
+  // authorized shop so its shop_cipher is saved with the connection.
+  let tokenData;
+  let shop = null;
   try {
-    const params = new URLSearchParams({
-      app_key: appKey,
-      app_secret: appSecret,
-      auth_code: code,
-      grant_type: "authorized_code",
-    });
-    const tokenRes = await fetch(`https://auth.tiktok-shops.com/api/v2/token/get?${params.toString()}`, {
-      signal: AbortSignal.timeout(15_000),
-    });
-    tokenBody = await tokenRes.json().catch(() => null);
-    if (!tokenRes.ok || !tokenBody || tokenBody.code !== 0 || !tokenBody.data?.refresh_token) {
-      return res.status(502).json({
-        ok: false,
-        error: (tokenBody && tokenBody.message) || `TikTok Shop token exchange failed (HTTP ${tokenRes.status})`,
-      });
-    }
+    tokenData = await TikTokShopConnector.exchangeAuthCode(code);
   } catch (err) {
-    return res.status(504).json({ ok: false, error: `TikTok Shop token exchange timed out: ${err.message}` });
+    return res.status(err.statusCode || 502).json({ ok: false, error: err.message });
   }
+  try {
+    const shops = await TikTokShopConnector.getAuthorizedShopsWithToken(tokenData.access_token);
+    shop = shops.find((s) => String(s.region).toUpperCase() === "US") || shops[0] || null;
+  } catch (err) {
+    // Non-fatal: the connector looks the cipher up again when it lists.
+  }
+  const tokenBody = { data: tokenData };
 
-  const shopName = tokenBody.data.seller_name || tokenBody.data.shop_name || null;
+  const shopName = shop?.name || tokenBody.data.seller_name || null;
 
   // 2. Store it — the RPC resolves the tenant from userAccessToken's
   // auth.uid(), not from anything in this request body.
@@ -77,7 +75,7 @@ export default async function handler(req, res) {
         p_environment: "production",
         p_refresh_token: tokenBody.data.refresh_token,
         p_account_identifier: shopName,
-        p_metadata: {},
+        p_metadata: shop ? { shop_id: shop.id, shop_cipher: shop.cipher, shop_region: shop.region, seller_type: shop.seller_type } : {},
       }),
     });
     if (!rpcRes.ok) {

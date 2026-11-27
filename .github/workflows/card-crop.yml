@@ -1,0 +1,45 @@
+name: Card crop (no fingers on the card)
+
+on:
+  pull_request:
+    paths:
+      - "scripts/crop_card.py"
+      - "scripts/fixtures/make-card-fixtures.py"
+      - "scripts/test-card-crop.js"
+      - "lib/cardCropCache.js"
+      - "lib/skinDetect.js"
+      - "scripts/render-card-showcase.mjs"
+      - "package.json"
+      - ".github/workflows/card-crop.yml"
+  push:
+    branches:
+      - feat/card-showcase-mode
+    paths:
+      - "scripts/crop_card.py"
+      - "scripts/fixtures/make-card-fixtures.py"
+      - "scripts/test-card-crop.js"
+      - "lib/cardCropCache.js"
+      - "lib/skinDetect.js"
+      - "scripts/render-card-showcase.mjs"
+      - "package.json"
+      - ".github/workflows/card-crop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  card-crop-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.16.0"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install python image stack
+        run: python3 -m pip install --quiet opencv-python-headless numpy pillow
+      - name: Run card crop tests
+        run: node --test scripts/test-card-crop.js

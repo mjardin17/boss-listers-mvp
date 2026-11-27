@@ -26,6 +26,7 @@ const PUBLIC_ALLOWLIST = new Set([
   "channels/amazon/callback.js",
   "channels/tiktok-shop/callback.js",
   "oauth/[platform]/callback.js",
+  "public/app-icon.js", // the public 1024px app icon for developer portals, no data
 ]);
 
 // Reviewed: reject a missing token, then forward the caller's own bearer token

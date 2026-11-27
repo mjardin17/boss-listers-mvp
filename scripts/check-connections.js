@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // scripts/check-connections.js
-// Read-only status report for all 9 marketplace connectors wired in
+// Read-only status report for all marketplace connectors wired in
 // lib/channels/apiConnectors.js. Calls each connector's testConnection() —
 // a status probe only (connector.js's own contract: no connector may
 // report "connected" without a real testConnection() call succeeding, and
@@ -23,6 +23,7 @@ const {
   WooCommerceConnector,
   AmazonConnector,
   TikTokShopConnector,
+  WhatnotConnector,
 } = require("../lib/channels/apiConnectors");
 
 const CONNECTORS = [
@@ -35,6 +36,7 @@ const CONNECTORS = [
   { label: "WooCommerce", Cls: WooCommerceConnector },
   { label: "Amazon", Cls: AmazonConnector },
   { label: "TikTok Shop", Cls: TikTokShopConnector },
+  { label: "Whatnot", Cls: WhatnotConnector },
 ];
 
 const TIMEOUT_MS = 15_000;

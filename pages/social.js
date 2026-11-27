@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useCallback, useEffect, useState } from "react";
 import { requireSession, authedFetch } from "../lib/clientAuth";
 
@@ -11,6 +12,13 @@ import { requireSession, authedFetch } from "../lib/clientAuth";
 // status and lets the user manually kick off an OAuth connect
 // (lib/channels/connector.js: "Nothing cross-posts automatically — user
 // confirmation required.").
+
+const CONNECT_REASON = {
+  access_denied: "you cancelled on the platform's screen",
+  csrf_failed: "the connect link expired. Try again",
+  token_exchange_failed: "the platform did not hand over access. Check the app's redirect address and keys",
+  session_invalid: "you are not signed in here",
+};
 
 const STATUS_META = {
   connected: { label: "Connected", color: "#16a34a" },
@@ -36,6 +44,8 @@ export default function SocialConnectionsPage() {
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState("");
   const [connectError, setConnectError] = useState({});
+  const router = useRouter();
+  const { connected, connect_error: failedPlatform, reason } = router.query;
 
   const loadStatus = useCallback(async () => {
     setError("");
@@ -91,6 +101,14 @@ export default function SocialConnectionsPage() {
       </header>
 
       {error && <p style={{ color: "#dc2626" }}>{error}</p>}
+      {typeof connected === "string" && (
+        <p role="status" style={{ color: "#16a34a" }}>Connected {connected}.</p>
+      )}
+      {typeof failedPlatform === "string" && (
+        <p role="alert" style={{ color: "#dc2626" }}>
+          {failedPlatform} was not connected: {CONNECT_REASON[reason] || "the connect step failed. Try again"}.
+        </p>
+      )}
 
       <section>
         <h2 className="section-heading">Connect your social accounts</h2>

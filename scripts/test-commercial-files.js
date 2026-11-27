@@ -76,3 +76,15 @@ test("a failed upload is reported and nothing is treated as uploaded", async () 
   assert.strictEqual(out.ok, false);
   assert.match(out.error, /storage said no/);
 });
+
+test("with a public https APP_URL the commercial is posted from the app's own address, no storage copy", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "comm-"));
+  fs.writeFileSync(path.join(dir, "clip_9_16.mp4"), Buffer.from("mp4"));
+  let uploaded = false;
+  const r = await resolveVideoAddress({ commercial: "clip_9_16.mp4" }, { live: true, dir, env: { APP_URL: "https://app.example.com/" }, upload: async () => { uploaded = true; return "x"; } });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.videoUrl, "https://app.example.com/commercials/clip_9_16.mp4");
+  assert.strictEqual(uploaded, false);
+  const local = await resolveVideoAddress({ commercial: "clip_9_16.mp4" }, { live: false, dir, env: { APP_URL: "http://localhost:3001", SUPABASE_URL: "https://p.supabase.co" } });
+  assert.match(local.videoUrl, /supabase\.co/);
+});

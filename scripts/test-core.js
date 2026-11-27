@@ -233,7 +233,7 @@ test("video studio: platform presets map each aspect ratio to the correct real d
 test("video studio: templates are data-driven and getTemplate falls back to the first template on an unknown id", () => {
   const { VIDEO_TEMPLATES, getTemplate } = loadTsModule("lib/video-studio/templates.ts");
 
-  assert.equal(VIDEO_TEMPLATES.length, 6);
+  assert.equal(VIDEO_TEMPLATES.length, 7); // includes card-showcase
   assert.equal(getTemplate("fast-product-sale").name, "Fast Product Sale");
   assert.equal(getTemplate("does-not-exist"), VIDEO_TEMPLATES[0]);
 });
@@ -341,4 +341,11 @@ test("cross-list titles still prepend a brand the title is missing", () => {
   });
 
   assert.equal(draft.title.startsWith("Hot Wheels 2023 Treasure Hunt"), true);
+});
+
+test("product photo analysis accepts AI JSON wrapped in code fences or chatter", () => {
+  const { extractJsonObject } = require("../lib/openaiVision");
+  assert.equal(JSON.parse(extractJsonObject("```json\n{\"title\":\"Oddish\"}\n```")).title, "Oddish");
+  assert.equal(JSON.parse(extractJsonObject("Here it is: {\"sku\":\"001/196\"} done")).sku, "001/196");
+  assert.equal(JSON.parse(extractJsonObject("{\"a\":1}")).a, 1);
 });

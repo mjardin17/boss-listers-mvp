@@ -14,5 +14,7 @@
   ],
   "ebayWritesEnabled": false,
   "ebayWritesEnabledReason": "When true, the automatic sync may lower an eBay quantity or end an eBay listing after the item sold on another site. Off until Josh says the store is going live.",
+  "whatnotSalesLowerEbay": true,
+  "whatnotSalesLowerEbayReason": "Josh asked for this on 2026-11-27 for live Whatnot shows: when an eBay-synced item sells on Whatnot, the automatic sync lowers that eBay listing by the units sold (ends it on the last unit) so it can't sell twice. Separate from ebayWritesEnabled, which stays as it was.",
   "digitalSkusReason": "Ebooks have no stock to count; the quantity sync leaves them alone."
 }

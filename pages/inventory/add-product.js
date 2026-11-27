@@ -98,10 +98,17 @@ export default function AddProduct() {
         return;
       }
 
-      setFormData((prev) => ({
-        ...prev,
-        ...result.product,
-      }));
+      // Only copy real values into fields the form has: the AI returns null for
+      // anything it could not read, and nested values (sizes, features) are not form fields.
+      setFormData((prev) => {
+        const next = { ...prev };
+        for (const [key, value] of Object.entries(result.product || {})) {
+          if (!(key in prev)) continue;
+          if (typeof value === "string" && value.trim()) next[key] = value.trim();
+          else if (typeof value === "number" && Number.isFinite(value)) next[key] = String(value);
+        }
+        return next;
+      });
       setImageAnalyzed(true);
     } catch (err) {
       setError((err.message || "Couldn't analyze the photo") + ". You can still fill in the details and save.");

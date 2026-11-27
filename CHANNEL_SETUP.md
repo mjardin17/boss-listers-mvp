@@ -9,6 +9,7 @@ real authenticated API call succeeded.
 | Etsy | Official API (Open API v3, OAuth) | Structure ready — needs credentials |
 | Shopify | Official API (GraphQL Admin) | Optional — not configured |
 | WooCommerce | Official API (REST v3) | Optional — not configured |
+| Whatnot | Official API (Seller API REST v2) | Personal access token in `WHATNOT_API_TOKEN` — live probe is `GET /users/me` |
 | Facebook Marketplace | **Manual listing package** | Working now |
 | OfferUp | Manual listing package | Working now |
 | Craigslist | Manual listing package | Working now |
@@ -121,28 +122,54 @@ Same shared-app-registration, per-tenant-consent model as eBay/Etsy above.
 "not_implemented". TikTok Shop's Product API requires its own
 HMAC-SHA256 request-signing scheme, separate work from connecting a shop.
 
-1. Register an app at https://partner.tiktokshop.com (Partner Center). This
-   gives an **App Key** and **App Secret** — distinct from
-   `TIKTOK_CLIENT_ID`/`TIKTOK_CLIENT_SECRET` used elsewhere in this app for
-   TikTok's separate Login Kit / content-posting integration
-   (`lib/socialMediaAuth.js`). Do not reuse those values here.
+US shops and Rest-of-World (ROW) shops use different Partner Centers and
+seller-authorization entry URLs. Token and OpenAPI hosts are the same for
+both markets. Hosts are selected by `TIKTOK_SHOP_REGION` (and the public
+`NEXT_PUBLIC_TIKTOK_SHOP_REGION` used to build the authorize link),
+defaulting to `US`. Verified 2026-11-21 against TikTok Shop's official docs:
+https://partner.tiktokshop.com/docv2/page/authorization-overview-202407
+https://partner.tiktokshop.com/docv2/page/create-your-app
+https://partner.tiktokshop.com/docv2/page/methods-and-endpoints
+
+1. Register an app in the Partner Center that matches the shop's market:
+   **US:** https://partner.us.tiktokshop.com
+   **ROW:** https://partner.tiktokshop.com
+   This gives an **App Key**, **App Secret**, and **Service ID** — distinct
+   from `TIKTOK_CLIENT_ID`/`TIKTOK_CLIENT_SECRET` used elsewhere in this app
+   for TikTok's separate Login Kit / content-posting integration
+   (`lib/socialMediaAuth.js`). Do not reuse those values here. A global
+   (ROW) app cannot authorize a US shop.
 2. Set server-side: `TIKTOK_SHOP_APP_KEY`, `TIKTOK_SHOP_APP_SECRET`. Set the
    public client-side value used to build the authorization link:
    `NEXT_PUBLIC_TIKTOK_SHOP_SERVICE_ID` (the app's Service ID, shown on its
-   Partner Center page — not itself a secret).
-3. **Verify before going live**: Partner Center typically hands you a
-   ready-made authorization link per app rather than documenting one fixed
-   URL template. Compare that link against `startTikTokShopConnect()` in
-   `pages/channels.js` (currently `services.tiktokshop.com/open/authorize`)
-   and adjust if the app's actual link differs.
-4. Token exchange/refresh (`auth.tiktok-shops.com/api/v2/token/get` and
-   `/token/refresh`) were confirmed against TikTok's own Partner API docs
-   2026-09-13 — `grant_type=authorized_code` for the initial exchange
-   (TikTok's non-standard spelling, not the usual OAuth
+   Partner Center page under App & Service → the app → App credentials /
+   Basic information — not itself a secret).
+   Optional: `TIKTOK_SHOP_REGION=US` (default) or `ROW`. If you set ROW,
+   also set `NEXT_PUBLIC_TIKTOK_SHOP_REGION=ROW` so the browser uses the
+   ROW authorize URL. Optional overrides: `TIKTOK_SHOP_AUTH_URL` /
+   `NEXT_PUBLIC_TIKTOK_SHOP_AUTH_URL` (seller authorize URL, no query
+   string), `TIKTOK_SHOP_AUTH_HOST` (token host), `TIKTOK_SHOP_API_HOST`.
+3. Redirect URI to register in the app's Partner Center settings (there is
+   no separate env var for it):
+   `{APP_URL}/channels/tiktok-shop-callback`
+   Local default: `http://localhost:3001/channels/tiktok-shop-callback`
+   (`pages/channels/tiktok-shop-callback.js`).
+4. Enable API, then under App & Service → Manage → Manage API enable at
+   least these public scopes (see
+   https://partner.tiktokshop.com/docv2/page/access-scope):
+   Shop Authorized Information, Product Basic, Product Modify, and
+   Logistics Basic. Add Order Information / Fulfillment Basic if you will
+   sync orders later. Public scopes are typically available by default;
+   the seller still has to grant them at authorize time.
+5. Token exchange/refresh (`auth.tiktok-shops.com/api/v2/token/get` and
+   `/token/refresh`, same for US and ROW) were reconfirmed against the
+   official docs 2026-11-21 — `grant_type=authorized_code` for the initial
+   exchange (TikTok's non-standard spelling, not the usual OAuth
    `authorization_code`), `grant_type=refresh_token` for refreshing, and
    success is signaled by a JSON body with `code === 0`, not HTTP status.
-   The redirect URI is registered directly in the app's Partner Center
-   settings, same as Amazon — there's no separate env var for it.
+   Seller authorize URLs:
+   US: `https://services.us.tiktokshop.com/open/authorize?service_id={service_id}`
+   ROW: `https://services.tiktokshop.com/open/authorize?service_id={service_id}`
 
 ### Shopify (per-store OAuth)
 Same shared-app-registration, per-tenant-consent model as eBay/Etsy above.
@@ -180,6 +207,14 @@ order tracking.
 ### WooCommerce (only if you run a WooCommerce site)
 WooCommerce → Settings → Advanced → REST API → Add key (Read/Write).
 Env vars: `WOOCOMMERCE_STORE_URL`, `WOOCOMMERCE_CONSUMER_KEY`, `WOOCOMMERCE_CONSUMER_SECRET`.
+
+
+### Whatnot
+Whatnot's official Seller API is REST v2 (`https://api.whatnot.com/seller-api/rest/v2`). Every seller approved to sell live can generate a personal access token in Seller Hub → Seller API. There is no monthly API fee and no OAuth Connect button in this app — paste the token into `.env.local` as `WHATNOT_API_TOKEN`. Tokens start with `wn_pat_tk_` and are shown only once when created. Never paste the token into chat.
+
+Required scopes for listing: `read:inventory`, `write:inventory`, and `write:merchandising` (plus whatever the dashboard lists for `GET /users/me`). Docs: https://developers.whatnot.com/getting-started/authentication
+
+`createListing()` follows the official flow: `POST /products`, `GET /products/{id}/variants`, `PATCH /products/{id}/variants` (price), `POST /inventory/set`, `POST /merchandising/products/{id}`. Live publish requires `confirm: "PUBLISH_LIVE"` and a Whatnot `category_id` (https://developers.whatnot.com/taxonomy). Dry-run is the default.
 
 ### Manual channels (Facebook, OfferUp, Craigslist, Mercari, Poshmark)
 Nothing to register. `/channels` → enter SKU → Generate package → copy fields

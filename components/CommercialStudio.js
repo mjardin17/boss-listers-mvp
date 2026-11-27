@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { authedFetch } from "../lib/clientAuth";
+import CommercialPresenterLibrary from "./CommercialPresenterLibrary";
 
 export default function CommercialStudio({
   product = {},
@@ -368,6 +369,8 @@ export default function CommercialStudio({
           </button>
         )}
       </div>
+
+      <CommercialPresenterLibrary />
 
       {loading && (
         <div style={styles.loadingBox}>

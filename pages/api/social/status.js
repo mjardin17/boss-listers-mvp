@@ -25,6 +25,21 @@ const supabaseAuth = require('../../../lib/supabaseAuth');
 const { requireSession } = require("../../../lib/requireSession");
 const supabaseCredentials = require('../../../lib/supabaseCredentials');
 
+/** Page name when the saved FB Page key can read the Page, else null. */
+async function verifySavedFacebookPage() {
+  const token = process.env.FB_ACCESS_TOKEN;
+  const pageId = process.env.FB_PAGE_ID;
+  if (!token || !pageId) return null;
+  try {
+    const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(pageId)}?fields=name&access_token=${encodeURIComponent(token)}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json();
+    return r.ok && j && j.name ? String(j.name) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
@@ -71,6 +86,18 @@ export default async function handler(req, res) {
 
   const wantsLive = req.query.live === 'true' && userId;
 
+  // The owner's Facebook Page posts through a saved Page key (FB_ACCESS_TOKEN +
+  // FB_PAGE_ID), not through this page's Connect button. Show it as connected
+  // only when that key is live-verified against the Page right now.
+  const ownerTenant = String(process.env.PLATFORM_OWNER_TENANT_ID || '').trim().toLowerCase();
+  const isOwner = ownerTenant && String(session.tenantId || '').toLowerCase() === ownerTenant;
+  if (isOwner && !connectedByPlatform.facebook) {
+    const pageName = await verifySavedFacebookPage();
+    if (pageName) {
+      connectedByPlatform.facebook = { platform: 'facebook', accountIdentifier: `${pageName} (saved Page key)`, connectedAt: null, savedKey: true };
+    }
+  }
+
   const platforms = await Promise.all(platformIds.map(async (id) => {
     const cfg = socialMediaAuth.OAUTH_CONFIGS[id];
     const connection = connectedByPlatform[id];
@@ -82,7 +109,9 @@ export default async function handler(req, res) {
     else if (configured) status = 'configured';
 
     let live = null;
-    if (wantsLive && connected) {
+    if (connection && connection.savedKey) {
+      live = { status: 'connected', detail: `Live-verified as ${connection.accountIdentifier}.` };
+    } else if (wantsLive && connected) {
       try {
         // 1. Refresh first — the only real caller of this function; makes
         // the dead auto-refresh code path actually run.

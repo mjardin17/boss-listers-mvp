@@ -44,7 +44,7 @@ export default async function handler(req, res) {
       const product = await getProductForCommercial(session.tenantId, sku);
       const made = await makeCommercial(product);
       if (!made.ok) return res.status(400).json({ ok: false, error: made.error });
-      return res.status(200).json({ ok: true, commercial: { name: made.name, bytes: made.bytes }, posted: false });
+      return res.status(200).json({ ok: true, commercial: { name: made.name, bytes: made.bytes, thumbnail: made.thumbnail || null }, posted: false });
     } finally {
       isMaking = false;
     }

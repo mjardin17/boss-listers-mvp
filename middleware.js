@@ -21,13 +21,29 @@ async function sha256Hex(value) {
     .join('');
 }
 
+const PUBLIC_PATHS = new Set(['/', '/terms', '/privacy', '/icon-1024.png']);
+const PUBLIC_PATTERNS = [/^\/tiktok[A-Za-z0-9]+\.txt$/, /^\/commercials\/[\w.-]+\.mp4$/];
+
+export function isPublicPath(pathname) {
+  return PUBLIC_PATHS.has(pathname) || PUBLIC_PATTERNS.some((re) => re.test(pathname));
+}
+
 export async function middleware(request) {
   // Disabled for local dev only (2026-08-29) — this gate was stacking with
   // the app's own login and re-prompting on every request, breaking local
   // testing. NODE_ENV is "production" for `next build && next start` and
   // any real deployment, so this only skips the gate under `next dev`.
   // Re-enable for local testing by removing this block if ever needed.
-  if (process.env.NODE_ENV !== 'production') {
+  // Turned off 2026-11-25 at Josh's request: the app's own login guards every
+  // API route, and this extra prompt can't be answered in the built-in browser.
+  // Set APP_BASIC_AUTH_ENABLED=1 to bring the gate back.
+  if (process.env.NODE_ENV !== 'production' || process.env.APP_BASIC_AUTH_ENABLED !== '1') {
+    return NextResponse.next();
+  }
+
+  // Pages app reviewers (TikTok, Meta) and the public must open without a password:
+  // the home page, Terms, Privacy, domain-verification files and the app icon.
+  if (isPublicPath(request.nextUrl.pathname)) {
     return NextResponse.next();
   }
 

@@ -41,7 +41,7 @@ test("a new item is saved as an unlisted draft that the store and the sync both 
   assert.strictEqual(out.ok, true);
   assert.deepStrictEqual(out.row, {
     tenant_id: "t1", sku: "IH-" + (1700000000000).toString(36).toUpperCase(), title: "Canvas tote bag", description: null,
-    price: 0, quantity: 2, condition: "used", location: "Shelf A3", image_url: null,
+    price: 0, cost: null, quantity: 2, condition: "used", location: "Shelf A3", image_url: null, image_urls: null,
     status: "draft", source: "manual", published: false, approved_at: null,
   });
 });
@@ -97,4 +97,87 @@ test("only an in-house item that was put away can be brought back; an ended eBay
   assert.strictEqual(canBringBack(item({ status: "ended", source: "ebay", ebay_listing_id: "5" })), false);
   assert.strictEqual(canBringBack(item({ status: "ended", ebay_listing_id: "5" })), false);
   assert.strictEqual(canBringBack(item()), false);
+});
+
+const { parseCost, profitPerUnit, photoChanges, MAX_PHOTOS } = require("../lib/stockList");
+
+test("what Josh paid: blank is not recorded, numbers round to the cent, bad values are refused", () => {
+  assert.deepStrictEqual(parseCost(""), { ok: true, cost: null });
+  assert.deepStrictEqual(parseCost(undefined), { ok: true, cost: null });
+  assert.deepStrictEqual(parseCost("3.456"), { ok: true, cost: 3.46 });
+  assert.deepStrictEqual(parseCost(0), { ok: true, cost: 0 });
+  assert.strictEqual(parseCost("-1").ok, false);
+  assert.strictEqual(parseCost("abc").ok, false);
+});
+
+test("a new item keeps what Josh paid and its description", () => {
+  const out = newItemRow({ title: "Funko Pop", cost: "4.50", price: "20", description: "  boxed  " }, { tenantId: "t1", now: 1 });
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.row.cost, 4.5);
+  assert.strictEqual(out.row.description, "boxed");
+  assert.strictEqual(out.row.image_urls, null);
+  assert.strictEqual(newItemRow({ title: "x", cost: "-2" }, { tenantId: "t1" }).ok, false);
+});
+
+test("profit per unit needs both a price and what was paid", () => {
+  assert.strictEqual(profitPerUnit({ price: 20, cost: 4.5 }), 15.5);
+  assert.strictEqual(profitPerUnit({ price: 3, cost: 5 }), -2);
+  assert.strictEqual(profitPerUnit({ price: 20, cost: null }), null);
+  assert.strictEqual(profitPerUnit({ price: 0, cost: 2 }), null);
+});
+
+test("editing can change what was paid and the description, without un-approving", () => {
+  const approved = item({ approved_at: "2026-11-12T10:00:00Z", cost: 1 });
+  const out = editableFields(approved, { cost: "2.5", description: "new words" });
+  assert.deepStrictEqual(out, { ok: true, changes: { cost: 2.5, description: "new words" } });
+  assert.strictEqual(editableFields(approved, { cost: "x" }).ok, false);
+});
+
+test("photos: the first is the main one, more are added after it, replace swaps only the main", () => {
+  const none = item({ image_url: null, image_urls: null });
+  assert.deepStrictEqual(photoChanges(none, "u1").changes, { image_url: "u1", image_urls: ["u1"] });
+  const one = item({ image_url: "u1", image_urls: null });
+  assert.deepStrictEqual(photoChanges(one, "u2").changes, { image_url: "u1", image_urls: ["u1", "u2"] });
+  const two = item({ image_url: "u1", image_urls: ["u1", "u2"] });
+  assert.deepStrictEqual(photoChanges(two, "u9", { replace: true }).changes, { image_url: "u9", image_urls: ["u9", "u2"] });
+  const full = item({ image_url: "a", image_urls: Array.from({ length: MAX_PHOTOS }, (_, i) => `u${i}`) });
+  assert.strictEqual(photoChanges(full, "x").ok, false);
+});
+
+const { pickSold } = require("../lib/firecrawlLookup");
+
+test("sold prices: keeps real numbers and safe links, drops empty or broken replies", () => {
+  const out = pickSold({ low: 2.391, median: 41.02, high: 113.67, count: 4, sourceUrls: ["https://a.b/x", "javascript:alert(1)"] });
+  assert.deepStrictEqual(out, { low: 2.39, median: 41.02, high: 113.67, count: 4, sourceUrls: ["https://a.b/x"] });
+  assert.strictEqual(pickSold({ low: null, median: null, high: null, count: 0 }), null);
+  assert.strictEqual(pickSold({ low: 1, median: "x", high: 3, count: 2 }), null);
+  assert.strictEqual(pickSold(null), null);
+});
+
+const { summarizeEbayListings, shortQuery } = require("../lib/itemPriceSearch");
+
+test("eBay asking prices: fixed-price US listings only, middle price, clean eBay links", () => {
+  const out = summarizeEbayListings({ itemSummaries: [
+    { price: { value: "3.00", currency: "USD" }, buyingOptions: ["FIXED_PRICE"], itemWebUrl: "https://www.ebay.com/itm/1?x=y" },
+    { price: { value: "1.00", currency: "USD" }, buyingOptions: ["FIXED_PRICE", "BEST_OFFER"], itemWebUrl: "https://www.ebay.com/itm/2" },
+    { price: { value: "50", currency: "USD" }, buyingOptions: ["AUCTION"] },
+    { price: { value: "9", currency: "GBP" }, buyingOptions: ["FIXED_PRICE"] },
+  ] });
+  assert.deepStrictEqual(out, { low: 1, median: 2, high: 3, count: 2, sourceUrls: ["https://www.ebay.com/itm/1", "https://www.ebay.com/itm/2"] });
+  assert.strictEqual(summarizeEbayListings({ itemSummaries: [] }), null);
+  assert.strictEqual(summarizeEbayListings(null), null);
+});
+
+test("search words: long AI titles are cut to the first few words", () => {
+  assert.strictEqual(shortQuery("Pokémon TCG Oddish 001/196 Lost Origin Common Grass Basic Card 2022"), "Pokémon TCG Oddish 001/196 Lost Origin Common");
+  assert.strictEqual(shortQuery(""), "");
+});
+
+const { readGrounded } = require("../lib/itemPriceSearch");
+
+test("Google (through Gemini): keeps the summary and https sources, drops replies with no sources", () => {
+  const reply = { candidates: [{ content: { parts: [{ text: " Oddish card, about $0.30. " }] }, groundingMetadata: { groundingChunks: [{ web: { title: "a.com", uri: "https://x.y/1" } }, { web: { title: "bad", uri: "javascript:1" } }] } }] };
+  assert.deepStrictEqual(readGrounded(reply), { summary: "Oddish card, about $0.30.", sources: [{ title: "a.com", url: "https://x.y/1" }] });
+  assert.strictEqual(readGrounded({ candidates: [{ content: { parts: [{ text: "no sources" }] } }] }), null);
+  assert.strictEqual(readGrounded(null), null);
 });

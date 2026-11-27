@@ -8,7 +8,8 @@ export const VideoProjectTypeSchema = z.enum([
   "SHORT_REEL",
   "MINI_FILM",
   "SERVICE_COMMERCIAL",
-  "BEFORE_AFTER"
+  "BEFORE_AFTER",
+  "CARD_SHOWCASE"
 ]);
 export type VideoProjectType = z.infer<typeof VideoProjectTypeSchema>;
 

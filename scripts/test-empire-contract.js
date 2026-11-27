@@ -76,8 +76,14 @@ test("platforms: credentials present or not, names only, no probing", () => {
 });
 
 test("platform env names match the real connectors", () => {
-  const src = fs.readFileSync(path.join(__dirname, "..", "lib", "channels", "apiConnectors.js"), "utf8");
-  for (const names of Object.values(c.PLATFORM_ENV)) assert.ok(src.includes(`static ENV = ${JSON.stringify(names).replace(/,/g, ", ")}`), names.join(","));
+  // Connectors live in lib/channels/apiConnectors.js or their own file next to it.
+  const dir = path.join(__dirname, "..", "lib", "channels");
+  const src = fs.readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => fs.readFileSync(path.join(dir, f), "utf8")).join("\n");
+  // A connector may need more names to list than to connect (static LISTING_ENV).
+  for (const names of Object.values(c.PLATFORM_ENV)) {
+    const list = JSON.stringify(names).replace(/,/g, ", ");
+    assert.ok(src.includes(`static ENV = ${list}`) || src.includes(`static LISTING_ENV = ${list}`), names.join(","));
+  }
 });
 
 test("stock add: dryRun checks only and saves nothing", async () => {

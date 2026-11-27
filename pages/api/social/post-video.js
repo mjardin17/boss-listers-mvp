@@ -1,8 +1,10 @@
 // pages/api/social/post-video.js
 // Owner session only: it uses the shared Instagram and Facebook tokens.
 //   GET  → the finished commercials on this computer and the platforms that are wired.
-//   POST → send one video to Instagram (as a Reel) and/or the Facebook Page.
-//          body: { platforms: ["instagram","facebook"], commercial | videoUrl, caption, confirm }
+//   POST → send one video to Instagram (as a Reel), the Facebook Page and/or TikTok.
+//          body: { platforms: ["instagram","facebook","tiktok"], commercial | videoUrl, caption, confirm,
+//                  tiktok: { privacyLevel, allowComment, allowDuet, allowStitch, discloseContent, yourBrand, brandedContent, aiGenerated } }
+//          TikTok posts with the owner's own connected TikTok account (Connect TikTok on /social).
 // Preview is the default and sends nothing. A live post needs confirm: "PUBLISH_LIVE";
 // only then is a commercial file copied to public storage and posted.
 // The reply always says, per platform, whether it was really posted.
@@ -12,6 +14,21 @@ const { requireOwnerSession } = require("../../../lib/requireSession");
 const { postVideoByUrl, VIDEO_URL_PLATFORMS, PUBLISH_CONFIRM } = require("../../../lib/socialMediaPosters");
 const { listCommercials, resolveVideoAddress } = require("../../../lib/commercialFiles");
 const { uploadPublicImage } = require("../../../lib/supabaseStorage");
+const { getTikTokAccessToken } = require("../../../lib/tiktokAccount");
+
+const TIKTOK_SETTING_KEYS = ["mode", "privacyLevel", "allowComment", "allowDuet", "allowStitch", "discloseContent", "yourBrand", "brandedContent", "aiGenerated"];
+
+/** Keeps only the known TikTok settings, with the right types. */
+function readTikTokSettings(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const key of TIKTOK_SETTING_KEYS) {
+    if (key === "privacyLevel") { if (typeof raw.privacyLevel === "string") out.privacyLevel = raw.privacyLevel; }
+    else if (key === "mode") { if (raw.mode === "draft") out.mode = "draft"; }
+    else if (raw[key] === true) out[key] = true;
+  }
+  return out;
+}
 
 const MAX_CAPTION_INPUT = 70000;
 
@@ -32,7 +49,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, platforms: VIDEO_URL_PLATFORMS, confirmPhrase: PUBLISH_CONFIRM, commercials: listCommercials() });
   }
 
-  const { platforms, videoUrl, commercial, caption = "", confirm } = req.body || {};
+  const { platforms, videoUrl, commercial, caption = "", confirm, tiktok } = req.body || {};
   if (!Array.isArray(platforms) || platforms.length === 0 || platforms.length > VIDEO_URL_PLATFORMS.length) {
     return badRequest(res, `Choose one or more of: ${VIDEO_URL_PLATFORMS.join(", ")}`);
   }
@@ -48,9 +65,13 @@ export default async function handler(req, res) {
     const video = await resolveVideoAddress({ videoUrl, commercial }, { live, upload: uploadPublicImage });
     if (!video.ok) return badRequest(res, video.error);
 
+    const tiktokAccessToken = chosen.includes("tiktok") ? await getTikTokAccessToken(session.userId) : null;
+    const tiktokSettings = readTikTokSettings(tiktok);
     const results = {};
     for (const platform of chosen) {
-      results[platform] = await postVideoByUrl(platform, { videoUrl: video.videoUrl, caption }, { live, confirm });
+      results[platform] = platform === "tiktok"
+        ? await postVideoByUrl("tiktok", { videoUrl: video.videoUrl, caption, tiktok: tiktokSettings }, { live, confirm, tiktokAccessToken })
+        : await postVideoByUrl(platform, { videoUrl: video.videoUrl, caption }, { live, confirm });
     }
     const posted = Object.values(results).filter((r) => r.success).length;
     return res.status(200).json({

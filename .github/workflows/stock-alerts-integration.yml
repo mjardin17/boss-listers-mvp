@@ -1,0 +1,45 @@
+name: Syncr stock-alert integration checks
+
+on:
+  pull_request:
+    paths:
+      - "components/StockAlertsPanel.js"
+      - "lib/stockAlerts.js"
+      - "pages/api/stock-alerts.js"
+      - "pages/api/stock-alert-settings.js"
+      - "pages/stock.js"
+      - "supabase/migrations/0028_stock_alerts.sql"
+      - "scripts/test-stock-alerts.js"
+      - "package.json"
+      - ".github/workflows/stock-alerts-integration.yml"
+  push:
+    branches:
+      - feat/syncr-stock-alerts-integration
+
+permissions:
+  contents: read
+
+jobs:
+  stock-alerts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      SUPABASE_URL: "https://build-check.invalid"
+      SUPABASE_ANON_KEY: "sb_publishable_build_check_only"
+      SUPABASE_SERVICE_ROLE_KEY: "service_role_build_check_only"
+      PLATFORM_OWNER_TENANT_ID: "00000000-0000-0000-0000-000000000001"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.16.0"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run stock alert unit tests
+        run: node --test scripts/test-stock-alerts.js
+      - name: Run repository tests
+        run: npm test
+      - name: Build Next.js application
+        run: npm run build
